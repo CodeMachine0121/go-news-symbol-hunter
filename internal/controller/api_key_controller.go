@@ -15,6 +15,18 @@ const (
 	AuthorizedApiKeyIDContextKey = "authorizedApiKeyId"
 )
 
+var apiKeyErrorResponses = []struct {
+	err    error
+	status int
+	code   string
+}{
+	{err: service.ErrApiKeyNameRequired, status: http.StatusBadRequest, code: "api_key_name_required"},
+	{err: service.ErrApiKeyNameTooLong, status: http.StatusBadRequest, code: "api_key_name_too_long"},
+	{err: service.ErrApiKeyMissing, status: http.StatusUnauthorized, code: "api_key_missing"},
+	{err: service.ErrApiKeyInvalid, status: http.StatusUnauthorized, code: "api_key_invalid"},
+	{err: service.ErrApiKeyInactive, status: http.StatusForbidden, code: "api_key_inactive"},
+}
+
 type IssueApiKeyRequest struct {
 	Name string `json:"name"`
 }
@@ -72,18 +84,11 @@ func (apiKeyController *ApiKeyController) RequireActiveApiKey() gin.HandlerFunc 
 }
 
 func (apiKeyController *ApiKeyController) respondError(context *gin.Context, err error) {
-	switch {
-	case errors.Is(err, service.ErrApiKeyNameRequired):
-		context.JSON(http.StatusBadRequest, ErrorResponseBody{Error: ErrorDetail{Code: "api_key_name_required", Message: service.ErrApiKeyNameRequired.Error()}})
-	case errors.Is(err, service.ErrApiKeyNameTooLong):
-		context.JSON(http.StatusBadRequest, ErrorResponseBody{Error: ErrorDetail{Code: "api_key_name_too_long", Message: service.ErrApiKeyNameTooLong.Error()}})
-	case errors.Is(err, service.ErrApiKeyMissing):
-		context.JSON(http.StatusUnauthorized, ErrorResponseBody{Error: ErrorDetail{Code: "api_key_missing", Message: service.ErrApiKeyMissing.Error()}})
-	case errors.Is(err, service.ErrApiKeyInvalid):
-		context.JSON(http.StatusUnauthorized, ErrorResponseBody{Error: ErrorDetail{Code: "api_key_invalid", Message: service.ErrApiKeyInvalid.Error()}})
-	case errors.Is(err, service.ErrApiKeyInactive):
-		context.JSON(http.StatusForbidden, ErrorResponseBody{Error: ErrorDetail{Code: "api_key_inactive", Message: service.ErrApiKeyInactive.Error()}})
-	default:
-		context.JSON(http.StatusServiceUnavailable, ErrorResponseBody{Error: ErrorDetail{Code: "service_unavailable", Message: "服務暫時無法使用"}})
+	for _, apiKeyErrorResponse := range apiKeyErrorResponses {
+		if errors.Is(err, apiKeyErrorResponse.err) {
+			context.JSON(apiKeyErrorResponse.status, ErrorResponseBody{Error: ErrorDetail{Code: apiKeyErrorResponse.code, Message: apiKeyErrorResponse.err.Error()}})
+			return
+		}
 	}
+	context.JSON(http.StatusServiceUnavailable, ErrorResponseBody{Error: ErrorDetail{Code: "service_unavailable", Message: "服務暫時無法使用"}})
 }
