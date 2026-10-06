@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	"github.com/gin-gonic/gin"
@@ -17,8 +18,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
+	controllers := buildControllers(database, serverConfig)
+	if err := controllers.symbolAnalysisApplication.FailInterruptedAnalysisEvents(context.Background()); err != nil {
+		log.Fatalf("fail interrupted analysis events: %v", err)
+	}
 	router := gin.Default()
-	registerRoutes(router, buildControllers(database))
+	registerRoutes(router, controllers)
 	if err := router.Run(":" + serverConfig.ServerPort); err != nil {
 		log.Fatalf("run server: %v", err)
 	}
