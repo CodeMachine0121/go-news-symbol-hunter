@@ -58,7 +58,6 @@ func (apiKeyDomain ApiKeyDomain) DescribeStatus() (dto.ApiKeyStatusDto, error) {
 
 func (apiKeyDomain ApiKeyDomain) ToIssuedDto(secret vo.ApiKeySecretVo) dto.IssuedApiKeyDto {
 	return dto.IssuedApiKeyDto{
-		ID:     apiKeyDomain.apiKey.ID,
 		Name:   apiKeyDomain.apiKey.Name,
 		ApiKey: secret.Plaintext,
 		Status: apiKeyDomain.status(),

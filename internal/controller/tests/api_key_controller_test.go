@@ -78,6 +78,7 @@ func TestIssueApiKey_ReturnsTheFullKeyOnceAsInactive(t *testing.T) {
 	assert.JSONEq(t, `"我的研究腳本"`, string(issuedApiKey["name"]))
 	assert.JSONEq(t, `"inactive"`, string(issuedApiKey["status"]))
 	assert.Regexp(t, `^"snh_`, string(issuedApiKey["apiKey"]))
+	assert.NotContains(t, issuedApiKey, "id")
 }
 
 func TestIssueApiKey_Rejections(t *testing.T) {
