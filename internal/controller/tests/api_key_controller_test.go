@@ -97,6 +97,7 @@ func TestIssueApiKey_Rejections(t *testing.T) {
 		{name: "name too long", body: `{"name":"` + strings.Repeat("研", 101) + `"}`, expectedStatus: http.StatusBadRequest, expectedCode: "api_key_name_too_long", expectedMessage: "API key 名稱不可超過 100 個字"},
 		{name: "empty body", body: ``, expectedStatus: http.StatusBadRequest, expectedCode: "api_key_name_required", expectedMessage: "API key 名稱為必填"},
 		{name: "missing name", body: `{}`, expectedStatus: http.StatusBadRequest, expectedCode: "api_key_name_required", expectedMessage: "API key 名稱為必填"},
+		{name: "control characters in name", body: `{"name":"研\u0000究"}`, expectedStatus: http.StatusBadRequest, expectedCode: "api_key_name_invalid_characters", expectedMessage: "API key 名稱不可包含控制字元"},
 		{name: "blank name", body: `{"name":"   "}`, expectedStatus: http.StatusBadRequest, expectedCode: "api_key_name_required", expectedMessage: "API key 名稱為必填"},
 		{name: "malformed body", body: `{"name":`, expectedStatus: http.StatusBadRequest, expectedCode: "invalid_request_body", expectedMessage: "請求內容格式錯誤"},
 		{name: "storage unavailable", body: `{"name":"研究"}`, givenStorage: func(apiKeyRepository *mocks.MockIApiKeyRepository) {

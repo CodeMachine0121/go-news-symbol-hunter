@@ -2,15 +2,18 @@ package vo
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
-const apiKeyNameMaximumLength = 100
+const ApiKeyNameMaximumLength = 100
 
 var (
-	ErrApiKeyNameRequired = errors.New("API key 名稱為必填")
-	ErrApiKeyNameTooLong  = errors.New("API key 名稱不可超過 100 個字")
+	ErrApiKeyNameRequired          = errors.New("API key 名稱為必填")
+	ErrApiKeyNameTooLong           = fmt.Errorf("API key 名稱不可超過 %d 個字", ApiKeyNameMaximumLength)
+	ErrApiKeyNameInvalidCharacters = errors.New("API key 名稱不可包含控制字元")
 )
 
 type ApiKeyNameVo struct {
@@ -22,8 +25,11 @@ func NewApiKeyNameVo(rawName string) (ApiKeyNameVo, error) {
 	if trimmedName == "" {
 		return ApiKeyNameVo{}, ErrApiKeyNameRequired
 	}
-	if utf8.RuneCountInString(trimmedName) > apiKeyNameMaximumLength {
+	if utf8.RuneCountInString(trimmedName) > ApiKeyNameMaximumLength {
 		return ApiKeyNameVo{}, ErrApiKeyNameTooLong
+	}
+	if strings.ContainsFunc(trimmedName, unicode.IsControl) {
+		return ApiKeyNameVo{}, ErrApiKeyNameInvalidCharacters
 	}
 	return ApiKeyNameVo{Value: trimmedName}, nil
 }

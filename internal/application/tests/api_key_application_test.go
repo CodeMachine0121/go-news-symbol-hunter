@@ -99,6 +99,7 @@ func TestIssueApiKey_Rejections(t *testing.T) {
 	}{
 		{name: "missing name", apiKeyName: "", givenStorage: func(*mocks.MockIApiKeyRepository) {}, expectedError: service.ErrApiKeyNameRequired},
 		{name: "name too long", apiKeyName: strings.Repeat("研", 101), givenStorage: func(*mocks.MockIApiKeyRepository) {}, expectedError: service.ErrApiKeyNameTooLong},
+		{name: "name with control characters", apiKeyName: "研\x00究", givenStorage: func(*mocks.MockIApiKeyRepository) {}, expectedError: service.ErrApiKeyNameInvalidCharacters},
 		{name: "storage unavailable", apiKeyName: "研究", givenStorage: func(apiKeyRepository *mocks.MockIApiKeyRepository) {
 			apiKeyRepository.EXPECT().Create(mock.Anything).Return(errDatabaseDown)
 		}, expectedError: service.ErrApiKeyStorageUnavailable},

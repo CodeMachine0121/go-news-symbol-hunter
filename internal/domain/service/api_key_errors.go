@@ -8,10 +8,11 @@ import (
 )
 
 var (
-	ErrApiKeyNameRequired       = vo.ErrApiKeyNameRequired
-	ErrApiKeyNameTooLong        = vo.ErrApiKeyNameTooLong
-	ErrApiKeyMissing            = vo.ErrApiKeyMissing
-	ErrApiKeyInvalid            = domains.ErrApiKeyInvalid
-	ErrApiKeyInactive           = domains.ErrApiKeyInactive
-	ErrApiKeyStorageUnavailable = errors.New("API key storage unavailable")
+	ErrApiKeyNameRequired          = vo.ErrApiKeyNameRequired
+	ErrApiKeyNameTooLong           = vo.ErrApiKeyNameTooLong
+	ErrApiKeyNameInvalidCharacters = vo.ErrApiKeyNameInvalidCharacters
+	ErrApiKeyMissing               = vo.ErrApiKeyMissing
+	ErrApiKeyInvalid               = domains.ErrApiKeyInvalid
+	ErrApiKeyInactive              = domains.ErrApiKeyInactive
+	ErrApiKeyStorageUnavailable    = errors.New("API key storage unavailable")
 )

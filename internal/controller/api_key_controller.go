@@ -23,6 +23,7 @@ var apiKeyErrorResponses = []struct {
 }{
 	{err: service.ErrApiKeyNameRequired, status: http.StatusBadRequest, code: "api_key_name_required"},
 	{err: service.ErrApiKeyNameTooLong, status: http.StatusBadRequest, code: "api_key_name_too_long"},
+	{err: service.ErrApiKeyNameInvalidCharacters, status: http.StatusBadRequest, code: "api_key_name_invalid_characters"},
 	{err: service.ErrApiKeyMissing, status: http.StatusUnauthorized, code: "api_key_missing"},
 	{err: service.ErrApiKeyInvalid, status: http.StatusUnauthorized, code: "api_key_invalid"},
 	{err: service.ErrApiKeyInactive, status: http.StatusForbidden, code: "api_key_inactive"},
