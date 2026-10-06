@@ -135,7 +135,7 @@ flowchart TD
 
 | PRD Scenario | Fulfilled by |
 | :--- | :--- |
-| US-01 發起成功 / 參數錯誤 / 找不到標的 / 停用 key | `SymbolAnalysisService.StartSymbolAnalysis` + `SymbolResolutionService` + `RequireActiveApiKey` + controller |
+| US-01 發起成功 / 參數錯誤 / 找不到標的 / 停用 key | `SymbolAnalysisService.StartSymbolAnalysis` + `SymbolResolutionService.ResolveSymbol(ctx, rawSymbol, rawCategory)` + `RequireActiveApiKey` + controller |
 | US-02 五個重用 scenarios | `AnalysisEventDomain.IsReusableAt` + `IAnalysisEventRepository.FindLatestReusable` + running 唯一索引 |
 | US-03 五個查詢 scenarios | `SymbolAnalysisService.GetAnalysisEvent` + `AnalysisEventDomain.ToDto` + controller 404 |
 | US-04 八個正規化 scenarios | `AnalysisConclusionDomain` + `AnalysisEvidenceDomain` |
