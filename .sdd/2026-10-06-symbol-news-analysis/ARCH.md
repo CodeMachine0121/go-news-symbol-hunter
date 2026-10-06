@@ -39,7 +39,7 @@
 | `AnalysisConclusionDomain` | Domain Model | 建構子正規化 AI 原始結論：評等 / 時間範圍非法 → 安全預設、信心夾到 0–100、關鍵事件只留佐證中的連結（最多 5）、風險因子去空白（最多 5）、佐證為空 → 中性 + 0、理由空白 → `ErrAnalysisIncomplete`；`ToResultEntity(...)` | `AnalysisEvidenceDomain` | US-04 全部、US-05 未提供理由 |
 | `AnalystRequestVo` | VO | 給 AI 的分析題目：標的、市場類別、搜尋字（公司簡稱 / 幣種名稱） | — | — |
 | `AnalystExchangeVo` / `AnalystToolResultVo` | VO | 已發生的一輪：AI 回覆（Proxy 產生、domain 不解讀的不透明字串）+ domain 回給 AI 的工具結果 | — | 工具迴圈 |
-| `AnalystTurnVo` / `AnalystNewsSearchVo` / `RawAnalysisConclusionVo` / `AnalystUsageVo` | VO | AI 這一輪的回應：要搜尋的標的清單，或原始結論，或拒絕；以及這一輪的用量 | — | 工具迴圈 |
+| `AnalystTurnVo` / `AnalystNewsSearchVo` / `RawAnalysisConclusionVo` / `AnalystUsageVo` | VO | AI 這一輪的回應：要搜尋的標的清單，或原始結論，或拒絕；這一輪的用量（輸入含快取寫入與讀取）與實際作答的模型 | — | 工具迴圈 |
 | `IAnalystProxy` | Interface | `Respond(ctx, request, exchanges) (AnalystTurnVo, error)`：給定題目與已發生的所有輪次，回傳 AI 的下一輪；AI 服務錯誤 → error | — | 全部 |
 | `IAnalysisEventRepository` | Interface | `Create`（同標的已有分析中 → `ErrAnalysisAlreadyRunning`）、`FindByID`、`FindLatestReusable(symbol, category)`、`Update`、`FailAllRunning(reason, finishedAt)` | — | US-01、02、03、05 |
 | `IAnalysisResultRepository` | Interface | `Create`、`FindByAnalysisEventID` | — | US-03、04 |
@@ -65,6 +65,10 @@ for round in 1..5:
 ```
 
 AI 回覆沒有工具呼叫也沒有結論（純文字結束）→ 視為 AI 未提供完整分析。
+
+### 啟動
+
+組裝根的 `prepareRouter` 先呼叫 `FailInterruptedAnalysisEvents` 再註冊路由；失敗則不啟動服務。`main` 只負責讀設定、開資料庫、呼叫 `prepareRouter` 與啟動。
 
 ### API
 
