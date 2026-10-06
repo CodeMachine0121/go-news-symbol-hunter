@@ -12,3 +12,6 @@ packages:
       IApiKeyRepository: {}
       IClockProxy: {}
       IRandomProxy: {}
+      INewsProxy: {}
+      IListedCompanyProxy: {}
+      ICryptocurrencyProxy: {}
