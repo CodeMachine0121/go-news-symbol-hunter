@@ -9,8 +9,8 @@ import (
 
 const (
 	defaultServerPort                   = "8080"
-	defaultAiAnalysisModel              = "claude-opus-5-5"
-	defaultAiAnalysisEffort             = "high"
+	defaultAiAnalysisModel              = "claude-sonnet-5-5"
+	defaultAiAnalysisEffort             = "medium"
 	defaultAiAnalysisMaximumConcurrency = 4
 )
 
