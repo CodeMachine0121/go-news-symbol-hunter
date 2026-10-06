@@ -1,6 +1,8 @@
 package vo_test
 
 import (
+	"encoding/base64"
+	"strings"
 	"testing"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
@@ -14,6 +16,9 @@ func TestGenerateApiKeySecretVo_ProducesDistinctPrefixedSecrets(t *testing.T) {
 
 	assert.Regexp(t, `^snh_[A-Za-z0-9_-]{43}$`, firstSecret.Plaintext)
 	assert.NotEqual(t, firstSecret.Plaintext, secondSecret.Plaintext)
+	randomPart, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(firstSecret.Plaintext, "snh_"))
+	require.NoError(t, err)
+	assert.Len(t, randomPart, 32)
 	presentedSecret, err := vo.NewApiKeySecretVo(firstSecret.Plaintext)
 	require.NoError(t, err)
 	assert.Equal(t, presentedSecret.Hash, firstSecret.Hash)
