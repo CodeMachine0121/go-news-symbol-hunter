@@ -119,27 +119,55 @@ func TestPrepareRouter_FailsInterruptedAnalysesBeforeServing(t *testing.T) {
 }
 
 func TestBuildPriceProviderCatalog_AssignsAPriceSourcePerMarket(t *testing.T) {
-	requestedPaths := make(chan string, 3)
+	requestedPaths := make(chan string, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requestedPaths <- request.URL.Path
 		writer.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
 	priceProviderCatalog := buildPriceProviderCatalog(buildExternalSourceProxies(httpfetch.NewHttpBodyReader(server.Client()), system.NewSystemClockProxy(), ExternalSourceUrls{
-		TwseDailyClosing: server.URL + "/twse", YahooFinanceChart: server.URL + "/yahoo", BinanceTickerPrice: server.URL + "/binance",
+		TwseDailyClosing: server.URL + "/twse", TpexDailyClosing: server.URL + "/tpex", YahooFinanceChart: server.URL + "/yahoo", BinanceTickerPrice: server.URL + "/binance",
 	}))
 
-	_, twStockError := priceProviderCatalog.TwStock.FetchPrice(context.Background(), "2330")
+	_, twStockError := priceProviderCatalog.TwStock[0].FetchPrice(context.Background(), "2330")
 	twStockPath := <-requestedPaths
-	_, usStockError := priceProviderCatalog.UsStock.FetchPrice(context.Background(), "AAPL")
+	_, otcError := priceProviderCatalog.TwStock[1].FetchPrice(context.Background(), "6182")
+	otcPath := <-requestedPaths
+	_, usStockError := priceProviderCatalog.UsStock[0].FetchPrice(context.Background(), "AAPL")
 	usStockPath := <-requestedPaths
-	_, cryptoError := priceProviderCatalog.Crypto.FetchPrice(context.Background(), "BTC")
+	_, cryptoError := priceProviderCatalog.Crypto[0].FetchPrice(context.Background(), "BTC")
 	cryptoPath := <-requestedPaths
 
 	assert.Error(t, twStockError)
 	assert.Error(t, usStockError)
 	assert.Error(t, cryptoError)
+	assert.Error(t, otcError)
 	assert.Equal(t, "/twse", twStockPath)
+	assert.Equal(t, "/tpex", otcPath)
+	assert.Len(t, priceProviderCatalog.TwStock, 2)
 	assert.Equal(t, "/yahoo/AAPL", usStockPath)
 	assert.Equal(t, "/binance", cryptoPath)
+}
+
+func TestBuildSymbolDirectoryCatalog_AsksTwseBeforeTpex(t *testing.T) {
+	requestedPaths := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestedPaths <- request.URL.Path
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	symbolDirectoryCatalog := buildSymbolDirectoryCatalog(buildExternalSourceProxies(httpfetch.NewHttpBodyReader(server.Client()), system.NewSystemClockProxy(), ExternalSourceUrls{
+		TwseListedCompanies: server.URL + "/twse", TpexDailyClosing: server.URL + "/tpex",
+	}), nil)
+
+	require.Len(t, symbolDirectoryCatalog.TwStock, 2)
+	_, _, twseError := symbolDirectoryCatalog.TwStock[0].FindCompanyShortName(context.Background(), "6182")
+	twsePath := <-requestedPaths
+	_, _, tpexError := symbolDirectoryCatalog.TwStock[1].FindCompanyShortName(context.Background(), "6182")
+	tpexPath := <-requestedPaths
+
+	assert.Error(t, twseError)
+	assert.Error(t, tpexError)
+	assert.Equal(t, "/twse", twsePath)
+	assert.Equal(t, "/tpex", tpexPath)
 }

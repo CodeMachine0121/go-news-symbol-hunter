@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"errors"
+	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"net/http"
 	"testing"
 	"time"
@@ -44,7 +45,7 @@ func createNewsRouter(t *testing.T) newsRouterFixture {
 	fixture.googleNewsProxy.EXPECT().ProviderName().Return("Google 新聞").Maybe()
 	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(fixture.apiKeyRepository, clockProxy, mocks.NewMockIRandomProxy(t))))
 	newsSearchService := service.NewNewsSearchService(
-		service.NewSymbolResolutionService(fixture.listedCompanyProxy, fixture.cryptocurrencyProxy),
+		service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{fixture.listedCompanyProxy}, Crypto: fixture.cryptocurrencyProxy}),
 		clockProxy,
 		dto.NewsProviderCatalogDto{TwStock: []dto.NewsProviderDto{{NewsProxy: fixture.cnyesNewsProxy}, {NewsProxy: fixture.googleNewsProxy}}},
 	)

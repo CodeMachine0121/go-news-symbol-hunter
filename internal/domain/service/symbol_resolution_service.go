@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
@@ -10,12 +11,12 @@ import (
 )
 
 type SymbolResolutionService struct {
-	listedCompanyProxy  interfaces.IListedCompanyProxy
-	cryptocurrencyProxy interfaces.ICryptocurrencyProxy
+	listedCompanyProxies []interfaces.IListedCompanyProxy
+	cryptocurrencyProxy  interfaces.ICryptocurrencyProxy
 }
 
-func NewSymbolResolutionService(listedCompanyProxy interfaces.IListedCompanyProxy, cryptocurrencyProxy interfaces.ICryptocurrencyProxy) *SymbolResolutionService {
-	return &SymbolResolutionService{listedCompanyProxy: listedCompanyProxy, cryptocurrencyProxy: cryptocurrencyProxy}
+func NewSymbolResolutionService(symbolDirectoryCatalog dto.SymbolDirectoryCatalogDto) *SymbolResolutionService {
+	return &SymbolResolutionService{listedCompanyProxies: symbolDirectoryCatalog.TwStock, cryptocurrencyProxy: symbolDirectoryCatalog.Crypto}
 }
 
 func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx context.Context, resolveSymbolDto dto.ResolveSymbolDto) (vo.ResolvedSymbolVo, error) {
@@ -29,14 +30,21 @@ func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx contex
 	}
 	switch category.Value {
 	case vo.MarketCategoryTwStock:
-		companyShortName, found, err := symbolResolutionService.listedCompanyProxy.FindCompanyShortName(ctx, symbol.Value)
-		if err != nil {
-			return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, err)
+		directoryErrors := []error{}
+		for _, listedCompanyProxy := range symbolResolutionService.listedCompanyProxies {
+			companyShortName, found, err := listedCompanyProxy.FindCompanyShortName(ctx, symbol.Value)
+			if found {
+				return vo.NewTwStockResolvedSymbolVo(symbol, companyShortName), nil
+			}
+			if err != nil {
+				directoryErrors = append(directoryErrors, err)
+			}
 		}
-		if !found {
-			return vo.ResolvedSymbolVo{}, ErrSymbolNotFound
+		// a directory we could not read might have listed the stock, so absence is not proven
+		if len(directoryErrors) > 0 {
+			return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, errors.Join(directoryErrors...))
 		}
-		return vo.NewTwStockResolvedSymbolVo(symbol, companyShortName), nil
+		return vo.ResolvedSymbolVo{}, ErrSymbolNotFound
 	case vo.MarketCategoryCrypto:
 		coinName, found, err := symbolResolutionService.cryptocurrencyProxy.FindCoinName(ctx, symbol.Value)
 		if err != nil {

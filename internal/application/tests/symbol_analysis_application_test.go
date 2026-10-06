@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"testing"
 	"time"
 
@@ -60,10 +61,10 @@ func createSymbolAnalysisFixtureWithCapacity(t *testing.T, maximumConcurrentAnal
 		}).Maybe()
 		return priceProxy
 	}
-	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: newPriceProxy(), UsStock: newPriceProxy(), Crypto: newPriceProxy()})
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: []interfaces.IPriceProxy{newPriceProxy()}, UsStock: []interfaces.IPriceProxy{newPriceProxy()}, Crypto: []interfaces.IPriceProxy{newPriceProxy()}})
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(analysisStartedAt).Maybe()
-	symbolResolutionService := service.NewSymbolResolutionService(fixture.listedCompanyProxy, fixture.cryptocurrencyProxy)
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{fixture.listedCompanyProxy}, Crypto: fixture.cryptocurrencyProxy})
 	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{
 		Crypto:  []dto.NewsProviderDto{{NewsProxy: fixture.cryptoNewsProxy}},
 		UsStock: []dto.NewsProviderDto{{NewsProxy: fixture.usStockNewsProxy}},
@@ -819,7 +820,7 @@ func TestCapturePrice_UsesTheMarketsPriceSource(t *testing.T) {
 		priceProxy.EXPECT().FetchPrice(mock.Anything, mock.Anything).Return(priceQuoteOf(source), nil).Maybe()
 		return priceProxy
 	}
-	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: priceProxyReturning("證交所"), UsStock: priceProxyReturning("Yahoo 財經"), Crypto: priceProxyReturning("Binance")})
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: []interfaces.IPriceProxy{priceProxyReturning("證交所")}, UsStock: []interfaces.IPriceProxy{priceProxyReturning("Yahoo 財經")}, Crypto: []interfaces.IPriceProxy{priceProxyReturning("Binance")}})
 
 	for category, expectedSource := range map[string]string{"twStock": "證交所", "usStock": "Yahoo 財經", "crypto": "Binance"} {
 		priceQuote := priceSnapshotService.CapturePrice(context.Background(), dto.CapturePriceDto{Symbol: "S", Category: category})
@@ -837,7 +838,7 @@ func TestCapturePrice_GivesUpAfterTenSeconds(t *testing.T) {
 		assert.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
 		return vo.PriceQuoteVo{}, context.DeadlineExceeded
 	})
-	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{Crypto: stuckPriceProxy})
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{Crypto: []interfaces.IPriceProxy{stuckPriceProxy}})
 
 	priceQuote := priceSnapshotService.CapturePrice(context.Background(), dto.CapturePriceDto{Symbol: "BTC", Category: "crypto"})
 
@@ -845,7 +846,7 @@ func TestCapturePrice_GivesUpAfterTenSeconds(t *testing.T) {
 }
 
 func TestCapturePrice_UnknownMarketHasNoPrice(t *testing.T) {
-	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: mocks.NewMockIPriceProxy(t), UsStock: mocks.NewMockIPriceProxy(t), Crypto: mocks.NewMockIPriceProxy(t)})
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: []interfaces.IPriceProxy{mocks.NewMockIPriceProxy(t)}, UsStock: []interfaces.IPriceProxy{mocks.NewMockIPriceProxy(t)}, Crypto: []interfaces.IPriceProxy{mocks.NewMockIPriceProxy(t)}})
 
 	assert.Nil(t, priceSnapshotService.CapturePrice(context.Background(), dto.CapturePriceDto{Symbol: "0700", Category: "hk"}))
 }
@@ -857,7 +858,7 @@ func TestCapturePrice_HasItsOwnBudgetEvenNearTheAnalysisDeadline(t *testing.T) {
 		assert.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
 		return vo.NewPriceQuoteVo(decimal.NewFromInt(1), "USDT", analysisStartedAt, "Binance")
 	})
-	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{Crypto: priceProxy})
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{Crypto: []interfaces.IPriceProxy{priceProxy}})
 	almostExpiredContext, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
 	time.Sleep(5 * time.Millisecond)
