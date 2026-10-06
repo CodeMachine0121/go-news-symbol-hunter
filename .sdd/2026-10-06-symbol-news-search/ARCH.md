@@ -37,13 +37,14 @@
 | `SymbolVo` | VO | 建構子去空白、空白 → `ErrSymbolRequired`；加密貨幣與美股轉大寫 | `MarketCategoryVo` | US-02 標的 |
 | `ResolvedSymbolVo` | VO | 標的辨識結果：搜尋字 + 關聯字（加密貨幣為 [幣種名稱, 代號]）；三個市場各一個建構子 | — | US-03 |
 | `NewsVo` | VO | 正規化後的單則新聞：標題、連結、發布時間、新聞來源名稱、摘要 | — | US-04 每則新聞包含完整資訊 |
+| `NewsProviderCatalogDto` | DTO（service 建構參數） | 三個市場各一個 `[]NewsProviderDto` 欄位（`TwStock` / `UsStock` / `Crypto`），取代以字串為 key 的 map，市場名稱打錯會編譯失敗 | — | US-03 |
 | `NewsProviderDto` | DTO（service 建構參數） | 一個新聞來源在某市場的設定：`INewsProxy` + 是否需要依關聯字篩選。放 `dto` 而非 `vo`：它引用介面，而介面套件 import `vo`，放 `vo` 會形成 import cycle | `INewsProxy` | US-03 |
-| `NewsCollectionDomain` | Domain Model | `KeepMentioning(terms)`（不分大小寫比對標題或摘要）、`Merge`、`Curate(now)`（7 天內 → 由新到舊（穩定排序）→ 標題去重保留較新 → 最多 30）、`ToDtos()` | `NewsVo` | US-03 篩選、US-04 全部 |
+| `NewsCollectionDomain` | Domain Model | `KeepMentioning(terms)`（不分大小寫比對標題或摘要；英數關聯字整字比對，中文子字串比對）、`Merge`、`Curate(now)`（7 天內 → 由新到舊（穩定排序）→ 標題去重保留較新 → 最多 30）、`ToDtos()` | `NewsVo` | US-03 篩選、US-04 全部 |
 | `INewsProxy` | Interface | `ProviderName() string`、`FetchNews(searchKeyword string) ([]vo.NewsVo, error)` | — | US-03、US-05 |
 | `IListedCompanyProxy` | Interface | `FindCompanyShortName(stockCode) (shortName, found, error)` | — | US-02 台股、US-03 台股 |
 | `ICryptocurrencyProxy` | Interface | `FindCoinName(symbol) (coinName, found, error)`（同代號取市值排名最前） | — | US-02 加密貨幣、US-03 加密貨幣 |
 | `SymbolResolutionService` | Domain Service | `ResolveSymbol(vo.SymbolVo)`：台股查公司簡稱、加密貨幣查幣種名稱、美股直接使用代號；查無 → `ErrSymbolNotFound`；辨識資料取不到 → `ErrNewsProvidersUnavailable`。獨立成 service 供下一個切片（AI 分析）重用 | `IListedCompanyProxy`、`ICryptocurrencyProxy` | US-02、US-03 |
-| `NewsSearchService` | Domain Service | `SearchSymbolNews(dto.SearchSymbolNewsDto)`：驗證 → `SymbolResolutionService` 辨識 → 以 goroutine 同時呼叫該市場所有新聞來源 → 收集成功結果與失敗來源 → 全失敗 → `ErrNewsProvidersUnavailable` → `NewsCollectionDomain` 整理 → DTO | `SymbolResolutionService`、`INewsProxy`、`IClockProxy` | 全部 |
+| `NewsSearchService` | Domain Service | `SearchSymbolNews(ctx, dto.SearchSymbolNewsDto)`；單一來源 panic 視為該來源失敗：驗證 → `SymbolResolutionService` 辨識 → 以 goroutine 同時呼叫該市場所有新聞來源 → 收集成功結果與失敗來源 → 全失敗 → `ErrNewsProvidersUnavailable` → `NewsCollectionDomain` 整理 → DTO | `SymbolResolutionService`、`INewsProxy`、`IClockProxy` | 全部 |
 | `SearchSymbolNewsDto` / `SymbolNewsDto` / `NewsDto` | DTO | 搜尋輸入；搜尋結果（`symbol`、`category`、`news[]`、`failedNewsProviders[]`） | — | 全部 |
 | `NewsSearchApplication` | Application | 用例入口 | `NewsSearchService` | 全部 |
 | `NewsController` | Controller | `GET /news`（query `symbol`、`category`）；錯誤對映 | `NewsSearchApplication`、`ErrorResponseTable` | 全部 |
@@ -52,10 +53,10 @@
 | `GoogleNewsProxy` | Proxy | Google 新聞 RSS 搜尋（`q={keyword} when:7d`，語系由建構參數決定：繁中 / 英文） | `RssFeedParser` | US-03 |
 | `YahooFinanceNewsProxy` | Proxy | Yahoo 財經個股 RSS | `RssFeedParser` | US-03 美股 |
 | `CoinDeskNewsProxy` / `CointelegraphNewsProxy` | Proxy | 整體 RSS（忽略搜尋字，由 Domain 篩選） | `RssFeedParser` | US-03 加密貨幣 |
-| `TwseListedCompanyProxy` | Proxy | 證交所上市公司開放資料（公司代號 → 公司簡稱），整份清單快取 24 小時 | `IClockProxy` | US-02、US-03 台股 |
-| `CoinGeckoCryptocurrencyProxy` | Proxy | CoinGecko 搜尋，代號完全相符（不分大小寫）中取市值排名最前；結果（含查無）依代號快取 24 小時 | `IClockProxy` | US-02、US-03 加密貨幣 |
-| `RssFeedParser` | Utility（`internal/utilities/`） | RSS 2.0 → `RssItem`（標題、連結、發布時間、純文字描述：去 HTML 標籤、反轉義、收斂空白）；無法解析的發布時間該則略過 | — | Edge cases |
-| `HttpBodyReader` | Utility（`internal/utilities/`） | 帶 User-Agent 的 GET，非 2xx 視為錯誤；所有外部 Proxy 共用 | `http.Client`（逾時 10 秒） | US-05 |
+| `TwseListedCompanyProxy` | Proxy | 證交所上市公司開放資料（公司代號 → 公司簡稱），整份清單快取 24 小時；同時過期的請求只下載一次（singleflight）；清單沒有任何有效公司 → 失敗且不快取 | `IClockProxy` | US-02、US-03 台股 |
+| `CoinGeckoCryptocurrencyProxy` | Proxy | CoinGecko 搜尋，代號完全相符（不分大小寫）中取市值排名最前；結果（含查無）依代號快取 24 小時，最多 1000 筆（滿時先清除過期項目，仍滿則不快取） | `IClockProxy` | US-02、US-03 加密貨幣 |
+| `RssFeedParser` | Utility（`internal/utilities/`） | RSS 2.0 → `RssItem`（標題去掉彙整來源附加的「 - 媒體名」後綴、純文字描述：先去 HTML 標籤再反轉義一次、收斂空白）；根元素須為 `rss`；無法解析的發布時間該則略過 | — | Edge cases |
+| `HttpBodyReader` | Infrastructure（`internal/infrastructure/httpfetch/`） | 帶 request context 與 User-Agent 的 GET；非 2xx、超過 10 MB 視為錯誤；所有外部 Proxy 共用。會連網、持有 client，不屬於 `utilities/` | `http.Client`（逾時 10 秒） | US-05 |
 
 ### 介面細節
 
