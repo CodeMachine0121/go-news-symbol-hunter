@@ -83,6 +83,8 @@ func (claudeAnalystProxy *ClaudeAnalystProxy) Respond(ctx context.Context, reque
 		Betas:        []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 		Fallbacks:    anthropic.BetaFallbacksParamUnion{OfDefault: constant.ValueOf[constant.Default]()},
 		Messages:     messages,
+		// caches the growing conversation so each round only pays full price for its new turn
+		CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 	})
 	if err != nil {
 		return vo.AnalystTurnVo{}, err

@@ -57,6 +57,7 @@ func TestClaudeAnalystProxy_FirstTurnSendsTheConfiguredRequest(t *testing.T) {
 	assert.JSONEq(t, `{"effort":"high"}`, string(captured.body["output_config"]))
 	assert.JSONEq(t, `"default"`, string(captured.body["fallbacks"]))
 	assert.NotContains(t, captured.body, "tool_choice")
+	assert.JSONEq(t, `{"type":"ephemeral"}`, string(captured.body["cache_control"]))
 	var tools []struct {
 		Name   string `json:"name"`
 		Strict bool   `json:"strict"`
