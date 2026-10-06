@@ -37,12 +37,13 @@
 | `SymbolVo` | VO | 建構子去空白、空白 → `ErrSymbolRequired`；加密貨幣與美股轉大寫 | `MarketCategoryVo` | US-02 標的 |
 | `ResolvedSymbolVo` | VO | 標的辨識結果：搜尋字 + 關聯字（加密貨幣為 [幣種名稱, 代號]）；三個市場各一個建構子 | — | US-03 |
 | `NewsVo` | VO | 正規化後的單則新聞：標題、連結、發布時間、新聞來源名稱、摘要 | — | US-04 每則新聞包含完整資訊 |
-| `NewsProviderVo` | VO | 一個新聞來源在某市場的設定：`INewsProxy` + 是否需要依關聯字篩選 | `INewsProxy` | US-03 |
+| `NewsProviderDto` | DTO（service 建構參數） | 一個新聞來源在某市場的設定：`INewsProxy` + 是否需要依關聯字篩選。放 `dto` 而非 `vo`：它引用介面，而介面套件 import `vo`，放 `vo` 會形成 import cycle | `INewsProxy` | US-03 |
 | `NewsCollectionDomain` | Domain Model | `KeepMentioning(terms)`（不分大小寫比對標題或摘要）、`Merge`、`Curate(now)`（7 天內 → 由新到舊（穩定排序）→ 標題去重保留較新 → 最多 30）、`ToDtos()` | `NewsVo` | US-03 篩選、US-04 全部 |
 | `INewsProxy` | Interface | `ProviderName() string`、`FetchNews(searchKeyword string) ([]vo.NewsVo, error)` | — | US-03、US-05 |
 | `IListedCompanyProxy` | Interface | `FindCompanyShortName(stockCode) (shortName, found, error)` | — | US-02 台股、US-03 台股 |
 | `ICryptocurrencyProxy` | Interface | `FindCoinName(symbol) (coinName, found, error)`（同代號取市值排名最前） | — | US-02 加密貨幣、US-03 加密貨幣 |
-| `NewsSearchService` | Domain Service | `SearchSymbolNews(dto.SearchSymbolNewsDto)`：驗證 → 辨識 → 以 goroutine 同時呼叫該市場所有新聞來源 → 收集成功結果與失敗來源 → 全失敗 → `ErrNewsProvidersUnavailable` → `NewsCollectionDomain` 整理 → DTO | 上述介面、`IClockProxy` | 全部 |
+| `SymbolResolutionService` | Domain Service | `ResolveSymbol(vo.SymbolVo)`：台股查公司簡稱、加密貨幣查幣種名稱、美股直接使用代號；查無 → `ErrSymbolNotFound`；辨識資料取不到 → `ErrNewsProvidersUnavailable`。獨立成 service 供下一個切片（AI 分析）重用 | `IListedCompanyProxy`、`ICryptocurrencyProxy` | US-02、US-03 |
+| `NewsSearchService` | Domain Service | `SearchSymbolNews(dto.SearchSymbolNewsDto)`：驗證 → `SymbolResolutionService` 辨識 → 以 goroutine 同時呼叫該市場所有新聞來源 → 收集成功結果與失敗來源 → 全失敗 → `ErrNewsProvidersUnavailable` → `NewsCollectionDomain` 整理 → DTO | `SymbolResolutionService`、`INewsProxy`、`IClockProxy` | 全部 |
 | `SearchSymbolNewsDto` / `SymbolNewsDto` / `NewsDto` | DTO | 搜尋輸入；搜尋結果（`symbol`、`category`、`news[]`、`failedNewsProviders[]`） | — | 全部 |
 | `NewsSearchApplication` | Application | 用例入口 | `NewsSearchService` | 全部 |
 | `NewsController` | Controller | `GET /news`（query `symbol`、`category`）；錯誤對映 | `NewsSearchApplication`、`ErrorResponseTable` | 全部 |
@@ -53,7 +54,8 @@
 | `CoinDeskNewsProxy` / `CointelegraphNewsProxy` | Proxy | 整體 RSS（忽略搜尋字，由 Domain 篩選） | `RssFeedParser` | US-03 加密貨幣 |
 | `TwseListedCompanyProxy` | Proxy | 證交所上市公司開放資料（公司代號 → 公司簡稱），整份清單快取 24 小時 | `IClockProxy` | US-02、US-03 台股 |
 | `CoinGeckoCryptocurrencyProxy` | Proxy | CoinGecko 搜尋，代號完全相符（不分大小寫）中取市值排名最前；結果（含查無）依代號快取 24 小時 | `IClockProxy` | US-02、US-03 加密貨幣 |
-| `RssFeedParser` | Utility（`internal/utilities/`） | RSS 2.0 → `RssItem`（標題、連結、發布時間、描述）；無法解析的發布時間該則略過 | — | Edge cases |
+| `RssFeedParser` | Utility（`internal/utilities/`） | RSS 2.0 → `RssItem`（標題、連結、發布時間、純文字描述：去 HTML 標籤、反轉義、收斂空白）；無法解析的發布時間該則略過 | — | Edge cases |
+| `HttpBodyReader` | Utility（`internal/utilities/`） | 帶 User-Agent 的 GET，非 2xx 視為錯誤；所有外部 Proxy 共用 | `http.Client`（逾時 10 秒） | US-05 |
 
 ### 介面細節
 
@@ -96,8 +98,9 @@ flowchart TD
     Client -->|X-API-Key| Guard[RequireActiveApiKey]
     Guard --> NewsController
     NewsController --> NewsSearchApplication --> NewsSearchService
-    NewsSearchService --> ListedCompany[[IListedCompanyProxy]]
-    NewsSearchService --> Cryptocurrency[[ICryptocurrencyProxy]]
+    NewsSearchService --> SymbolResolutionService
+    SymbolResolutionService --> ListedCompany[[IListedCompanyProxy]]
+    SymbolResolutionService --> Cryptocurrency[[ICryptocurrencyProxy]]
     NewsSearchService -->|concurrently| NewsProxy[[INewsProxy × N]]
     NewsSearchService --> NewsCollectionDomain
     ListedCompany -.- Twse[TwseListedCompanyProxy]
@@ -116,6 +119,7 @@ flowchart TD
   - 上櫃股票：新增一個 `IListedCompanyProxy` 實作（或讓 TWSE 實作合併上櫃清單），`NewsSearchService` 不變。
 - **Patterns applied & why:** Strategy（`INewsProxy` 多實作）處理「來源會換」這個變動軸；Rich Domain Model 集中整理規則。
 - **Do not hardcode:** 新聞來源與市場的對應只在組裝根；7 天 / 30 則為 `NewsCollectionDomain` 常數。
+- **Google 新聞不帶摘要：** 其描述只重複標題與媒體名稱，不是摘要。
 - **Known debt / deferred:** 標的辨識快取為單機記憶體；多實例部署時各自快取（可接受）。
 
 ---
@@ -128,7 +132,7 @@ flowchart TD
 | US-02 市場類別兩個 scenarios | `MarketCategoryVo` + `NewsController` 400 |
 | US-02 未提供標的 | `SymbolVo` + 400 |
 | US-02 去空白轉大寫 | `SymbolVo` |
-| US-02 台股 / 加密貨幣找不到 | `NewsSearchService` + `IListedCompanyProxy` / `ICryptocurrencyProxy` → 404 |
+| US-02 台股 / 加密貨幣找不到 | `SymbolResolutionService` + `IListedCompanyProxy` / `ICryptocurrencyProxy` → 404 |
 | US-02 美股查無新聞 | `NewsSearchService`（美股不辨識）+ 空陣列 |
 | US-03 三個 scenarios | 新聞來源表 + `ResolvedSymbolVo` + `NewsCollectionDomain.KeepMentioning` |
 | US-04 五個 scenarios | `NewsCollectionDomain.Curate` + `NewsVo` / `NewsDto` |
