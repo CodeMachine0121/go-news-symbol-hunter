@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/cache"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/utilities"
 	"github.com/shopspring/decimal"
 )
 
@@ -21,13 +21,11 @@ const (
 	twseQuoteCurrency          = "TWD"
 	listedCompanyCacheDuration = 24 * time.Hour
 	dailyClosingCacheDuration  = time.Hour
-	republicOfChinaYearOffset  = 1911
 )
 
 var (
 	errListedCompaniesEmpty    = errors.New("TWSE returned no listed companies")
 	errTwseClosingPriceMissing = errors.New("TWSE has no closing price for this stock")
-	taipeiLocation             = time.FixedZone("Asia/Taipei", 8*60*60)
 )
 
 type TwseOpenDataUrls struct {
@@ -47,14 +45,15 @@ type twseDailyClosing struct {
 }
 
 type TwseOpenDataProxy struct {
-	httpBodyReader     *httpfetch.HttpBodyReader
-	openDataUrls       TwseOpenDataUrls
-	shortNamesCache    *cache.RefreshingCache[map[string]string]
-	dailyClosingsCache *cache.RefreshingCache[map[string]twseDailyClosing]
+	httpBodyReader            *httpfetch.HttpBodyReader
+	republicOfChinaDateParser *utilities.RepublicOfChinaDateParser
+	openDataUrls              TwseOpenDataUrls
+	shortNamesCache           *cache.RefreshingCache[map[string]string]
+	dailyClosingsCache        *cache.RefreshingCache[map[string]twseDailyClosing]
 }
 
 func NewTwseOpenDataProxy(httpBodyReader *httpfetch.HttpBodyReader, clockProxy interfaces.IClockProxy, openDataUrls TwseOpenDataUrls) *TwseOpenDataProxy {
-	twseOpenDataProxy := &TwseOpenDataProxy{httpBodyReader: httpBodyReader, openDataUrls: openDataUrls}
+	twseOpenDataProxy := &TwseOpenDataProxy{httpBodyReader: httpBodyReader, republicOfChinaDateParser: utilities.NewRepublicOfChinaDateParser(), openDataUrls: openDataUrls}
 	twseOpenDataProxy.shortNamesCache = cache.NewRefreshingCache(clockProxy, listedCompanyCacheDuration, twseOpenDataProxy.downloadShortNames)
 	twseOpenDataProxy.dailyClosingsCache = cache.NewRefreshingCache(clockProxy, dailyClosingCacheDuration, twseOpenDataProxy.downloadDailyClosings)
 	return twseOpenDataProxy
@@ -82,7 +81,7 @@ func (twseOpenDataProxy *TwseOpenDataProxy) FetchPrice(ctx context.Context, symb
 	if err != nil {
 		return vo.PriceQuoteVo{}, fmt.Errorf("parse closing price %q: %w", dailyClosing.ClosingPrice, err)
 	}
-	tradingDate, err := dailyClosing.tradingDate()
+	tradingDate, err := twseOpenDataProxy.republicOfChinaDateParser.ParseTaipeiMidnight(dailyClosing.Date)
 	if err != nil {
 		return vo.PriceQuoteVo{}, err
 	}
@@ -131,17 +130,4 @@ func (twseOpenDataProxy *TwseOpenDataProxy) downloadDailyClosings(ctx context.Co
 		dailyClosingsByCode[strings.TrimSpace(dailyClosing.Code)] = dailyClosing
 	}
 	return dailyClosingsByCode, nil
-}
-
-// TWSE dates use the Republic of China calendar, e.g. 1151005 is 2026-10-05
-func (dailyClosing twseDailyClosing) tradingDate() (time.Time, error) {
-	rawDate := strings.TrimSpace(dailyClosing.Date)
-	if len(rawDate) < 7 {
-		return time.Time{}, fmt.Errorf("unexpected TWSE date %q", dailyClosing.Date)
-	}
-	republicOfChinaYear, err := strconv.Atoi(rawDate[:len(rawDate)-4])
-	if err != nil {
-		return time.Time{}, fmt.Errorf("unexpected TWSE date %q: %w", dailyClosing.Date, err)
-	}
-	return time.ParseInLocation("20060102", strconv.Itoa(republicOfChinaYear+republicOfChinaYearOffset)+rawDate[len(rawDate)-4:], taipeiLocation)
 }
