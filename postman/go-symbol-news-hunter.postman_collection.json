@@ -1,0 +1,710 @@
+{
+  "info": {
+    "name": "go-symbol-news-hunter API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "標的資訊面分析引擎的全部端點。\n\n**啟動**：建立資料庫後 `make start`（讀 `.env`，預設 port 8080，啟動時自動建表）。\n\n**執行順序**：\n1. `1. API Key` → Issue API key（自動存 `apiKey`）\n2. 以 SQL 啟用：`UPDATE api_keys SET is_active = true WHERE name = '<apiKeyName>';`\n3. `2. News Search`、`3. Analysis`（Start 後輪詢 Get 直到 `succeeded` / `failed`）\n4. `4. Error Cases`\n5. `5. Revoke` 最後跑（會讓 `apiKey` 永久失效）\n\n鑑權：collection 層級以 header `X-API-Key: {{apiKey}}` 送出；公開端點個別設為 No Auth。\n\n錯誤格式：`{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`。"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "X-API-Key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{apiKey}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('status ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        },
+        "description": "服務健康檢查，不需要 API key。",
+        "auth": {
+          "type": "noauth"
+        }
+      }
+    },
+    {
+      "name": "1. API Key",
+      "item": [
+        {
+          "name": "Issue API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('issued key starts inactive', () => pm.expect(body.status).to.eql('inactive'));",
+                  "pm.collectionVariables.set('apiKey', body.apiKey);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api-keys",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api-keys"
+              ]
+            },
+            "description": "公開端點，申請一把 API key（預設停用）。成功會把完整 API key 存進 collection 變數 `apiKey`。\n\n完整 API key 只會在這裡出現一次。\n\n**申請後要由 administrator 啟用才能使用受保護端點**：\n```sql\nUPDATE api_keys SET is_active = true WHERE name = '<apiKeyName>';\n```",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{apiKeyName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Get API key status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('has a status', () => pm.expect(pm.response.json().status).to.be.oneOf(['inactive', 'active']));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api-keys/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api-keys",
+                "me"
+              ]
+            },
+            "description": "查詢目前 `apiKey` 的名稱與狀態（`inactive` / `active`），不會回傳完整 API key。用來確認 administrator 是否已啟用。"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. News Search（需要已啟用的 API key）",
+      "item": [
+        {
+          "name": "Search news - crypto",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('news is an array', () => pm.expect(pm.response.json().news).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/news?symbol={{cryptoSymbol}}&category=crypto",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "news"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{cryptoSymbol}}"
+                },
+                {
+                  "key": "category",
+                  "value": "crypto"
+                }
+              ]
+            },
+            "description": "依標的與市場類別搜尋近 7 天新聞（去重、由新到舊、最多 30 則）。\n\n加密貨幣來源：CoinDesk、Cointelegraph、Google 新聞（英文）。"
+          }
+        },
+        {
+          "name": "Search news - twStock",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('news is an array', () => pm.expect(pm.response.json().news).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/news?symbol={{twStockSymbol}}&category=twStock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "news"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{twStockSymbol}}"
+                },
+                {
+                  "key": "category",
+                  "value": "twStock"
+                }
+              ]
+            },
+            "description": "台股以公司簡稱搜尋。來源：鉅亨網、Google 新聞（繁中）。"
+          }
+        },
+        {
+          "name": "Search news - usStock",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('news is an array', () => pm.expect(pm.response.json().news).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/news?symbol={{usStockSymbol}}&category=usStock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "news"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{usStockSymbol}}"
+                },
+                {
+                  "key": "category",
+                  "value": "usStock"
+                }
+              ]
+            },
+            "description": "美股以代號搜尋。來源：Yahoo 財經、Google 新聞（英文）。"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Analysis（需要已啟用的 API key）",
+      "item": [
+        {
+          "name": "Start analysis",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of [200, 202]', () => pm.expect(pm.response.code).to.be.oneOf([200, 202]));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('analysisEventId', body.analysisEventId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/analysis-events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analysis-events"
+              ]
+            },
+            "description": "發起標的資訊面分析。新建立回 `202`；同標的 6 小時內已完成或正在分析中則重用並回 `200`。\n\n成功會把 `analysisEventId` 存進 collection 變數。分析在背景進行，通常數十秒完成；用下一個請求輪詢。\n\n`category`：`crypto` / `twStock` / `usStock`。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{analysisSymbol}}\",\n  \"category\": \"{{analysisCategory}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get analysis event",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('has a known status', () => pm.expect(body.status).to.be.oneOf(['running', 'succeeded', 'failed']));",
+                  "if (body.status === 'succeeded') {",
+                  "  pm.test('succeeded analysis has a result', () => pm.expect(body.result.grade).to.be.oneOf(['strongBullish', 'bullish', 'neutral', 'bearish', 'strongBearish']));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analysis-events/{{analysisEventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analysis-events",
+                "{{analysisEventId}}"
+              ]
+            },
+            "description": "查詢分析事件。`status`：`running`（尚無結果）/ `succeeded`（含 `result`，其中 `priceAtAnalysis` 可能為 `null`）/ `failed`（含 `failureReason`）。"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Error Cases",
+      "item": [
+        {
+          "name": "Issue API key - missing name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('error code is api_key_name_required', () => pm.expect(body.error.code).to.eql('api_key_name_required'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api-keys",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api-keys"
+              ]
+            },
+            "description": "名稱為必填 → 400。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"   \"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Search news - missing API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test('error code is api_key_missing', () => pm.expect(body.error.code).to.eql('api_key_missing'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/news?symbol={{cryptoSymbol}}&category=crypto",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "news"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{cryptoSymbol}}"
+                },
+                {
+                  "key": "category",
+                  "value": "crypto"
+                }
+              ]
+            },
+            "description": "未提供 API key → 401。",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Search news - unsupported market",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('error code is market_category_unsupported', () => pm.expect(body.error.code).to.eql('market_category_unsupported'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/news?symbol=0700&category=hk",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "news"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "0700"
+                },
+                {
+                  "key": "category",
+                  "value": "hk"
+                }
+              ]
+            },
+            "description": "市場類別只能是 crypto / twStock / usStock → 400。"
+          }
+        },
+        {
+          "name": "Search news - unknown twStock symbol",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test('error code is symbol_not_found', () => pm.expect(body.error.code).to.eql('symbol_not_found'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/news?symbol={{unknownTwStockSymbol}}&category=twStock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "news"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{unknownTwStockSymbol}}"
+                },
+                {
+                  "key": "category",
+                  "value": "twStock"
+                }
+              ]
+            },
+            "description": "證交所上市公司中找不到 → 404。"
+          }
+        },
+        {
+          "name": "Start analysis - missing symbol",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('error code is symbol_required', () => pm.expect(body.error.code).to.eql('symbol_required'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/analysis-events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analysis-events"
+              ]
+            },
+            "description": "標的為必填 → 400。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": \"crypto\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get analysis event - not found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test('error code is analysis_event_not_found', () => pm.expect(body.error.code).to.eql('analysis_event_not_found'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analysis-events/{{unknownAnalysisEventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analysis-events",
+                "{{unknownAnalysisEventId}}"
+              ]
+            },
+            "description": "不存在的分析事件 → 404。"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Revoke（會讓目前的 apiKey 永久失效，最後再跑）",
+      "item": [
+        {
+          "name": "Revoke API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api-keys/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api-keys",
+                "me"
+              ]
+            },
+            "description": "永久撤銷目前的 `apiKey`。撤銷後即使 administrator 重新啟用也無法使用。"
+          }
+        },
+        {
+          "name": "Get API key status - after revoke",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test('error code is api_key_invalid', () => pm.expect(body.error.code).to.eql('api_key_invalid'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api-keys/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api-keys",
+                "me"
+              ]
+            },
+            "description": "撤銷後查詢 → 401 `api_key_invalid`。"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "apiKey",
+      "value": ""
+    },
+    {
+      "key": "apiKeyName",
+      "value": "postman-local"
+    },
+    {
+      "key": "cryptoSymbol",
+      "value": "BTC"
+    },
+    {
+      "key": "twStockSymbol",
+      "value": "2330"
+    },
+    {
+      "key": "usStockSymbol",
+      "value": "AAPL"
+    },
+    {
+      "key": "analysisSymbol",
+      "value": "BTC"
+    },
+    {
+      "key": "analysisCategory",
+      "value": "crypto"
+    },
+    {
+      "key": "analysisEventId",
+      "value": ""
+    },
+    {
+      "key": "unknownTwStockSymbol",
+      "value": "9999"
+    },
+    {
+      "key": "unknownAnalysisEventId",
+      "value": "999999"
+    }
+  ]
+}
