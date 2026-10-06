@@ -12,16 +12,21 @@ func TestLoadServerConfig(t *testing.T) {
 		serverPort     string
 		databaseUrl    string
 		expectedConfig ServerConfig
+		expectedError  error
 	}{
-		{name: "falls back to defaults", expectedConfig: ServerConfig{ServerPort: "8080", DatabaseUrl: defaultDatabaseUrl}},
+		{name: "defaults the port", databaseUrl: "host=db", expectedConfig: ServerConfig{ServerPort: "8080", DatabaseUrl: "host=db"}},
 		{name: "reads the environment", serverPort: "9090", databaseUrl: "host=db", expectedConfig: ServerConfig{ServerPort: "9090", DatabaseUrl: "host=db"}},
+		{name: "fails fast without a database url", serverPort: "9090", expectedError: errDatabaseUrlMissing},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Setenv("SERVER_PORT", testCase.serverPort)
 			t.Setenv("DATABASE_URL", testCase.databaseUrl)
 
-			assert.Equal(t, testCase.expectedConfig, loadServerConfig())
+			serverConfig, err := loadServerConfig()
+
+			assert.ErrorIs(t, err, testCase.expectedError)
+			assert.Equal(t, testCase.expectedConfig, serverConfig)
 		})
 	}
 }

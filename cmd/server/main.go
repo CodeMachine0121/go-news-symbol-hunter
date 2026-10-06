@@ -9,7 +9,10 @@ import (
 
 func main() {
 	_ = godotenv.Load()
-	serverConfig := loadServerConfig()
+	serverConfig, err := loadServerConfig()
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
 	database, err := openDatabase(serverConfig)
 	if err != nil {
 		log.Fatalf("open database: %v", err)

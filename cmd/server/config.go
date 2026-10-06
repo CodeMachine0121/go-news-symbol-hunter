@@ -1,28 +1,27 @@
 package main
 
-import "os"
-
-const (
-	defaultServerPort  = "8080"
-	defaultDatabaseUrl = "host=localhost port=5432 user=postgres password=postgres dbname=go_symbol_news_hunter sslmode=disable"
+import (
+	"errors"
+	"os"
 )
+
+const defaultServerPort = "8080"
+
+var errDatabaseUrlMissing = errors.New("DATABASE_URL is required")
 
 type ServerConfig struct {
 	ServerPort  string
 	DatabaseUrl string
 }
 
-func loadServerConfig() ServerConfig {
-	return ServerConfig{
-		ServerPort:  readEnvironmentOrDefault("SERVER_PORT", defaultServerPort),
-		DatabaseUrl: readEnvironmentOrDefault("DATABASE_URL", defaultDatabaseUrl),
+func loadServerConfig() (ServerConfig, error) {
+	databaseUrl := os.Getenv("DATABASE_URL")
+	if databaseUrl == "" {
+		return ServerConfig{}, errDatabaseUrlMissing
 	}
-}
-
-func readEnvironmentOrDefault(name string, defaultValue string) string {
-	value := os.Getenv(name)
-	if value == "" {
-		return defaultValue
+	serverPort := os.Getenv("SERVER_PORT")
+	if serverPort == "" {
+		serverPort = defaultServerPort
 	}
-	return value
+	return ServerConfig{ServerPort: serverPort, DatabaseUrl: databaseUrl}, nil
 }
