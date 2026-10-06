@@ -25,10 +25,10 @@
 | Layer | Technology | Version / Notes |
 | :--- | :--- | :--- |
 | Frontend | 無 | 純後端 REST API |
-| Backend | Go | Web 框架 TBD |
-| Database | PostgreSQL | 不使用 SQLite；ORM TBD（需支援 Code First / auto-migrate） |
+| Backend | Go 1.26 · Gin | REST API |
+| Database | PostgreSQL · GORM（`gorm.io/driver/postgres`） | 不使用 SQLite；Code First，啟動時 `AutoMigrate`；連線字串 `DATABASE_URL` |
 | Infrastructure | 本機 `go run` | 部署方式 TBD |
-| Key Libraries | 精確小數套件（金額欄位） | mocking 套件 TBD |
+| Key Libraries | `shopspring/decimal`（金額欄位）、`joho/godotenv`（讀 `.env`） | 測試：`testing` + `stretchr/testify`；mock 由 `mockery` 依介面產生於 `internal/domain/interface/mocks/` |
 | External Services | Anthropic（暫定，AI 分析 + tool use）、各市場新聞來源 | 新聞來源清單於功能切片拍板 |
 
 ---
