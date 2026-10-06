@@ -13,12 +13,9 @@ type SymbolVo struct {
 }
 
 func NewSymbolVo(rawSymbol string, category MarketCategoryVo) (SymbolVo, error) {
-	trimmedSymbol := strings.TrimSpace(rawSymbol)
-	if trimmedSymbol == "" {
+	normalizedSymbol := strings.ToUpper(strings.TrimSpace(rawSymbol))
+	if normalizedSymbol == "" {
 		return SymbolVo{}, ErrSymbolRequired
 	}
-	if category.Value != MarketCategoryTwStock {
-		trimmedSymbol = strings.ToUpper(trimmedSymbol)
-	}
-	return SymbolVo{Value: trimmedSymbol, Category: category}, nil
+	return SymbolVo{Value: normalizedSymbol, Category: category}, nil
 }

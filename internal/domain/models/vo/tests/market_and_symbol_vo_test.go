@@ -42,6 +42,7 @@ func TestNewSymbolVo(t *testing.T) {
 		{name: "us stock is trimmed and upper-cased", rawSymbol: " aapl ", category: "usStock", expectedValue: "AAPL"},
 		{name: "crypto is upper-cased", rawSymbol: "btc", category: "crypto", expectedValue: "BTC"},
 		{name: "taiwan stock code is trimmed", rawSymbol: " 2330 ", category: "twStock", expectedValue: "2330"},
+		{name: "taiwan stock letter suffix is upper-cased", rawSymbol: "00679b", category: "twStock", expectedValue: "00679B"},
 		{name: "missing symbol", rawSymbol: "", category: "crypto", expectedError: vo.ErrSymbolRequired},
 		{name: "blank symbol", rawSymbol: "   ", category: "usStock", expectedError: vo.ErrSymbolRequired},
 	}

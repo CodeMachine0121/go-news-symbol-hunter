@@ -7,6 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/binance"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/claude"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/tpex"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/yahoofinance"
 	"github.com/anthropics/anthropic-sdk-go"
 	"net/http"
@@ -42,6 +43,7 @@ type ExternalSourceUrls struct {
 	BinanceTickerPrice   string
 	YahooFinanceChart    string
 	TwseDailyClosing     string
+	TpexDailyClosing     string
 }
 
 var productionExternalSourceUrls = ExternalSourceUrls{
@@ -56,6 +58,7 @@ var productionExternalSourceUrls = ExternalSourceUrls{
 	BinanceTickerPrice:   "https://api.binance.com/api/v3/ticker/price",
 	YahooFinanceChart:    "https://query1.finance.yahoo.com/v8/finance/chart",
 	TwseDailyClosing:     "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+	TpexDailyClosing:     "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
 }
 
 func newExternalHttpClient() *http.Client {
@@ -104,6 +107,7 @@ func buildNewsProviderCatalog(httpBodyReader *httpfetch.HttpBodyReader, external
 
 type ExternalSourceProxies struct {
 	twseOpenDataProxy *twse.TwseOpenDataProxy
+	tpexOpenDataProxy *tpex.TpexOpenDataProxy
 	yahooFinanceProxy *yahoofinance.YahooFinanceProxy
 	binancePriceProxy *binance.BinancePriceProxy
 }
@@ -111,16 +115,24 @@ type ExternalSourceProxies struct {
 func buildExternalSourceProxies(httpBodyReader *httpfetch.HttpBodyReader, clockProxy interfaces.IClockProxy, externalSourceUrls ExternalSourceUrls) ExternalSourceProxies {
 	return ExternalSourceProxies{
 		twseOpenDataProxy: twse.NewTwseOpenDataProxy(httpBodyReader, clockProxy, twse.TwseOpenDataUrls{ListedCompanies: externalSourceUrls.TwseListedCompanies, DailyClosing: externalSourceUrls.TwseDailyClosing}),
+		tpexOpenDataProxy: tpex.NewTpexOpenDataProxy(httpBodyReader, clockProxy, externalSourceUrls.TpexDailyClosing),
 		yahooFinanceProxy: yahoofinance.NewYahooFinanceProxy(httpBodyReader, news.NewRssNewsReader(httpBodyReader, utilities.NewRssFeedParser()), yahoofinance.YahooFinanceUrls{HeadlineFeed: externalSourceUrls.YahooFinanceHeadline, Chart: externalSourceUrls.YahooFinanceChart}),
 		binancePriceProxy: binance.NewBinancePriceProxy(httpBodyReader, clockProxy, externalSourceUrls.BinanceTickerPrice),
 	}
 }
 
+func buildSymbolDirectoryCatalog(externalSourceProxies ExternalSourceProxies, cryptocurrencyProxy interfaces.ICryptocurrencyProxy) dto.SymbolDirectoryCatalogDto {
+	return dto.SymbolDirectoryCatalogDto{
+		TwStock: []interfaces.IListedCompanyProxy{externalSourceProxies.twseOpenDataProxy, externalSourceProxies.tpexOpenDataProxy},
+		Crypto:  cryptocurrencyProxy,
+	}
+}
+
 func buildPriceProviderCatalog(externalSourceProxies ExternalSourceProxies) dto.PriceProviderCatalogDto {
 	return dto.PriceProviderCatalogDto{
-		TwStock: externalSourceProxies.twseOpenDataProxy,
-		UsStock: externalSourceProxies.yahooFinanceProxy,
-		Crypto:  externalSourceProxies.binancePriceProxy,
+		TwStock: []interfaces.IPriceProxy{externalSourceProxies.twseOpenDataProxy, externalSourceProxies.tpexOpenDataProxy},
+		UsStock: []interfaces.IPriceProxy{externalSourceProxies.yahooFinanceProxy},
+		Crypto:  []interfaces.IPriceProxy{externalSourceProxies.binancePriceProxy},
 	}
 }
 
@@ -129,10 +141,7 @@ func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers 
 	httpBodyReader := httpfetch.NewHttpBodyReader(newExternalHttpClient())
 	externalSourceProxies := buildExternalSourceProxies(httpBodyReader, clockProxy, productionExternalSourceUrls)
 	apiKeyService := service.NewApiKeyService(persistence.NewApiKeyRepository(database), clockProxy, system.NewCryptoRandomProxy())
-	symbolResolutionService := service.NewSymbolResolutionService(
-		externalSourceProxies.twseOpenDataProxy,
-		coingecko.NewCoinGeckoCryptocurrencyProxy(httpBodyReader, clockProxy, productionExternalSourceUrls.CoinGeckoSearch),
-	)
+	symbolResolutionService := service.NewSymbolResolutionService(buildSymbolDirectoryCatalog(externalSourceProxies, coingecko.NewCoinGeckoCryptocurrencyProxy(httpBodyReader, clockProxy, productionExternalSourceUrls.CoinGeckoSearch)))
 	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, buildNewsProviderCatalog(httpBodyReader, productionExternalSourceUrls, externalSourceProxies.yahooFinanceProxy))
 	symbolAnalysisService := service.NewSymbolAnalysisService(
 		symbolResolutionService,

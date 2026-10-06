@@ -3,6 +3,7 @@ package controller_test
 import (
 	"context"
 	"encoding/json"
+	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"net/http"
 	"testing"
 	"time"
@@ -44,11 +45,11 @@ func createAnalysisRouter(t *testing.T) analysisRouterFixture {
 		analysisResultRepository: mocks.NewMockIAnalysisResultRepository(t),
 	}
 	fixture.analystProxy.EXPECT().ModelName().Return("claude-opus-5-5").Maybe()
-	symbolResolutionService := service.NewSymbolResolutionService(mocks.NewMockIListedCompanyProxy(t), fixture.cryptocurrencyProxy)
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{mocks.NewMockIListedCompanyProxy(t)}, Crypto: fixture.cryptocurrencyProxy})
 	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})
 	unavailablePriceProxy := mocks.NewMockIPriceProxy(t)
 	unavailablePriceProxy.EXPECT().FetchPrice(mock.Anything, mock.Anything).Return(vo.PriceQuoteVo{}, errDatabaseDown).Maybe()
-	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: unavailablePriceProxy, UsStock: unavailablePriceProxy, Crypto: unavailablePriceProxy})
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: []interfaces.IPriceProxy{unavailablePriceProxy}, UsStock: []interfaces.IPriceProxy{unavailablePriceProxy}, Crypto: []interfaces.IPriceProxy{unavailablePriceProxy}})
 	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(fixture.apiKeyRepository, clockProxy, mocks.NewMockIRandomProxy(t))))
 	analysisEventController := controller.NewAnalysisEventController(application.NewSymbolAnalysisApplication(service.NewSymbolAnalysisService(
 		symbolResolutionService, newsSearchService, priceSnapshotService, fixture.analystProxy, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,

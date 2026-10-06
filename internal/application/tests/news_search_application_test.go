@@ -2,6 +2,7 @@ package application_test
 
 import (
 	"context"
+	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"testing"
 	"time"
 
@@ -49,7 +50,7 @@ func createNewsSearchFixture(t *testing.T) newsSearchFixture {
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(newsSearchedAt).Maybe()
 	newsSearchService := service.NewNewsSearchService(
-		service.NewSymbolResolutionService(fixture.listedCompanyProxy, fixture.cryptocurrencyProxy),
+		service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{fixture.listedCompanyProxy}, Crypto: fixture.cryptocurrencyProxy}),
 		clockProxy,
 		dto.NewsProviderCatalogDto{
 			TwStock: []dto.NewsProviderDto{{NewsProxy: fixture.cnyesNewsProxy}, {NewsProxy: fixture.twGoogleNewsProxy}},
