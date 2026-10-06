@@ -22,7 +22,7 @@
 | `AnalysisConclusionDomain.ToResultEntity` | **Modify** | 多收一個 `*vo.PriceQuoteVo` |
 | `AnalysisEventDomain.ToDto` / `AnalysisResultDto` | **Modify** | 回傳 `priceAtAnalysis`（未取得為 `null`，欄位一律出現） |
 | `SymbolAnalysisService.AnalyzeSymbol` | **Modify** | 結論通過後呼叫 `PriceSnapshotService.CapturePrice` |
-| `internal/infrastructure/` | **Add** | `BinancePriceProxy`（`binance/`）、`YahooFinancePriceProxy`（`yahoofinance/`）、`TwsePriceProxy`（`twse/`） |
+| `internal/infrastructure/` | **Add / Modify** | `BinancePriceProxy`（`binance/`）；依「一個外部資源一個 Proxy」，Yahoo 財經的新聞與報價合併為 `YahooFinanceProxy`（`yahoofinance/`），證交所的上市公司清單與每日收盤合併為 `TwseOpenDataProxy`（`twse/`） |
 | `cmd/server/` | **Modify** | 價格來源網址與目錄組裝 |
 | 回測 | **Not touched** | PRD Out of Scope |
 
@@ -36,12 +36,12 @@
 | `IPriceProxy` | Interface | `FetchPrice(ctx, symbol string) (vo.PriceQuoteVo, error)`；來源沒有該標的、失敗、格式錯誤皆回 error | — | US-01、US-02 |
 | `PriceProviderCatalogDto` | DTO（service 建構參數） | `TwStock` / `UsStock` / `Crypto` 各一個 `IPriceProxy` | — | US-01 |
 | `CapturePriceDto` | DTO | `Symbol`、`Category` | — | — |
-| `PriceSnapshotService` | Domain Service | `CapturePrice(ctx, dto.CapturePriceDto) *vo.PriceQuoteVo`：依市場類別選來源（不認得的市場類別回 `nil`），自帶 `PriceCaptureTimeout`（10 秒）期限，任何錯誤回 `nil` | `PriceProviderCatalogDto` | US-01、US-02 |
+| `PriceSnapshotService` | Domain Service | `CapturePrice(ctx, dto.CapturePriceDto) *vo.PriceQuoteVo`：依市場類別選來源（建構時建立對照表；不認得的市場類別回 `nil`），自帶 `PriceCaptureTimeout`（10 秒）期限，且不受分析剩餘時間影響，任何錯誤回 `nil` | `PriceProviderCatalogDto` | US-01、US-02 |
 | `PriceAtAnalysisDto` | DTO | `price`（十進位字串）、`currency`、`pricedAt`、`source` | — | US-03 |
 | `BinancePriceProxy` | Proxy | `GET /api/v3/ticker/price?symbol={SYMBOL}USDT` → 價格字串直接轉 decimal；價格時間取 `IClockProxy.Now()`；幣別 USDT；來源「Binance」 | `HttpBodyReader`、`IClockProxy` | US-01 加密貨幣、US-02 |
-| `YahooFinancePriceProxy` | Proxy | `GET /v8/finance/chart/{SYMBOL}?range=1d&interval=1d` → `meta.regularMarketPrice`（直接解碼成 `decimal.Decimal`，保留 JSON 數字原字面值、不經浮點數）、`regularMarketTime`、`currency`；`result` 為空 → error；來源「Yahoo 財經」 | `HttpBodyReader` | US-01 美股、US-02 |
-| `RefreshingCache[T]` | Infrastructure（`internal/infrastructure/cache/`） | 泛型快取：過期才下載、併發呼叫共用一次下載（singleflight）、下載失敗不快取、讀寫鎖只圈住存取、下載不受單一呼叫者取消影響；`TwseListedCompanyProxy` 與 `TwsePriceProxy` 共用 | `IClockProxy` | US-01 台股 |
-| `TwsePriceProxy` | Proxy | `STOCK_DAY_ALL` 每日收盤：`ClosingPrice` 轉 decimal、民國日期 `Date`（如 `1151005`）轉台北時間當日 00:00；幣別 TWD；來源「證交所」；整份資料以 `RefreshingCache` 快取 1 小時 | `HttpBodyReader`、`IClockProxy` | US-01 台股、US-02 |
+| `YahooFinanceProxy` | Proxy | 同時實作 `INewsProxy`（個股新聞 RSS）與 `IPriceProxy`；股票類別代號的「.」轉為「-」（BRK.B → BRK-B）；報價缺幣別 → 未取得。報價部分： | `GET /v8/finance/chart/{SYMBOL}?range=1d&interval=1d` → `meta.regularMarketPrice`（直接解碼成 `decimal.Decimal`，保留 JSON 數字原字面值、不經浮點數）、`regularMarketTime`、`currency`；`result` 為空 → error；來源「Yahoo 財經」 | `HttpBodyReader` | US-01 美股、US-02 |
+| `RefreshingCache[T]` | Infrastructure（`internal/infrastructure/cache/`） | 泛型快取：過期才下載、併發呼叫共用一次下載（singleflight，於下載完成時以完成時間寫入一次）、更新失敗時沿用上一次成功的值（從未成功則回錯誤且不快取）、等待時尊重呼叫者期限（逾期且有舊值則回舊值）、下載本身不受單一呼叫者取消影響；`TwseListedCompanyProxy` 與 `TwsePriceProxy` 共用 | `IClockProxy` | US-01 台股 |
+| `TwseOpenDataProxy` | Proxy | 同時實作 `IListedCompanyProxy`（上市公司清單，快取 24 小時）與 `IPriceProxy`（每日收盤，快取 1 小時）。收盤部分： | `STOCK_DAY_ALL` 每日收盤：`ClosingPrice` 轉 decimal、民國日期 `Date`（如 `1151005`）轉台北時間當日 00:00；幣別 TWD；來源「證交所」；整份資料以 `RefreshingCache` 快取 1 小時 | `HttpBodyReader`、`IClockProxy` | US-01 台股、US-02 |
 
 ### 資料欄位
 
