@@ -1,6 +1,7 @@
 package news
 
 import (
+	"context"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 )
 
@@ -17,6 +18,6 @@ func (cointelegraphNewsProxy *CointelegraphNewsProxy) ProviderName() string {
 	return CointelegraphProviderName
 }
 
-func (cointelegraphNewsProxy *CointelegraphNewsProxy) FetchNews(_ string) ([]vo.NewsVo, error) {
-	return cointelegraphNewsProxy.rssNewsReader.ReadNews(cointelegraphNewsProxy.feedUrl, CointelegraphProviderName, true)
+func (cointelegraphNewsProxy *CointelegraphNewsProxy) FetchNews(ctx context.Context, _ string) ([]vo.NewsVo, error) {
+	return cointelegraphNewsProxy.rssNewsReader.ReadNews(ctx, cointelegraphNewsProxy.feedUrl, CointelegraphProviderName, true)
 }

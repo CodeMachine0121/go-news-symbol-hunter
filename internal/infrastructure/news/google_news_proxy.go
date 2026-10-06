@@ -1,6 +1,7 @@
 package news
 
 import (
+	"context"
 	"net/url"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
@@ -31,7 +32,7 @@ func (googleNewsProxy *GoogleNewsProxy) ProviderName() string {
 	return GoogleNewsProviderName
 }
 
-func (googleNewsProxy *GoogleNewsProxy) FetchNews(searchKeyword string) ([]vo.NewsVo, error) {
+func (googleNewsProxy *GoogleNewsProxy) FetchNews(ctx context.Context, searchKeyword string) ([]vo.NewsVo, error) {
 	query := url.Values{
 		"q":    {searchKeyword + " when:7d"},
 		"hl":   {googleNewsProxy.locale.Language},
@@ -39,5 +40,5 @@ func (googleNewsProxy *GoogleNewsProxy) FetchNews(searchKeyword string) ([]vo.Ne
 		"ceid": {googleNewsProxy.locale.Edition},
 	}
 	// Google News descriptions only repeat the headline and outlet, so they are not a summary
-	return googleNewsProxy.rssNewsReader.ReadNews(googleNewsProxy.searchUrl+"?"+query.Encode(), GoogleNewsProviderName, false)
+	return googleNewsProxy.rssNewsReader.ReadNews(ctx, googleNewsProxy.searchUrl+"?"+query.Encode(), GoogleNewsProviderName, false)
 }

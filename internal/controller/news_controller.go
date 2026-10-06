@@ -25,7 +25,7 @@ func NewNewsController(newsSearchApplication *application.NewsSearchApplication)
 }
 
 func (newsController *NewsController) SearchSymbolNews(context *gin.Context) {
-	symbolNews, err := newsController.newsSearchApplication.SearchSymbolNews(dto.SearchSymbolNewsDto{
+	symbolNews, err := newsController.newsSearchApplication.SearchSymbolNews(context.Request.Context(), dto.SearchSymbolNewsDto{
 		Symbol:   context.Query("symbol"),
 		Category: context.Query("category"),
 	})

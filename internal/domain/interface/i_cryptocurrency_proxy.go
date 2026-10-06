@@ -1,5 +1,7 @@
 package interfaces
 
+import "context"
+
 type ICryptocurrencyProxy interface {
-	FindCoinName(symbol string) (string, bool, error)
+	FindCoinName(ctx context.Context, symbol string) (string, bool, error)
 }

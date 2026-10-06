@@ -1,6 +1,9 @@
 package coingecko_test
 
 import (
+	"context"
+	"fmt"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -9,7 +12,6 @@ import (
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/coingecko"
-	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/utilities"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +50,7 @@ func TestCoinGeckoCryptocurrencyProxy_PicksTheBestRankedExactSymbolMatch(t *test
 			clockProxy := mocks.NewMockIClockProxy(t)
 			clockProxy.EXPECT().Now().Return(lookedUpAt)
 
-			coinName, found, err := coingecko.NewCoinGeckoCryptocurrencyProxy(utilities.NewHttpBodyReader(server.Client()), clockProxy, server.URL).FindCoinName("BTC")
+			coinName, found, err := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL).FindCoinName(context.Background(), "BTC")
 
 			require.NoError(t, err)
 			assert.Equal(t, "BTC", *receivedQuery)
@@ -64,12 +66,12 @@ func TestCoinGeckoCryptocurrencyProxy_CachesLookupsIncludingMissesForTwentyFourH
 	clockProxy.EXPECT().Now().Return(lookedUpAt).Once()
 	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(24*time.Hour - time.Second)).Once()
 	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(24 * time.Hour)).Once()
-	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(utilities.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
 
-	_, firstFound, _ := coinGeckoCryptocurrencyProxy.FindCoinName("NOTACOIN")
-	_, cachedFound, _ := coinGeckoCryptocurrencyProxy.FindCoinName("NOTACOIN")
+	_, firstFound, _ := coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "NOTACOIN")
+	_, cachedFound, _ := coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "NOTACOIN")
 	assert.Equal(t, int32(1), requestCount.Load())
-	_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName("NOTACOIN")
+	_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "NOTACOIN")
 
 	assert.False(t, firstFound)
 	assert.False(t, cachedFound)
@@ -90,7 +92,7 @@ func TestCoinGeckoCryptocurrencyProxy_ReportsUnavailableOrMalformedResponses(t *
 			clockProxy := mocks.NewMockIClockProxy(t)
 			clockProxy.EXPECT().Now().Return(lookedUpAt)
 
-			_, found, err := coingecko.NewCoinGeckoCryptocurrencyProxy(utilities.NewHttpBodyReader(server.Client()), clockProxy, server.URL).FindCoinName("BTC")
+			_, found, err := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL).FindCoinName(context.Background(), "BTC")
 
 			assert.Error(t, err)
 			assert.False(t, found)
@@ -109,19 +111,50 @@ func TestCoinGeckoCryptocurrencyProxy_DoesNotQueueOtherSymbolsBehindASlowLookup(
 	defer server.Close()
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(lookedUpAt)
-	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(utilities.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
 	slowLookupDone := make(chan struct{})
 	go func() {
-		_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName("SLOW")
+		_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "SLOW")
 		close(slowLookupDone)
 	}()
 	time.Sleep(50 * time.Millisecond)
 
-	coinName, found, err := coinGeckoCryptocurrencyProxy.FindCoinName("ETH")
+	coinName, found, err := coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "ETH")
 
 	close(releaseSlowLookup)
 	<-slowLookupDone
 	require.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "Ethereum", coinName)
+}
+
+func TestCoinGeckoCryptocurrencyProxy_KeepsTheCacheBounded(t *testing.T) {
+	server, requestCount, _ := startSearchServer(t, http.StatusOK, `{"coins":[]}`)
+	clockProxy := mocks.NewMockIClockProxy(t)
+	clockProxy.EXPECT().Now().Return(lookedUpAt)
+	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+	for index := range 1001 {
+		_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), fmt.Sprintf("COIN%d", index))
+	}
+
+	_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "COIN0")
+	_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "COIN1000")
+
+	assert.Equal(t, int32(1002), requestCount.Load())
+}
+
+func TestCoinGeckoCryptocurrencyProxy_EvictsExpiredLookupsWhenFull(t *testing.T) {
+	server, requestCount, _ := startSearchServer(t, http.StatusOK, `{"coins":[]}`)
+	clockProxy := mocks.NewMockIClockProxy(t)
+	clockProxy.EXPECT().Now().Return(lookedUpAt).Times(1000)
+	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(25 * time.Hour))
+	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+	for index := range 1000 {
+		_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), fmt.Sprintf("COIN%d", index))
+	}
+
+	_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "FRESH")
+	_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "FRESH")
+
+	assert.Equal(t, int32(1001), requestCount.Load())
 }

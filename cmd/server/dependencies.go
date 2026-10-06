@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"net/http"
 	"time"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/controller"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
-	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/service"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/coingecko"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/news"
@@ -66,20 +66,20 @@ func openDatabase(serverConfig ServerConfig) (*gorm.DB, error) {
 	return database, nil
 }
 
-func buildNewsProvidersByCategory(httpBodyReader *utilities.HttpBodyReader, externalSourceUrls ExternalSourceUrls) map[string][]dto.NewsProviderDto {
+func buildNewsProviderCatalog(httpBodyReader *httpfetch.HttpBodyReader, externalSourceUrls ExternalSourceUrls) dto.NewsProviderCatalogDto {
 	rssNewsReader := news.NewRssNewsReader(httpBodyReader, utilities.NewRssFeedParser())
 	traditionalChineseGoogleNewsProxy := news.NewGoogleNewsProxy(rssNewsReader, externalSourceUrls.GoogleNewsSearch, news.GoogleNewsTraditionalChineseLocale)
 	englishGoogleNewsProxy := news.NewGoogleNewsProxy(rssNewsReader, externalSourceUrls.GoogleNewsSearch, news.GoogleNewsEnglishLocale)
-	return map[string][]dto.NewsProviderDto{
-		vo.MarketCategoryTwStock: {
+	return dto.NewsProviderCatalogDto{
+		TwStock: []dto.NewsProviderDto{
 			{NewsProxy: news.NewCnyesNewsProxy(httpBodyReader, externalSourceUrls.CnyesSearch, externalSourceUrls.CnyesArticle)},
 			{NewsProxy: traditionalChineseGoogleNewsProxy},
 		},
-		vo.MarketCategoryUsStock: {
+		UsStock: []dto.NewsProviderDto{
 			{NewsProxy: news.NewYahooFinanceNewsProxy(rssNewsReader, externalSourceUrls.YahooFinanceHeadline)},
 			{NewsProxy: englishGoogleNewsProxy},
 		},
-		vo.MarketCategoryCrypto: {
+		Crypto: []dto.NewsProviderDto{
 			{NewsProxy: news.NewCoinDeskNewsProxy(rssNewsReader, externalSourceUrls.CoinDeskFeed), RequiresRelevanceFilter: true},
 			{NewsProxy: news.NewCointelegraphNewsProxy(rssNewsReader, externalSourceUrls.CointelegraphFeed), RequiresRelevanceFilter: true},
 			{NewsProxy: englishGoogleNewsProxy},
@@ -89,13 +89,13 @@ func buildNewsProvidersByCategory(httpBodyReader *utilities.HttpBodyReader, exte
 
 func buildControllers(database *gorm.DB) Controllers {
 	clockProxy := system.NewSystemClockProxy()
-	httpBodyReader := utilities.NewHttpBodyReader(newExternalHttpClient())
+	httpBodyReader := httpfetch.NewHttpBodyReader(newExternalHttpClient())
 	apiKeyService := service.NewApiKeyService(persistence.NewApiKeyRepository(database), clockProxy, system.NewCryptoRandomProxy())
 	symbolResolutionService := service.NewSymbolResolutionService(
 		twse.NewTwseListedCompanyProxy(httpBodyReader, clockProxy, productionExternalSourceUrls.TwseListedCompanies),
 		coingecko.NewCoinGeckoCryptocurrencyProxy(httpBodyReader, clockProxy, productionExternalSourceUrls.CoinGeckoSearch),
 	)
-	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, buildNewsProvidersByCategory(httpBodyReader, productionExternalSourceUrls))
+	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, buildNewsProviderCatalog(httpBodyReader, productionExternalSourceUrls))
 	return Controllers{
 		healthController: controller.NewHealthController(),
 		apiKeyController: controller.NewApiKeyController(application.NewApiKeyApplication(apiKeyService)),

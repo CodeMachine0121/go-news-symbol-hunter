@@ -1,7 +1,9 @@
 package news_test
 
 import (
+	"context"
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -31,8 +33,8 @@ func startServer(t *testing.T, statusCode int, body string, receivedQuery *url.V
 	return server
 }
 
-func reader(server *httptest.Server) *utilities.HttpBodyReader {
-	return utilities.NewHttpBodyReader(server.Client())
+func reader(server *httptest.Server) *httpfetch.HttpBodyReader {
+	return httpfetch.NewHttpBodyReader(server.Client())
 }
 
 func rssReader(server *httptest.Server) *news.RssNewsReader {
@@ -51,7 +53,7 @@ func TestCnyesNewsProxy_SearchesByKeywordAndBuildsArticleLinks(t *testing.T) {
 	server := startServer(t, http.StatusOK, `{"data":{"items":[{"newsId":6622909,"title":"台積電法說會 &amp; 展望","summary":"重點&#10;摘要","publishAt":1791294157}]}}`, &receivedQuery)
 	cnyesNewsProxy := news.NewCnyesNewsProxy(reader(server), server.URL, "https://news.cnyes.com/news/id/")
 
-	fetchedNews, err := cnyesNewsProxy.FetchNews("台積電")
+	fetchedNews, err := cnyesNewsProxy.FetchNews(context.Background(), "台積電")
 
 	require.NoError(t, err)
 	assert.Equal(t, "台積電", receivedQuery.Get("q"))
@@ -64,7 +66,7 @@ func TestGoogleNewsProxy_SearchesTheLastSevenDaysInTheConfiguredLocale(t *testin
 	server := startServer(t, http.StatusOK, rssFeed, &receivedQuery)
 	googleNewsProxy := news.NewGoogleNewsProxy(rssReader(server), server.URL, news.GoogleNewsTraditionalChineseLocale)
 
-	fetchedNews, err := googleNewsProxy.FetchNews("台積電")
+	fetchedNews, err := googleNewsProxy.FetchNews(context.Background(), "台積電")
 
 	require.NoError(t, err)
 	assert.Equal(t, url.Values{"q": {"台積電 when:7d"}, "hl": {"zh-TW"}, "gl": {"TW"}, "ceid": {"TW:zh-Hant"}}, receivedQuery)
@@ -76,7 +78,7 @@ func TestGoogleNewsProxy_EnglishLocale(t *testing.T) {
 	receivedQuery := url.Values{}
 	server := startServer(t, http.StatusOK, rssFeed, &receivedQuery)
 
-	_, err := news.NewGoogleNewsProxy(rssReader(server), server.URL, news.GoogleNewsEnglishLocale).FetchNews("AAPL")
+	_, err := news.NewGoogleNewsProxy(rssReader(server), server.URL, news.GoogleNewsEnglishLocale).FetchNews(context.Background(), "AAPL")
 
 	require.NoError(t, err)
 	assert.Equal(t, url.Values{"q": {"AAPL when:7d"}, "hl": {"en-US"}, "gl": {"US"}, "ceid": {"US:en"}}, receivedQuery)
@@ -87,7 +89,7 @@ func TestYahooFinanceNewsProxy_FetchesTheSymbolHeadlines(t *testing.T) {
 	server := startServer(t, http.StatusOK, rssFeed, &receivedQuery)
 	yahooFinanceNewsProxy := news.NewYahooFinanceNewsProxy(rssReader(server), server.URL)
 
-	fetchedNews, err := yahooFinanceNewsProxy.FetchNews("AAPL")
+	fetchedNews, err := yahooFinanceNewsProxy.FetchNews(context.Background(), "AAPL")
 
 	require.NoError(t, err)
 	assert.Equal(t, url.Values{"s": {"AAPL"}, "region": {"US"}, "lang": {"en-US"}}, receivedQuery)
@@ -107,7 +109,7 @@ func TestWholeFeedProxies_ReturnTheEntireFeed(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			fetchedNews, err := testCase.newsProxy.FetchNews("ignored")
+			fetchedNews, err := testCase.newsProxy.FetchNews(context.Background(), "ignored")
 
 			require.NoError(t, err)
 			assert.Equal(t, testCase.providerName, testCase.newsProxy.ProviderName())
@@ -128,43 +130,43 @@ func TestNewsProxies_FailOnUnavailableOrMalformedSources(t *testing.T) {
 		fetchNews func() ([]vo.NewsVo, error)
 	}{
 		{name: "cnyes unavailable", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewCnyesNewsProxy(reader(unavailableServer), unavailableServer.URL, "x").FetchNews("台積電")
+			return news.NewCnyesNewsProxy(reader(unavailableServer), unavailableServer.URL, "x").FetchNews(context.Background(), "台積電")
 		}},
 		{name: "cnyes malformed", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewCnyesNewsProxy(reader(malformedJsonServer), malformedJsonServer.URL, "x").FetchNews("台積電")
+			return news.NewCnyesNewsProxy(reader(malformedJsonServer), malformedJsonServer.URL, "x").FetchNews(context.Background(), "台積電")
 		}},
 		{name: "cnyes error payload", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewCnyesNewsProxy(reader(cnyesErrorServer), cnyesErrorServer.URL, "x").FetchNews("台積電")
+			return news.NewCnyesNewsProxy(reader(cnyesErrorServer), cnyesErrorServer.URL, "x").FetchNews(context.Background(), "台積電")
 		}},
 		{name: "cnyes payload without items", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewCnyesNewsProxy(reader(cnyesWithoutItemsServer), cnyesWithoutItemsServer.URL, "x").FetchNews("台積電")
+			return news.NewCnyesNewsProxy(reader(cnyesWithoutItemsServer), cnyesWithoutItemsServer.URL, "x").FetchNews(context.Background(), "台積電")
 		}},
 		{name: "google returns a non-rss document", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewGoogleNewsProxy(rssReader(notRssServer), notRssServer.URL, news.GoogleNewsEnglishLocale).FetchNews("AAPL")
+			return news.NewGoogleNewsProxy(rssReader(notRssServer), notRssServer.URL, news.GoogleNewsEnglishLocale).FetchNews(context.Background(), "AAPL")
 		}},
 		{name: "google unavailable", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewGoogleNewsProxy(rssReader(unavailableServer), unavailableServer.URL, news.GoogleNewsEnglishLocale).FetchNews("AAPL")
+			return news.NewGoogleNewsProxy(rssReader(unavailableServer), unavailableServer.URL, news.GoogleNewsEnglishLocale).FetchNews(context.Background(), "AAPL")
 		}},
 		{name: "google malformed", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewGoogleNewsProxy(rssReader(malformedServer), malformedServer.URL, news.GoogleNewsEnglishLocale).FetchNews("AAPL")
+			return news.NewGoogleNewsProxy(rssReader(malformedServer), malformedServer.URL, news.GoogleNewsEnglishLocale).FetchNews(context.Background(), "AAPL")
 		}},
 		{name: "yahoo unavailable", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewYahooFinanceNewsProxy(rssReader(unavailableServer), unavailableServer.URL).FetchNews("AAPL")
+			return news.NewYahooFinanceNewsProxy(rssReader(unavailableServer), unavailableServer.URL).FetchNews(context.Background(), "AAPL")
 		}},
 		{name: "yahoo malformed", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewYahooFinanceNewsProxy(rssReader(malformedServer), malformedServer.URL).FetchNews("AAPL")
+			return news.NewYahooFinanceNewsProxy(rssReader(malformedServer), malformedServer.URL).FetchNews(context.Background(), "AAPL")
 		}},
 		{name: "coindesk unavailable", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewCoinDeskNewsProxy(rssReader(unavailableServer), unavailableServer.URL).FetchNews("")
+			return news.NewCoinDeskNewsProxy(rssReader(unavailableServer), unavailableServer.URL).FetchNews(context.Background(), "")
 		}},
 		{name: "coindesk malformed", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewCoinDeskNewsProxy(rssReader(malformedServer), malformedServer.URL).FetchNews("")
+			return news.NewCoinDeskNewsProxy(rssReader(malformedServer), malformedServer.URL).FetchNews(context.Background(), "")
 		}},
 		{name: "cointelegraph unavailable", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewCointelegraphNewsProxy(rssReader(unavailableServer), unavailableServer.URL).FetchNews("")
+			return news.NewCointelegraphNewsProxy(rssReader(unavailableServer), unavailableServer.URL).FetchNews(context.Background(), "")
 		}},
 		{name: "cointelegraph malformed", fetchNews: func() ([]vo.NewsVo, error) {
-			return news.NewCointelegraphNewsProxy(rssReader(malformedServer), malformedServer.URL).FetchNews("")
+			return news.NewCointelegraphNewsProxy(rssReader(malformedServer), malformedServer.URL).FetchNews(context.Background(), "")
 		}},
 	}
 	for _, testCase := range testCases {

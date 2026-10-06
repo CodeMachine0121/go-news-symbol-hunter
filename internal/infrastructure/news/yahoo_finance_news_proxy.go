@@ -1,6 +1,7 @@
 package news
 
 import (
+	"context"
 	"net/url"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
@@ -19,7 +20,7 @@ func (yahooFinanceNewsProxy *YahooFinanceNewsProxy) ProviderName() string {
 	return YahooFinanceProviderName
 }
 
-func (yahooFinanceNewsProxy *YahooFinanceNewsProxy) FetchNews(searchKeyword string) ([]vo.NewsVo, error) {
+func (yahooFinanceNewsProxy *YahooFinanceNewsProxy) FetchNews(ctx context.Context, searchKeyword string) ([]vo.NewsVo, error) {
 	feedUrl := yahooFinanceNewsProxy.feedUrl + "?" + url.Values{"s": {searchKeyword}, "region": {"US"}, "lang": {"en-US"}}.Encode()
-	return yahooFinanceNewsProxy.rssNewsReader.ReadNews(feedUrl, YahooFinanceProviderName, true)
+	return yahooFinanceNewsProxy.rssNewsReader.ReadNews(ctx, feedUrl, YahooFinanceProviderName, true)
 }

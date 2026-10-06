@@ -1,21 +1,24 @@
 package news
 
 import (
+	"context"
+
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/utilities"
 )
 
 type RssNewsReader struct {
-	httpBodyReader *utilities.HttpBodyReader
+	httpBodyReader *httpfetch.HttpBodyReader
 	rssFeedParser  *utilities.RssFeedParser
 }
 
-func NewRssNewsReader(httpBodyReader *utilities.HttpBodyReader, rssFeedParser *utilities.RssFeedParser) *RssNewsReader {
+func NewRssNewsReader(httpBodyReader *httpfetch.HttpBodyReader, rssFeedParser *utilities.RssFeedParser) *RssNewsReader {
 	return &RssNewsReader{httpBodyReader: httpBodyReader, rssFeedParser: rssFeedParser}
 }
 
-func (rssNewsReader *RssNewsReader) ReadNews(feedUrl string, providerName string, includesSummary bool) ([]vo.NewsVo, error) {
-	feedBody, err := rssNewsReader.httpBodyReader.Read(feedUrl)
+func (rssNewsReader *RssNewsReader) ReadNews(ctx context.Context, feedUrl string, providerName string, includesSummary bool) ([]vo.NewsVo, error) {
+	feedBody, err := rssNewsReader.httpBodyReader.Read(ctx, feedUrl)
 	if err != nil {
 		return nil, err
 	}

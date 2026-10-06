@@ -1,16 +1,17 @@
 package news
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"html"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
-	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/utilities"
 )
 
 var errCnyesResponseWithoutItems = errors.New("cnyes response has no news items")
@@ -29,12 +30,12 @@ type cnyesNewsItem struct {
 }
 
 type CnyesNewsProxy struct {
-	httpBodyReader *utilities.HttpBodyReader
+	httpBodyReader *httpfetch.HttpBodyReader
 	searchUrl      string
 	articleBaseUrl string
 }
 
-func NewCnyesNewsProxy(httpBodyReader *utilities.HttpBodyReader, searchUrl string, articleBaseUrl string) *CnyesNewsProxy {
+func NewCnyesNewsProxy(httpBodyReader *httpfetch.HttpBodyReader, searchUrl string, articleBaseUrl string) *CnyesNewsProxy {
 	return &CnyesNewsProxy{httpBodyReader: httpBodyReader, searchUrl: searchUrl, articleBaseUrl: articleBaseUrl}
 }
 
@@ -42,8 +43,8 @@ func (cnyesNewsProxy *CnyesNewsProxy) ProviderName() string {
 	return CnyesProviderName
 }
 
-func (cnyesNewsProxy *CnyesNewsProxy) FetchNews(searchKeyword string) ([]vo.NewsVo, error) {
-	responseBody, err := cnyesNewsProxy.httpBodyReader.Read(cnyesNewsProxy.searchUrl + "?limit=30&page=1&q=" + url.QueryEscape(searchKeyword))
+func (cnyesNewsProxy *CnyesNewsProxy) FetchNews(ctx context.Context, searchKeyword string) ([]vo.NewsVo, error) {
+	responseBody, err := cnyesNewsProxy.httpBodyReader.Read(ctx, cnyesNewsProxy.searchUrl+"?limit=30&page=1&q="+url.QueryEscape(searchKeyword))
 	if err != nil {
 		return nil, err
 	}

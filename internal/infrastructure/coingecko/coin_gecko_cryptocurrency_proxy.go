@@ -1,6 +1,7 @@
 package coingecko
 
 import (
+	"context"
 	"encoding/json"
 	"net/url"
 	"strings"
@@ -8,10 +9,13 @@ import (
 	"time"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
-	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/utilities"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 )
 
-const coinLookupCacheDuration = 24 * time.Hour
+const (
+	coinLookupCacheDuration  = 24 * time.Hour
+	maximumCachedCoinLookups = 1000
+)
 
 type coinGeckoSearchResponse struct {
 	Coins []coinGeckoCoin `json:"coins"`
@@ -30,24 +34,24 @@ type cachedCoinLookup struct {
 }
 
 type CoinGeckoCryptocurrencyProxy struct {
-	httpBodyReader      *utilities.HttpBodyReader
+	httpBodyReader      *httpfetch.HttpBodyReader
 	clockProxy          interfaces.IClockProxy
 	searchUrl           string
 	cacheMutex          sync.RWMutex
 	coinLookupsBySymbol map[string]cachedCoinLookup
 }
 
-func NewCoinGeckoCryptocurrencyProxy(httpBodyReader *utilities.HttpBodyReader, clockProxy interfaces.IClockProxy, searchUrl string) *CoinGeckoCryptocurrencyProxy {
+func NewCoinGeckoCryptocurrencyProxy(httpBodyReader *httpfetch.HttpBodyReader, clockProxy interfaces.IClockProxy, searchUrl string) *CoinGeckoCryptocurrencyProxy {
 	return &CoinGeckoCryptocurrencyProxy{httpBodyReader: httpBodyReader, clockProxy: clockProxy, searchUrl: searchUrl, coinLookupsBySymbol: map[string]cachedCoinLookup{}}
 }
 
-func (coinGeckoCryptocurrencyProxy *CoinGeckoCryptocurrencyProxy) FindCoinName(symbol string) (string, bool, error) {
+func (coinGeckoCryptocurrencyProxy *CoinGeckoCryptocurrencyProxy) FindCoinName(ctx context.Context, symbol string) (string, bool, error) {
 	now := coinGeckoCryptocurrencyProxy.clockProxy.Now()
 	if cachedLookup, cached := coinGeckoCryptocurrencyProxy.cachedCoinLookup(symbol); cached && now.Before(cachedLookup.expiresAt) {
 		return cachedLookup.coinName, cachedLookup.found, nil
 	}
 	// fetched without holding the lock so lookups of other symbols never queue behind a slow request
-	responseBody, err := coinGeckoCryptocurrencyProxy.httpBodyReader.Read(coinGeckoCryptocurrencyProxy.searchUrl + "?query=" + url.QueryEscape(symbol))
+	responseBody, err := coinGeckoCryptocurrencyProxy.httpBodyReader.Read(ctx, coinGeckoCryptocurrencyProxy.searchUrl+"?query="+url.QueryEscape(symbol))
 	if err != nil {
 		return "", false, err
 	}
@@ -70,9 +74,7 @@ func (coinGeckoCryptocurrencyProxy *CoinGeckoCryptocurrencyProxy) FindCoinName(s
 			}
 		}
 	}
-	coinGeckoCryptocurrencyProxy.cacheMutex.Lock()
-	coinGeckoCryptocurrencyProxy.coinLookupsBySymbol[symbol] = bestMatch
-	coinGeckoCryptocurrencyProxy.cacheMutex.Unlock()
+	coinGeckoCryptocurrencyProxy.cacheCoinLookup(symbol, bestMatch, now)
 	return bestMatch.coinName, bestMatch.found, nil
 }
 
@@ -82,4 +84,20 @@ func (coinGeckoCryptocurrencyProxy *CoinGeckoCryptocurrencyProxy) cachedCoinLook
 	defer coinGeckoCryptocurrencyProxy.cacheMutex.RUnlock()
 	cachedLookup, cached := coinGeckoCryptocurrencyProxy.coinLookupsBySymbol[symbol]
 	return cachedLookup, cached
+}
+
+// scopes the write lock; the cache stays bounded because arbitrary symbols come from user input
+func (coinGeckoCryptocurrencyProxy *CoinGeckoCryptocurrencyProxy) cacheCoinLookup(symbol string, coinLookup cachedCoinLookup, now time.Time) {
+	coinGeckoCryptocurrencyProxy.cacheMutex.Lock()
+	defer coinGeckoCryptocurrencyProxy.cacheMutex.Unlock()
+	if len(coinGeckoCryptocurrencyProxy.coinLookupsBySymbol) >= maximumCachedCoinLookups {
+		for cachedSymbol, cachedLookup := range coinGeckoCryptocurrencyProxy.coinLookupsBySymbol {
+			if !now.Before(cachedLookup.expiresAt) {
+				delete(coinGeckoCryptocurrencyProxy.coinLookupsBySymbol, cachedSymbol)
+			}
+		}
+	}
+	if len(coinGeckoCryptocurrencyProxy.coinLookupsBySymbol) < maximumCachedCoinLookups {
+		coinGeckoCryptocurrencyProxy.coinLookupsBySymbol[symbol] = coinLookup
+	}
 }

@@ -1,5 +1,7 @@
 package interfaces
 
+import "context"
+
 type IListedCompanyProxy interface {
-	FindCompanyShortName(stockCode string) (string, bool, error)
+	FindCompanyShortName(ctx context.Context, stockCode string) (string, bool, error)
 }

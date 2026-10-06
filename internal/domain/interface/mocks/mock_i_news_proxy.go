@@ -3,6 +3,8 @@
 package mocks
 
 import (
+	context "context"
+
 	vo "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -20,9 +22,9 @@ func (_m *MockINewsProxy) EXPECT() *MockINewsProxy_Expecter {
 	return &MockINewsProxy_Expecter{mock: &_m.Mock}
 }
 
-// FetchNews provides a mock function with given fields: searchKeyword
-func (_m *MockINewsProxy) FetchNews(searchKeyword string) ([]vo.NewsVo, error) {
-	ret := _m.Called(searchKeyword)
+// FetchNews provides a mock function with given fields: ctx, searchKeyword
+func (_m *MockINewsProxy) FetchNews(ctx context.Context, searchKeyword string) ([]vo.NewsVo, error) {
+	ret := _m.Called(ctx, searchKeyword)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FetchNews")
@@ -30,19 +32,19 @@ func (_m *MockINewsProxy) FetchNews(searchKeyword string) ([]vo.NewsVo, error) {
 
 	var r0 []vo.NewsVo
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) ([]vo.NewsVo, error)); ok {
-		return rf(searchKeyword)
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]vo.NewsVo, error)); ok {
+		return rf(ctx, searchKeyword)
 	}
-	if rf, ok := ret.Get(0).(func(string) []vo.NewsVo); ok {
-		r0 = rf(searchKeyword)
+	if rf, ok := ret.Get(0).(func(context.Context, string) []vo.NewsVo); ok {
+		r0 = rf(ctx, searchKeyword)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]vo.NewsVo)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(searchKeyword)
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, searchKeyword)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -56,14 +58,15 @@ type MockINewsProxy_FetchNews_Call struct {
 }
 
 // FetchNews is a helper method to define mock.On call
+//   - ctx context.Context
 //   - searchKeyword string
-func (_e *MockINewsProxy_Expecter) FetchNews(searchKeyword interface{}) *MockINewsProxy_FetchNews_Call {
-	return &MockINewsProxy_FetchNews_Call{Call: _e.mock.On("FetchNews", searchKeyword)}
+func (_e *MockINewsProxy_Expecter) FetchNews(ctx interface{}, searchKeyword interface{}) *MockINewsProxy_FetchNews_Call {
+	return &MockINewsProxy_FetchNews_Call{Call: _e.mock.On("FetchNews", ctx, searchKeyword)}
 }
 
-func (_c *MockINewsProxy_FetchNews_Call) Run(run func(searchKeyword string)) *MockINewsProxy_FetchNews_Call {
+func (_c *MockINewsProxy_FetchNews_Call) Run(run func(ctx context.Context, searchKeyword string)) *MockINewsProxy_FetchNews_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
@@ -73,7 +76,7 @@ func (_c *MockINewsProxy_FetchNews_Call) Return(_a0 []vo.NewsVo, _a1 error) *Moc
 	return _c
 }
 
-func (_c *MockINewsProxy_FetchNews_Call) RunAndReturn(run func(string) ([]vo.NewsVo, error)) *MockINewsProxy_FetchNews_Call {
+func (_c *MockINewsProxy_FetchNews_Call) RunAndReturn(run func(context.Context, string) ([]vo.NewsVo, error)) *MockINewsProxy_FetchNews_Call {
 	_c.Call.Return(run)
 	return _c
 }

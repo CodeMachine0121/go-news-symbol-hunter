@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"fmt"
 	"sync"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
@@ -12,7 +14,7 @@ import (
 type NewsSearchService struct {
 	symbolResolutionService *SymbolResolutionService
 	clockProxy              interfaces.IClockProxy
-	newsProvidersByCategory map[string][]dto.NewsProviderDto
+	newsProviderCatalog     dto.NewsProviderCatalogDto
 }
 
 type newsProviderOutcome struct {
@@ -21,15 +23,15 @@ type newsProviderOutcome struct {
 	err            error
 }
 
-func NewNewsSearchService(symbolResolutionService *SymbolResolutionService, clockProxy interfaces.IClockProxy, newsProvidersByCategory map[string][]dto.NewsProviderDto) *NewsSearchService {
+func NewNewsSearchService(symbolResolutionService *SymbolResolutionService, clockProxy interfaces.IClockProxy, newsProviderCatalog dto.NewsProviderCatalogDto) *NewsSearchService {
 	return &NewsSearchService{
 		symbolResolutionService: symbolResolutionService,
 		clockProxy:              clockProxy,
-		newsProvidersByCategory: newsProvidersByCategory,
+		newsProviderCatalog:     newsProviderCatalog,
 	}
 }
 
-func (newsSearchService *NewsSearchService) SearchSymbolNews(searchSymbolNewsDto dto.SearchSymbolNewsDto) (dto.SymbolNewsDto, error) {
+func (newsSearchService *NewsSearchService) SearchSymbolNews(ctx context.Context, searchSymbolNewsDto dto.SearchSymbolNewsDto) (dto.SymbolNewsDto, error) {
 	category, err := vo.NewMarketCategoryVo(searchSymbolNewsDto.Category)
 	if err != nil {
 		return dto.SymbolNewsDto{}, err
@@ -38,22 +40,35 @@ func (newsSearchService *NewsSearchService) SearchSymbolNews(searchSymbolNewsDto
 	if err != nil {
 		return dto.SymbolNewsDto{}, err
 	}
-	resolvedSymbol, err := newsSearchService.symbolResolutionService.ResolveSymbol(symbol)
+	resolvedSymbol, err := newsSearchService.symbolResolutionService.ResolveSymbol(ctx, symbol)
 	if err != nil {
 		return dto.SymbolNewsDto{}, err
 	}
 
-	newsProviders := newsSearchService.newsProvidersByCategory[category.Value]
+	newsProviders := newsSearchService.newsProviderCatalog.UsStock
+	switch category.Value {
+	case vo.MarketCategoryTwStock:
+		newsProviders = newsSearchService.newsProviderCatalog.TwStock
+	case vo.MarketCategoryCrypto:
+		newsProviders = newsSearchService.newsProviderCatalog.Crypto
+	}
 	outcomes := make([]newsProviderOutcome, len(newsProviders))
 	var waitGroup sync.WaitGroup
 	for index, newsProvider := range newsProviders {
 		waitGroup.Go(func() {
-			news, fetchError := newsProvider.NewsProxy.FetchNews(resolvedSymbol.SearchKeyword)
+			providerName := newsProvider.NewsProxy.ProviderName()
+			// a panicking provider must fail alone instead of taking down the server
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					outcomes[index] = newsProviderOutcome{providerName: providerName, err: fmt.Errorf("news provider panicked: %v", recovered)}
+				}
+			}()
+			news, fetchError := newsProvider.NewsProxy.FetchNews(ctx, resolvedSymbol.SearchKeyword)
 			newsCollection := domains.NewNewsCollectionDomain(news)
 			if newsProvider.RequiresRelevanceFilter {
 				newsCollection = newsCollection.KeepMentioning(resolvedSymbol.RelevanceTerms)
 			}
-			outcomes[index] = newsProviderOutcome{providerName: newsProvider.NewsProxy.ProviderName(), newsCollection: newsCollection, err: fetchError}
+			outcomes[index] = newsProviderOutcome{providerName: providerName, newsCollection: newsCollection, err: fetchError}
 		})
 	}
 	waitGroup.Wait()

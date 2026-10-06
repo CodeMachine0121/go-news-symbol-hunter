@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/utilities"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,12 +57,13 @@ func TestBuildNewsProvidersByCategory_AssignsProvidersAndLocalesPerMarket(t *tes
 		_, _ = writer.Write([]byte(`<rss><channel></channel></rss>`))
 	}))
 	defer server.Close()
-	newsProvidersByCategory := buildNewsProvidersByCategory(utilities.NewHttpBodyReader(server.Client()), ExternalSourceUrls{GoogleNewsSearch: server.URL})
+	newsProviderCatalog := buildNewsProviderCatalog(httpfetch.NewHttpBodyReader(server.Client()), ExternalSourceUrls{GoogleNewsSearch: server.URL})
+	newsProvidersByCategory := map[string][]dto.NewsProviderDto{"twStock": newsProviderCatalog.TwStock, "usStock": newsProviderCatalog.UsStock, "crypto": newsProviderCatalog.Crypto}
 
 	googleLocaleOf := func(category string) string {
 		for _, newsProvider := range newsProvidersByCategory[category] {
 			if newsProvider.NewsProxy.ProviderName() == "Google 新聞" {
-				_, err := newsProvider.NewsProxy.FetchNews("keyword")
+				_, err := newsProvider.NewsProxy.FetchNews(context.Background(), "keyword")
 				require.NoError(t, err)
 				return <-receivedGoogleLanguages
 			}
