@@ -78,7 +78,9 @@
 | `crypto` | `CoinDeskNewsProxy`、`CointelegraphNewsProxy` | 是 |
 | `crypto` | `GoogleNewsProxy`（en-US） | 否 |
 
-所有外部 HTTP 呼叫共用 `http.Client{Timeout: 10s}`；非 2xx 或格式無法解析 → 該來源失敗。
+所有外部 HTTP 呼叫共用 `newExternalHttpClient()`（逾時 10 秒）；非 2xx、格式無法解析、或不是預期結構（RSS 根元素非 `rss`、鉅亨網缺 `data.items`）→ 該來源失敗。外部網址集中在組裝根的 `ExternalSourceUrls`（`productionExternalSourceUrls`），測試以假伺服器網址替換。
+
+標的辨識 Proxy 只在讀寫快取時持鎖（以 `defer` 圈住讀鎖的小 method），HTTP 呼叫期間不持鎖，同時進行的查詢不會排隊。
 
 ---
 
