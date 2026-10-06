@@ -137,7 +137,7 @@ func TestGetApiKeyStatus_ShowsNameAndStatusWithoutTheKey(t *testing.T) {
 func TestRevokeApiKey_Succeeds(t *testing.T) {
 	router, apiKeyRepository := createRouter(t)
 	apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 3, IsActive: true}, nil)
-	apiKeyRepository.EXPECT().UpdateRevokedAt(uint(3), mock.AnythingOfType("time.Time")).Return(nil)
+	apiKeyRepository.EXPECT().MarkRevoked(uint(3), mock.AnythingOfType("time.Time")).Return(true, nil)
 
 	recorder := send(router, http.MethodDelete, "/api-keys/me", presentedApiKey, "")
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ApiKeyRepository struct {
@@ -22,7 +23,7 @@ func (apiKeyRepository *ApiKeyRepository) Create(apiKey *entities.ApiKey) error 
 
 func (apiKeyRepository *ApiKeyRepository) FindBySecretHash(secretHash string) (*entities.ApiKey, error) {
 	var apiKey entities.ApiKey
-	err := apiKeyRepository.database.Where(&entities.ApiKey{SecretHash: secretHash}).First(&apiKey).Error
+	err := apiKeyRepository.database.Where(clause.Eq{Column: clause.Column{Name: "secret_hash"}, Value: secretHash}).First(&apiKey).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -32,6 +33,9 @@ func (apiKeyRepository *ApiKeyRepository) FindBySecretHash(secretHash string) (*
 	return &apiKey, nil
 }
 
-func (apiKeyRepository *ApiKeyRepository) UpdateRevokedAt(apiKeyID uint, revokedAt time.Time) error {
-	return apiKeyRepository.database.Model(&entities.ApiKey{ID: apiKeyID}).Updates(entities.ApiKey{RevokedAt: &revokedAt}).Error
+func (apiKeyRepository *ApiKeyRepository) MarkRevoked(apiKeyID uint, revokedAt time.Time) (bool, error) {
+	result := apiKeyRepository.database.Model(&entities.ApiKey{ID: apiKeyID}).
+		Where(clause.Eq{Column: clause.Column{Name: "revoked_at"}, Value: nil}).
+		Updates(entities.ApiKey{RevokedAt: &revokedAt})
+	return result.RowsAffected == 1, result.Error
 }

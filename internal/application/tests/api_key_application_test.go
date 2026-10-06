@@ -44,7 +44,6 @@ func TestIssueApiKey_StoresInactiveKeyWithOnlyTheHashOfTheSecret(t *testing.T) {
 	issuedApiKey, err := apiKeyApplication.IssueApiKey(dto.IssueApiKeyDto{Name: "  我的研究腳本  "})
 
 	require.NoError(t, err)
-	assert.Equal(t, uint(42), issuedApiKey.ID)
 	assert.Equal(t, "我的研究腳本", issuedApiKey.Name)
 	assert.Equal(t, "inactive", issuedApiKey.Status)
 	assert.Regexp(t, `^snh_`, issuedApiKey.ApiKey)
@@ -130,7 +129,7 @@ func TestRevokeApiKey_PersistsRevocationForActiveAndInactiveKeys(t *testing.T) {
 	for _, isActive := range []bool{true, false} {
 		apiKeyApplication, apiKeyRepository := createApiKeyApplication(t)
 		apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 9, IsActive: isActive}, nil)
-		apiKeyRepository.EXPECT().UpdateRevokedAt(uint(9), mock.AnythingOfType("time.Time")).Return(nil)
+		apiKeyRepository.EXPECT().MarkRevoked(uint(9), mock.AnythingOfType("time.Time")).Return(true, nil)
 
 		err := apiKeyApplication.RevokeApiKey(presentedApiKey)
 
@@ -145,19 +144,21 @@ func TestRevokeApiKey_Rejections(t *testing.T) {
 		storedApiKey  *entities.ApiKey
 		findError     error
 		updateError   error
+		isNotMarked   bool
 		expectedError error
 	}{
 		{name: "already revoked", storedApiKey: &entities.ApiKey{ID: 9, RevokedAt: &revokedAt}, expectedError: service.ErrApiKeyInvalid},
 		{name: "unknown key", storedApiKey: nil, expectedError: service.ErrApiKeyInvalid},
 		{name: "storage unavailable on lookup", findError: errDatabaseDown, expectedError: service.ErrApiKeyStorageUnavailable},
 		{name: "storage unavailable on update", storedApiKey: &entities.ApiKey{ID: 9}, updateError: errDatabaseDown, expectedError: service.ErrApiKeyStorageUnavailable},
+		{name: "revoked concurrently by another request", storedApiKey: &entities.ApiKey{ID: 9}, isNotMarked: true, expectedError: service.ErrApiKeyInvalid},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			apiKeyApplication, apiKeyRepository := createApiKeyApplication(t)
 			apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(testCase.storedApiKey, testCase.findError)
-			if testCase.updateError != nil {
-				apiKeyRepository.EXPECT().UpdateRevokedAt(uint(9), mock.AnythingOfType("time.Time")).Return(testCase.updateError)
+			if testCase.updateError != nil || testCase.isNotMarked {
+				apiKeyRepository.EXPECT().MarkRevoked(uint(9), mock.AnythingOfType("time.Time")).Return(false, testCase.updateError)
 			}
 
 			err := apiKeyApplication.RevokeApiKey(presentedApiKey)

@@ -9,5 +9,5 @@ import (
 type IApiKeyRepository interface {
 	Create(apiKey *entities.ApiKey) error
 	FindBySecretHash(secretHash string) (*entities.ApiKey, error)
-	UpdateRevokedAt(apiKeyID uint, revokedAt time.Time) error
+	MarkRevoked(apiKeyID uint, revokedAt time.Time) (bool, error)
 }

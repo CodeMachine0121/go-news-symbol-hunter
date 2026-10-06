@@ -127,49 +127,59 @@ func (_c *MockIApiKeyRepository_FindBySecretHash_Call) RunAndReturn(run func(str
 	return _c
 }
 
-// UpdateRevokedAt provides a mock function with given fields: apiKeyID, revokedAt
-func (_m *MockIApiKeyRepository) UpdateRevokedAt(apiKeyID uint, revokedAt time.Time) error {
+// MarkRevoked provides a mock function with given fields: apiKeyID, revokedAt
+func (_m *MockIApiKeyRepository) MarkRevoked(apiKeyID uint, revokedAt time.Time) (bool, error) {
 	ret := _m.Called(apiKeyID, revokedAt)
 
 	if len(ret) == 0 {
-		panic("no return value specified for UpdateRevokedAt")
+		panic("no return value specified for MarkRevoked")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(uint, time.Time) error); ok {
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(uint, time.Time) (bool, error)); ok {
+		return rf(apiKeyID, revokedAt)
+	}
+	if rf, ok := ret.Get(0).(func(uint, time.Time) bool); ok {
 		r0 = rf(apiKeyID, revokedAt)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(bool)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(uint, time.Time) error); ok {
+		r1 = rf(apiKeyID, revokedAt)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
-// MockIApiKeyRepository_UpdateRevokedAt_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateRevokedAt'
-type MockIApiKeyRepository_UpdateRevokedAt_Call struct {
+// MockIApiKeyRepository_MarkRevoked_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkRevoked'
+type MockIApiKeyRepository_MarkRevoked_Call struct {
 	*mock.Call
 }
 
-// UpdateRevokedAt is a helper method to define mock.On call
+// MarkRevoked is a helper method to define mock.On call
 //   - apiKeyID uint
 //   - revokedAt time.Time
-func (_e *MockIApiKeyRepository_Expecter) UpdateRevokedAt(apiKeyID interface{}, revokedAt interface{}) *MockIApiKeyRepository_UpdateRevokedAt_Call {
-	return &MockIApiKeyRepository_UpdateRevokedAt_Call{Call: _e.mock.On("UpdateRevokedAt", apiKeyID, revokedAt)}
+func (_e *MockIApiKeyRepository_Expecter) MarkRevoked(apiKeyID interface{}, revokedAt interface{}) *MockIApiKeyRepository_MarkRevoked_Call {
+	return &MockIApiKeyRepository_MarkRevoked_Call{Call: _e.mock.On("MarkRevoked", apiKeyID, revokedAt)}
 }
 
-func (_c *MockIApiKeyRepository_UpdateRevokedAt_Call) Run(run func(apiKeyID uint, revokedAt time.Time)) *MockIApiKeyRepository_UpdateRevokedAt_Call {
+func (_c *MockIApiKeyRepository_MarkRevoked_Call) Run(run func(apiKeyID uint, revokedAt time.Time)) *MockIApiKeyRepository_MarkRevoked_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(uint), args[1].(time.Time))
 	})
 	return _c
 }
 
-func (_c *MockIApiKeyRepository_UpdateRevokedAt_Call) Return(_a0 error) *MockIApiKeyRepository_UpdateRevokedAt_Call {
-	_c.Call.Return(_a0)
+func (_c *MockIApiKeyRepository_MarkRevoked_Call) Return(_a0 bool, _a1 error) *MockIApiKeyRepository_MarkRevoked_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockIApiKeyRepository_UpdateRevokedAt_Call) RunAndReturn(run func(uint, time.Time) error) *MockIApiKeyRepository_UpdateRevokedAt_Call {
+func (_c *MockIApiKeyRepository_MarkRevoked_Call) RunAndReturn(run func(uint, time.Time) (bool, error)) *MockIApiKeyRepository_MarkRevoked_Call {
 	_c.Call.Return(run)
 	return _c
 }

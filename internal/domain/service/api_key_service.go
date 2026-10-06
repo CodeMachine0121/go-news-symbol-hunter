@@ -48,8 +48,12 @@ func (apiKeyService *ApiKeyService) RevokeApiKey(presentedApiKey string) error {
 		return err
 	}
 	revokedApiKey := apiKeyDomain.ToEntity()
-	if err := apiKeyService.apiKeyRepository.UpdateRevokedAt(revokedApiKey.ID, *revokedApiKey.RevokedAt); err != nil {
+	isMarkedRevoked, err := apiKeyService.apiKeyRepository.MarkRevoked(revokedApiKey.ID, *revokedApiKey.RevokedAt)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrApiKeyStorageUnavailable, err)
+	}
+	if !isMarkedRevoked {
+		return ErrApiKeyInvalid
 	}
 	return nil
 }

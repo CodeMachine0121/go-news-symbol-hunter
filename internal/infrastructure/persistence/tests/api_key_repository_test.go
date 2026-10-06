@@ -43,7 +43,7 @@ func TestApiKeyRepository_Create_RejectsDuplicateSecretHash(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestApiKeyRepository_UpdateRevokedAt_LeavesActivationUntouched(t *testing.T) {
+func TestApiKeyRepository_MarkRevoked_LeavesActivationUntouched(t *testing.T) {
 	database := openTestDatabase(t)
 	apiKeyRepository := persistence.NewApiKeyRepository(database)
 	apiKey := entities.ApiKey{Name: "研究", SecretHash: "hash-revoked"}
@@ -51,10 +51,12 @@ func TestApiKeyRepository_UpdateRevokedAt_LeavesActivationUntouched(t *testing.T
 	require.NoError(t, database.Model(&entities.ApiKey{ID: apiKey.ID}).Updates(entities.ApiKey{IsActive: true}).Error)
 	revokedAt := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 
-	require.NoError(t, apiKeyRepository.UpdateRevokedAt(apiKey.ID, revokedAt))
+	isMarkedRevoked, markError := apiKeyRepository.MarkRevoked(apiKey.ID, revokedAt)
 	foundApiKey, err := apiKeyRepository.FindBySecretHash("hash-revoked")
 
+	require.NoError(t, markError)
 	require.NoError(t, err)
+	assert.True(t, isMarkedRevoked)
 	require.NotNil(t, foundApiKey.RevokedAt)
 	assert.True(t, foundApiKey.RevokedAt.Equal(revokedAt))
 	assert.True(t, foundApiKey.IsActive)
@@ -70,5 +72,32 @@ func TestApiKeyRepository_FindBySecretHash_ReportsStorageFailure(t *testing.T) {
 	foundApiKey, err := apiKeyRepository.FindBySecretHash("hash-any")
 
 	assert.Error(t, err)
+	assert.Nil(t, foundApiKey)
+}
+
+func TestApiKeyRepository_MarkRevoked_SecondRevocationChangesNothing(t *testing.T) {
+	apiKeyRepository := persistence.NewApiKeyRepository(openTestDatabase(t))
+	apiKey := entities.ApiKey{Name: "研究", SecretHash: "hash-twice"}
+	require.NoError(t, apiKeyRepository.Create(&apiKey))
+	firstRevokedAt := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	_, err := apiKeyRepository.MarkRevoked(apiKey.ID, firstRevokedAt)
+	require.NoError(t, err)
+
+	isMarkedRevoked, err := apiKeyRepository.MarkRevoked(apiKey.ID, firstRevokedAt.Add(time.Hour))
+	foundApiKey, findError := apiKeyRepository.FindBySecretHash("hash-twice")
+
+	require.NoError(t, err)
+	require.NoError(t, findError)
+	assert.False(t, isMarkedRevoked)
+	assert.True(t, foundApiKey.RevokedAt.Equal(firstRevokedAt))
+}
+
+func TestApiKeyRepository_FindBySecretHash_EmptyHashMatchesNothing(t *testing.T) {
+	apiKeyRepository := persistence.NewApiKeyRepository(openTestDatabase(t))
+	require.NoError(t, apiKeyRepository.Create(&entities.ApiKey{Name: "研究", SecretHash: "hash-existing"}))
+
+	foundApiKey, err := apiKeyRepository.FindBySecretHash("")
+
+	assert.NoError(t, err)
 	assert.Nil(t, foundApiKey)
 }
