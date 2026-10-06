@@ -84,3 +84,35 @@ func TestTwseListedCompanyProxy_ReportsUnavailableOrMalformedLists(t *testing.T)
 		})
 	}
 }
+
+func TestTwseListedCompanyProxy_ServesCachedLookupsWhileARefreshIsInFlight(t *testing.T) {
+	releaseRefresh := make(chan struct{})
+	requestCount := &atomic.Int32{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if requestCount.Add(1) == 2 {
+			<-releaseRefresh
+		}
+		_, _ = writer.Write([]byte(listedCompanies))
+	}))
+	defer server.Close()
+	clockProxy := mocks.NewMockIClockProxy(t)
+	clockProxy.EXPECT().Now().Return(lookedUpAt).Once()
+	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(25 * time.Hour)).Once()
+	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(time.Hour))
+	twseListedCompanyProxy := twse.NewTwseListedCompanyProxy(utilities.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+	_, _, _ = twseListedCompanyProxy.FindCompanyShortName("2330")
+	refreshDone := make(chan struct{})
+	go func() {
+		_, _, _ = twseListedCompanyProxy.FindCompanyShortName("2330")
+		close(refreshDone)
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	shortName, found, err := twseListedCompanyProxy.FindCompanyShortName("2330")
+
+	close(releaseRefresh)
+	<-refreshDone
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "台積電", shortName)
+}

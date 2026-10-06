@@ -97,3 +97,31 @@ func TestCoinGeckoCryptocurrencyProxy_ReportsUnavailableOrMalformedResponses(t *
 		})
 	}
 }
+
+func TestCoinGeckoCryptocurrencyProxy_DoesNotQueueOtherSymbolsBehindASlowLookup(t *testing.T) {
+	releaseSlowLookup := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Query().Get("query") == "SLOW" {
+			<-releaseSlowLookup
+		}
+		_, _ = writer.Write([]byte(`{"coins":[{"symbol":"ETH","name":"Ethereum","market_cap_rank":2}]}`))
+	}))
+	defer server.Close()
+	clockProxy := mocks.NewMockIClockProxy(t)
+	clockProxy.EXPECT().Now().Return(lookedUpAt)
+	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(utilities.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+	slowLookupDone := make(chan struct{})
+	go func() {
+		_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName("SLOW")
+		close(slowLookupDone)
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	coinName, found, err := coinGeckoCryptocurrencyProxy.FindCoinName("ETH")
+
+	close(releaseSlowLookup)
+	<-slowLookupDone
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "Ethereum", coinName)
+}

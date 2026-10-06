@@ -33,7 +33,7 @@ type CoinGeckoCryptocurrencyProxy struct {
 	httpBodyReader      *utilities.HttpBodyReader
 	clockProxy          interfaces.IClockProxy
 	searchUrl           string
-	cacheMutex          sync.Mutex
+	cacheMutex          sync.RWMutex
 	coinLookupsBySymbol map[string]cachedCoinLookup
 }
 
@@ -42,12 +42,11 @@ func NewCoinGeckoCryptocurrencyProxy(httpBodyReader *utilities.HttpBodyReader, c
 }
 
 func (coinGeckoCryptocurrencyProxy *CoinGeckoCryptocurrencyProxy) FindCoinName(symbol string) (string, bool, error) {
-	coinGeckoCryptocurrencyProxy.cacheMutex.Lock()
-	defer coinGeckoCryptocurrencyProxy.cacheMutex.Unlock()
 	now := coinGeckoCryptocurrencyProxy.clockProxy.Now()
-	if cachedLookup, cached := coinGeckoCryptocurrencyProxy.coinLookupsBySymbol[symbol]; cached && now.Before(cachedLookup.expiresAt) {
+	if cachedLookup, cached := coinGeckoCryptocurrencyProxy.cachedCoinLookup(symbol); cached && now.Before(cachedLookup.expiresAt) {
 		return cachedLookup.coinName, cachedLookup.found, nil
 	}
+	// fetched without holding the lock so lookups of other symbols never queue behind a slow request
 	responseBody, err := coinGeckoCryptocurrencyProxy.httpBodyReader.Read(coinGeckoCryptocurrencyProxy.searchUrl + "?query=" + url.QueryEscape(symbol))
 	if err != nil {
 		return "", false, err
@@ -71,6 +70,16 @@ func (coinGeckoCryptocurrencyProxy *CoinGeckoCryptocurrencyProxy) FindCoinName(s
 			}
 		}
 	}
+	coinGeckoCryptocurrencyProxy.cacheMutex.Lock()
 	coinGeckoCryptocurrencyProxy.coinLookupsBySymbol[symbol] = bestMatch
+	coinGeckoCryptocurrencyProxy.cacheMutex.Unlock()
 	return bestMatch.coinName, bestMatch.found, nil
+}
+
+// scopes the read lock so it is released before any network call
+func (coinGeckoCryptocurrencyProxy *CoinGeckoCryptocurrencyProxy) cachedCoinLookup(symbol string) (cachedCoinLookup, bool) {
+	coinGeckoCryptocurrencyProxy.cacheMutex.RLock()
+	defer coinGeckoCryptocurrencyProxy.cacheMutex.RUnlock()
+	cachedLookup, cached := coinGeckoCryptocurrencyProxy.coinLookupsBySymbol[symbol]
+	return cachedLookup, cached
 }
