@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -11,10 +12,13 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/service"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 var analysisStartedAt = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
@@ -42,9 +46,12 @@ func createAnalysisRouter(t *testing.T) analysisRouterFixture {
 	fixture.analystProxy.EXPECT().ModelName().Return("claude-opus-5-5").Maybe()
 	symbolResolutionService := service.NewSymbolResolutionService(mocks.NewMockIListedCompanyProxy(t), fixture.cryptocurrencyProxy)
 	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})
+	unavailablePriceProxy := mocks.NewMockIPriceProxy(t)
+	unavailablePriceProxy.EXPECT().FetchPrice(mock.Anything, mock.Anything).Return(vo.PriceQuoteVo{}, errDatabaseDown).Maybe()
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: unavailablePriceProxy, UsStock: unavailablePriceProxy, Crypto: unavailablePriceProxy})
 	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(fixture.apiKeyRepository, clockProxy, mocks.NewMockIRandomProxy(t))))
 	analysisEventController := controller.NewAnalysisEventController(application.NewSymbolAnalysisApplication(service.NewSymbolAnalysisService(
-		symbolResolutionService, newsSearchService, fixture.analystProxy, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,
+		symbolResolutionService, newsSearchService, priceSnapshotService, fixture.analystProxy, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,
 	), 1))
 	fixture.router = gin.New()
 	protectedRoutes := fixture.router.Group("/", apiKeyController.RequireActiveApiKey())
@@ -154,7 +161,8 @@ func TestGetAnalysisEvent_ReturnsTheResultOfASucceededAnalysis(t *testing.T) {
 		KeyEvents:   []entities.AnalysisKeyEvent{{Title: "t", Link: "https://news/1", PublishedAt: analysisStartedAt}},
 		RiskFactors: []string{"風險"},
 		Evidence:    []entities.AnalysisEvidence{{Title: "t", Link: "https://news/1", PublishedAt: analysisStartedAt, ProviderName: "CoinDesk"}},
-		CreatedAt:   finishedAt,
+		Price:       decimal.NewNullDecimal(decimal.RequireFromString("86607.62")), PriceCurrency: "USDT", PricedAt: &finishedAt, PriceSource: "Binance",
+		CreatedAt: finishedAt,
 	}, nil)
 
 	recorder := send(fixture.router, http.MethodGet, "/analysis-events/30", presentedApiKey, "")
@@ -163,7 +171,8 @@ func TestGetAnalysisEvent_ReturnsTheResultOfASucceededAnalysis(t *testing.T) {
 	assert.JSONEq(t, `{"analysisEventId":30,"symbol":"BTC","category":"crypto","status":"succeeded","startedAt":"2026-10-06T12:00:00Z","finishedAt":"2026-10-06T12:01:00Z",
 		"result":{"analysisEventId":30,"symbol":"BTC","category":"crypto","grade":"bullish","confidence":70,"timeHorizon":"short","reason":"理由",
 		"keyEvents":[{"title":"t","link":"https://news/1","publishedAt":"2026-10-06T12:00:00Z"}],"riskFactors":["風險"],
-		"evidence":[{"title":"t","link":"https://news/1","publishedAt":"2026-10-06T12:00:00Z","providerName":"CoinDesk"}],"createdAt":"2026-10-06T12:01:00Z"}}`, recorder.Body.String())
+		"evidence":[{"title":"t","link":"https://news/1","publishedAt":"2026-10-06T12:00:00Z","providerName":"CoinDesk"}],
+		"priceAtAnalysis":{"price":"86607.62","currency":"USDT","pricedAt":"2026-10-06T12:01:00Z","source":"Binance"},"createdAt":"2026-10-06T12:01:00Z"}}`, recorder.Body.String())
 }
 
 func TestGetAnalysisEvent_ShowsAFailureReason(t *testing.T) {
@@ -224,4 +233,20 @@ func TestStartSymbolAnalysis_RejectsWhenAnalysisCapacityIsReached(t *testing.T) 
 	assert.Equal(t, http.StatusAccepted, firstRecorder.Code)
 	assert.Equal(t, http.StatusTooManyRequests, saturatedRecorder.Code)
 	assert.Equal(t, controller.ErrorDetail{Code: "analysis_capacity_reached", Message: "目前分析數量已達上限，請稍後再試"}, decodeError(t, saturatedRecorder))
+}
+
+func TestGetAnalysisEvent_ShowsAMissingPriceAsNull(t *testing.T) {
+	fixture := createAnalysisRouter(t)
+	fixture.givenActiveKey()
+	finishedAt := analysisStartedAt.Add(time.Minute)
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(33)).Return(&entities.AnalysisEvent{ID: 33, Status: "succeeded", StartedAt: analysisStartedAt, FinishedAt: &finishedAt}, nil)
+	fixture.analysisResultRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(33)).Return(&entities.AnalysisResult{AnalysisEventID: 33, Grade: "neutral"}, nil)
+
+	recorder := send(fixture.router, http.MethodGet, "/analysis-events/33", presentedApiKey, "")
+
+	var analysisEvent struct {
+		Result map[string]json.RawMessage `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &analysisEvent))
+	assert.JSONEq(t, `null`, string(analysisEvent.Result["priceAtAnalysis"]))
 }

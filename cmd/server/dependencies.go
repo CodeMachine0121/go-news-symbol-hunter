@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/binance"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/claude"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/yahoofinance"
 	"github.com/anthropics/anthropic-sdk-go"
 	"net/http"
 	"time"
@@ -36,6 +39,9 @@ type ExternalSourceUrls struct {
 	CointelegraphFeed    string
 	TwseListedCompanies  string
 	CoinGeckoSearch      string
+	BinanceTickerPrice   string
+	YahooFinanceChart    string
+	TwseDailyClosing     string
 }
 
 var productionExternalSourceUrls = ExternalSourceUrls{
@@ -47,6 +53,9 @@ var productionExternalSourceUrls = ExternalSourceUrls{
 	CointelegraphFeed:    "https://cointelegraph.com/rss",
 	TwseListedCompanies:  "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
 	CoinGeckoSearch:      "https://api.coingecko.com/api/v3/search",
+	BinanceTickerPrice:   "https://api.binance.com/api/v3/ticker/price",
+	YahooFinanceChart:    "https://query1.finance.yahoo.com/v8/finance/chart",
+	TwseDailyClosing:     "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
 }
 
 func newExternalHttpClient() *http.Client {
@@ -93,6 +102,14 @@ func buildNewsProviderCatalog(httpBodyReader *httpfetch.HttpBodyReader, external
 	}
 }
 
+func buildPriceProviderCatalog(httpBodyReader *httpfetch.HttpBodyReader, clockProxy interfaces.IClockProxy, externalSourceUrls ExternalSourceUrls) dto.PriceProviderCatalogDto {
+	return dto.PriceProviderCatalogDto{
+		TwStock: twse.NewTwsePriceProxy(httpBodyReader, clockProxy, externalSourceUrls.TwseDailyClosing),
+		UsStock: yahoofinance.NewYahooFinancePriceProxy(httpBodyReader, externalSourceUrls.YahooFinanceChart),
+		Crypto:  binance.NewBinancePriceProxy(httpBodyReader, clockProxy, externalSourceUrls.BinanceTickerPrice),
+	}
+}
+
 func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers {
 	clockProxy := system.NewSystemClockProxy()
 	httpBodyReader := httpfetch.NewHttpBodyReader(newExternalHttpClient())
@@ -105,6 +122,7 @@ func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers 
 	symbolAnalysisService := service.NewSymbolAnalysisService(
 		symbolResolutionService,
 		newsSearchService,
+		service.NewPriceSnapshotService(buildPriceProviderCatalog(httpBodyReader, clockProxy, productionExternalSourceUrls)),
 		claude.NewClaudeAnalystProxy(anthropic.NewClient(), serverConfig.AiAnalysisModel, serverConfig.AiAnalysisEffort),
 		persistence.NewAnalysisEventRepository(database),
 		persistence.NewAnalysisResultRepository(database),

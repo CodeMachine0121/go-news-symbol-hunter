@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/system"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -114,4 +115,30 @@ func TestPrepareRouter_FailsInterruptedAnalysesBeforeServing(t *testing.T) {
 
 	assert.ErrorContains(t, err, "fail interrupted analysis events")
 	assert.Nil(t, router)
+}
+
+func TestBuildPriceProviderCatalog_AssignsAPriceSourcePerMarket(t *testing.T) {
+	requestedPaths := make(chan string, 3)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestedPaths <- request.URL.Path
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	priceProviderCatalog := buildPriceProviderCatalog(httpfetch.NewHttpBodyReader(server.Client()), system.NewSystemClockProxy(), ExternalSourceUrls{
+		TwseDailyClosing: server.URL + "/twse", YahooFinanceChart: server.URL + "/yahoo", BinanceTickerPrice: server.URL + "/binance",
+	})
+
+	_, twStockError := priceProviderCatalog.TwStock.FetchPrice(context.Background(), "2330")
+	twStockPath := <-requestedPaths
+	_, usStockError := priceProviderCatalog.UsStock.FetchPrice(context.Background(), "AAPL")
+	usStockPath := <-requestedPaths
+	_, cryptoError := priceProviderCatalog.Crypto.FetchPrice(context.Background(), "BTC")
+	cryptoPath := <-requestedPaths
+
+	assert.Error(t, twStockError)
+	assert.Error(t, usStockError)
+	assert.Error(t, cryptoError)
+	assert.Equal(t, "/twse", twStockPath)
+	assert.Equal(t, "/yahoo/AAPL", usStockPath)
+	assert.Equal(t, "/binance", cryptoPath)
 }

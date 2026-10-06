@@ -9,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -91,7 +92,7 @@ func recordedEvidence(links ...string) *domains.AnalysisEvidenceDomain {
 func conclude(t *testing.T, rawConclusion vo.RawAnalysisConclusionVo, analysisEvidence *domains.AnalysisEvidenceDomain) entities.AnalysisResult {
 	conclusion, err := domains.NewAnalysisConclusionDomain(rawConclusion, analysisEvidence)
 	require.NoError(t, err)
-	return conclusion.ToResultEntity(entities.AnalysisEvent{ID: 9, Symbol: "BTC", Category: "crypto"}, analyzedAt)
+	return conclusion.ToResultEntity(entities.AnalysisEvent{ID: 9, Symbol: "BTC", Category: "crypto"}, analyzedAt, nil)
 }
 
 func TestAnalysisConclusionDomain_NormalizesTheConclusion(t *testing.T) {
@@ -189,4 +190,31 @@ func TestAnalysisEventDomain_IsStaleAt(t *testing.T) {
 	assert.False(t, domains.NewAnalysisEventDomain(entities.AnalysisEvent{Status: "running", StartedAt: analyzedAt.Add(-15 * time.Minute)}).IsStaleAt(analyzedAt))
 	assert.True(t, domains.NewAnalysisEventDomain(entities.AnalysisEvent{Status: "running", StartedAt: analyzedAt.Add(-15*time.Minute - time.Second)}).IsStaleAt(analyzedAt))
 	assert.False(t, domains.NewAnalysisEventDomain(entities.AnalysisEvent{Status: "failed", StartedAt: analyzedAt.Add(-time.Hour)}).IsStaleAt(analyzedAt))
+}
+
+func TestAnalysisConclusionDomain_ToResultEntityCarriesThePriceQuote(t *testing.T) {
+	conclusion, err := domains.NewAnalysisConclusionDomain(vo.RawAnalysisConclusionVo{Grade: "bullish", Reason: "r"}, recordedEvidence("a"))
+	require.NoError(t, err)
+	priceQuote, err := vo.NewPriceQuoteVo(decimal.RequireFromString("0.00001234"), "USDT", analyzedAt, "Binance")
+	require.NoError(t, err)
+
+	analysisResult := conclusion.ToResultEntity(entities.AnalysisEvent{ID: 9}, analyzedAt, &priceQuote)
+	analysisResultWithoutPrice := conclusion.ToResultEntity(entities.AnalysisEvent{ID: 9}, analyzedAt, nil)
+
+	assert.Equal(t, "0.00001234", analysisResult.Price.Decimal.String())
+	assert.True(t, analysisResult.Price.Valid)
+	assert.Equal(t, "USDT", analysisResult.PriceCurrency)
+	assert.Equal(t, &analyzedAt, analysisResult.PricedAt)
+	assert.Equal(t, "Binance", analysisResult.PriceSource)
+	assert.False(t, analysisResultWithoutPrice.Price.Valid)
+	assert.Nil(t, analysisResultWithoutPrice.PricedAt)
+}
+
+func TestAnalysisEventDomain_ToDtoShowsThePriceAtAnalysisOrNull(t *testing.T) {
+	analysisEvent := domains.NewAnalysisEventDomain(entities.AnalysisEvent{ID: 3, Status: "succeeded"})
+	pricedResult := entities.AnalysisResult{AnalysisEventID: 3, Price: decimal.NewNullDecimal(decimal.RequireFromString("86607.62")), PriceCurrency: "USDT", PricedAt: &analyzedAt, PriceSource: "Binance"}
+	unpricedResult := entities.AnalysisResult{AnalysisEventID: 3}
+
+	assert.Equal(t, &dto.PriceAtAnalysisDto{Price: decimal.RequireFromString("86607.62"), Currency: "USDT", PricedAt: analyzedAt, Source: "Binance"}, analysisEvent.ToDto(&pricedResult).Result.PriceAtAnalysis)
+	assert.Nil(t, analysisEvent.ToDto(&unpricedResult).Result.PriceAtAnalysis)
 }

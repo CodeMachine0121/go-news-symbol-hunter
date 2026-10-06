@@ -13,6 +13,7 @@ type AnalysisResultDto struct {
 	KeyEvents       []AnalysisKeyEventDto `json:"keyEvents"`
 	RiskFactors     []string              `json:"riskFactors"`
 	Evidence        []AnalysisEvidenceDto `json:"evidence"`
+	PriceAtAnalysis *PriceAtAnalysisDto   `json:"priceAtAnalysis"`
 	CreatedAt       time.Time             `json:"createdAt"`
 }
 
