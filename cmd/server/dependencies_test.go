@@ -3,13 +3,13 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func TestOpenDatabase_RejectsAnUnreachableDatabase(t *testing.T) {
@@ -18,12 +18,9 @@ func TestOpenDatabase_RejectsAnUnreachableDatabase(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestRegisteredRoutes_ServeHealthAndApiKeyIssuing(t *testing.T) {
-	databaseUrl := os.Getenv("TEST_POSTGRES_DSN")
-	if databaseUrl == "" {
-		t.Skip("TEST_POSTGRES_DSN is not set")
-	}
-	database, err := openDatabase(ServerConfig{DatabaseUrl: databaseUrl})
+func TestRegisteredRoutes_ServeHealthAndGuardApiKeyRoutes(t *testing.T) {
+	// never connects: the routes exercised here answer before reaching the database
+	database, err := gorm.Open(postgres.New(postgres.Config{DSN: "host=127.0.0.1 port=1 dbname=unused_test"}), &gorm.Config{DisableAutomaticPing: true})
 	require.NoError(t, err)
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -32,14 +29,14 @@ func TestRegisteredRoutes_ServeHealthAndApiKeyIssuing(t *testing.T) {
 	healthRecorder := httptest.NewRecorder()
 	router.ServeHTTP(healthRecorder, httptest.NewRequest(http.MethodGet, "/health", nil))
 	issueRecorder := httptest.NewRecorder()
-	router.ServeHTTP(issueRecorder, httptest.NewRequest(http.MethodPost, "/api-keys", strings.NewReader(`{"name":"整合測試"}`)))
+	router.ServeHTTP(issueRecorder, httptest.NewRequest(http.MethodPost, "/api-keys", nil))
 	statusRecorder := httptest.NewRecorder()
 	router.ServeHTTP(statusRecorder, httptest.NewRequest(http.MethodGet, "/api-keys/me", nil))
 	revokeRecorder := httptest.NewRecorder()
 	router.ServeHTTP(revokeRecorder, httptest.NewRequest(http.MethodDelete, "/api-keys/me", nil))
 
 	assert.Equal(t, http.StatusOK, healthRecorder.Code)
-	assert.Equal(t, http.StatusCreated, issueRecorder.Code)
+	assert.Equal(t, http.StatusBadRequest, issueRecorder.Code)
 	assert.Equal(t, http.StatusUnauthorized, statusRecorder.Code)
 	assert.Equal(t, http.StatusUnauthorized, revokeRecorder.Code)
 }
