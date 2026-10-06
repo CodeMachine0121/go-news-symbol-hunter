@@ -34,7 +34,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | `AnalysisEvent` | Entity | `ID`、`ApiKeyID`、`Symbol`、`Category`、`Status`、`FailureReason`、`Model`、`InputTokens`、`OutputTokens`、`StartedAt`、`FinishedAt *time.Time`；partial unique index：同 `symbol + category` 只能有一筆 `running` | — | US-01~05 |
 | `AnalysisResult` | Entity | `ID`、`AnalysisEventID`（unique）、`Symbol`、`Category`、`Grade`、`Confidence`、`TimeHorizon`、`Reason`、`KeyEvents`、`RiskFactors`、`Evidence`（後三者 jsonb）、`CreatedAt` | `AnalysisKeyEvent`、`AnalysisEvidence`（entity 內的 json 結構） | US-03、US-04 |
-| `AnalysisEventDomain` | Domain Model | `IsReusableAt(now)`（分析中，或 6 小時內完成）、`Succeed(finishedAt, usage)`、`Fail(reason, finishedAt, usage)`、`ToDto(result)`、`ToEntity()` | `AnalysisEvent` | US-02、US-03、US-05 |
+| `AnalysisEventDomain` | Domain Model | `IsReusableAt(now)`（15 分鐘內開始的分析中，或 6 小時內完成）、`IsStaleAt(now)`（分析中超過 15 分鐘）、`RecordAnsweringModel`、`Succeed(finishedAt, usage)`、`Fail(reason, finishedAt, usage)`、`ToDto(result)`、`ToEntity()` | `AnalysisEvent` | US-02、US-03、US-05 |
 | `AnalysisEvidenceDomain` | Domain Model | 蒐集這次 AI 取得的新聞（以連結去重）；`Record(symbolNews)`、`FindByLink(link)`、`IsEmpty()`、`ToEntities()` | `NewsDto` | US-04 佐證、關鍵事件 |
 | `AnalysisConclusionDomain` | Domain Model | 建構子正規化 AI 原始結論：評等 / 時間範圍非法 → 安全預設、信心夾到 0–100、關鍵事件只留佐證中的連結（最多 5）、風險因子去空白（最多 5）、佐證為空 → 中性 + 0、理由空白 → `ErrAnalysisIncomplete`；`ToResultEntity(...)` | `AnalysisEvidenceDomain` | US-04 全部、US-05 未提供理由 |
 | `AnalystRequestVo` | VO | 給 AI 的分析題目：標的、市場類別、搜尋字（公司簡稱 / 幣種名稱） | — | — |
@@ -44,10 +44,18 @@
 | `IAnalysisEventRepository` | Interface | `Create`（同標的已有分析中 → `ErrAnalysisAlreadyRunning`）、`FindByID`、`FindLatestReusable(symbol, category)`、`Update`、`FailAllRunning(reason, finishedAt)` | — | US-01、02、03、05 |
 | `IAnalysisResultRepository` | Interface | `Create`、`FindByAnalysisEventID` | — | US-03、04 |
 | `SymbolAnalysisService` | Domain Service | `StartSymbolAnalysis(ctx, apiKeyID, dto)`：驗證、辨識、重用或建立；`AnalyzeSymbol(ctx, analysisEventID)`：工具迴圈（最多 5 輪）+ 正規化 + 保存，失敗記原因；`GetAnalysisEvent(ctx, id)`；`FailInterruptedAnalysisEvents(ctx)` | 上述介面、`SymbolResolutionService`、`NewsSearchService`、`IClockProxy` | 全部 |
-| `SymbolAnalysisApplication` | Application | `StartSymbolAnalysis`：呼叫 service，新建立時以 `go` 背景執行 `AnalyzeSymbol`（脫離 request 取消）；`GetAnalysisEvent`；`FailInterruptedAnalysisEvents` | `SymbolAnalysisService` | 全部 |
+| `SymbolAnalysisApplication` | Application | `StartSymbolAnalysis`：以容量為 `AI_ANALYSIS_MAX_CONCURRENCY` 的 semaphore 嘗試取得名額（取不到則只允許重用），呼叫 service，新建立時以 `go` 背景執行 `AnalyzeSymbol`（脫離 request 取消、結束時釋放名額、recover panic）；`GetAnalysisEvent`；`FailInterruptedAnalysisEvents` | `SymbolAnalysisService` | 全部 |
 | `AnalysisEventController` | Controller | `POST /analysis-events`（body `symbol`、`category`；新建 202、重用 200）；`GET /analysis-events/:id` | Application、`ErrorResponseTable` | 全部 |
 | `ClaudeAnalystProxy` | Proxy | Beta Messages API：system prompt + 兩個 strict 工具（`search_symbol_news`、`submit_analysis`），以 `exchanges` 重建對話（AI 回覆以原始 JSON 還原後 `.ToParam()`，保留 thinking 區塊）；`tool_choice` auto（Opus 5.5 不支援強制）；`fallbacks: "default"`（refusal 時由伺服器改用其他模型）；`stop_reason == refusal` → 拒絕 | Anthropic SDK client | 全部 |
 | `AnalysisEventRepository` / `AnalysisResultRepository` | Repository | GORM 實作；`TranslateError` 把唯一索引衝突轉成 `ErrAnalysisAlreadyRunning` | `*gorm.DB` | 全部 |
+
+### 時間與並行
+
+- `AnalyzeSymbol` 以 `domains.AnalysisTimeout`（10 分鐘）限制 AI 與搜尋；逾時記為「分析逾時」。保存結果與結束事件使用不受期限影響的 context，確保一定寫回。
+- 發起時遇到超過 `AnalysisStaleAfter`（15 分鐘）的分析中事件 → 改為失敗「分析逾時」後重新建立。
+- 建立分析事件撞上唯一索引時重試（最多 3 次），避免競爭的另一方已結束時誤回 503。
+- 同一輪的多個搜尋並行執行，結果依 AI 要求的順序回傳並記錄佐證。
+- Proxy 設定 top-level 自動快取，對話逐輪成長時只為新增部分付全價。
 
 ### 工具迴圈（`AnalyzeSymbol`）
 
@@ -84,6 +92,7 @@ AI 回覆沒有工具呼叫也沒有結論（純文字結束）→ 視為 AI 未
 | :--- | :--- | :--- | :--- |
 | 沿用 `ErrMarketCategoryUnsupported` / `ErrSymbolRequired` / `ErrSymbolNotFound` / `ErrNewsProvidersUnavailable` | 400 / 400 / 404 / 502 | 同新聞搜尋 | 同新聞搜尋 |
 | `ErrAnalysisEventNotFound` | 404 | `analysis_event_not_found` | 找不到此分析事件 |
+| `ErrAnalysisCapacityReached` | 429 | `analysis_capacity_reached` | 目前分析數量已達上限，請稍後再試 |
 | 其他（資料存取失敗） | 503 | `service_unavailable` | 服務暫時無法使用 |
 
 ### 設定（環境變數）
@@ -92,6 +101,7 @@ AI 回覆沒有工具呼叫也沒有結論（純文字結束）→ 視為 AI 未
 | :--- | :--- | :--- |
 | `ANTHROPIC_API_KEY` | — | SDK 自動讀取 |
 | `AI_ANALYSIS_MODEL` | `claude-opus-5-5` | 分析模型 |
+| `AI_ANALYSIS_MAX_CONCURRENCY` | `4` | 同時進行的背景分析上限 |
 | `AI_ANALYSIS_EFFORT` | `high` | 思考深度（`low`/`medium`/`high`/`xhigh`/`max`；Opus 5.5 預設為 medium，投資判斷屬高智力工作故設 high） |
 
 ---

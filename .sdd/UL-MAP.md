@@ -87,7 +87,7 @@
 | 市場類別 | `usStock` | 美股 | Confirmed |
 | 評等 | `strongBullish` / `bullish` / `neutral` / `bearish` / `strongBearish` | 強烈看多 / 看多 / 中性 / 看空 / 強烈看空 | Confirmed；非法值正規化為 `neutral` |
 | 分析事件狀態 | `running` / `succeeded` / `failed` | 分析中 / 已完成 / 失敗 | Confirmed；服務重啟時殘留 `running` 改為 `failed` |
-| 失敗原因 | — | AI 服務暫時無法使用 / AI 未在限制內完成分析 / AI 未提供完整分析 / AI 拒絕分析此標的 / 分析結果保存失敗 / 服務重新啟動，分析中斷 | Confirmed |
+| 失敗原因 | — | AI 服務暫時無法使用 / AI 未在限制內完成分析 / AI 未提供完整分析 / AI 拒絕分析此標的 / 分析結果保存失敗 / 服務重新啟動，分析中斷 / 分析逾時 | Confirmed |
 | API key 狀態 | `inactive` / `active` | 停用中 / 已啟用 | Confirmed；已撤銷不作為對外狀態，一律回「無效」 |
 | 時間範圍 | `short` / `mid` | 短期（兩週內）/ 中期（三個月內） | Confirmed；非法值正規化為 `short` |
 
