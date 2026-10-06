@@ -2,10 +2,14 @@ package service
 
 import (
 	"context"
+	"time"
 
+	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 )
+
+const PriceCaptureTimeout = 10 * time.Second
 
 type PriceSnapshotService struct {
 	priceProviderCatalog dto.PriceProviderCatalogDto
@@ -17,14 +21,18 @@ func NewPriceSnapshotService(priceProviderCatalog dto.PriceProviderCatalogDto) *
 
 // never fails: an analysis is still worth keeping without its price
 func (priceSnapshotService *PriceSnapshotService) CapturePrice(ctx context.Context, capturePriceDto dto.CapturePriceDto) *vo.PriceQuoteVo {
-	priceProxy := priceSnapshotService.priceProviderCatalog.UsStock
-	switch capturePriceDto.Category {
-	case vo.MarketCategoryTwStock:
-		priceProxy = priceSnapshotService.priceProviderCatalog.TwStock
-	case vo.MarketCategoryCrypto:
-		priceProxy = priceSnapshotService.priceProviderCatalog.Crypto
+	priceProxiesByCategory := map[string]interfaces.IPriceProxy{
+		vo.MarketCategoryTwStock: priceSnapshotService.priceProviderCatalog.TwStock,
+		vo.MarketCategoryUsStock: priceSnapshotService.priceProviderCatalog.UsStock,
+		vo.MarketCategoryCrypto:  priceSnapshotService.priceProviderCatalog.Crypto,
 	}
-	priceQuote, err := priceProxy.FetchPrice(ctx, capturePriceDto.Symbol)
+	priceProxy, supported := priceProxiesByCategory[capturePriceDto.Category]
+	if !supported {
+		return nil
+	}
+	captureContext, cancelCapture := context.WithTimeout(ctx, PriceCaptureTimeout)
+	defer cancelCapture()
+	priceQuote, err := priceProxy.FetchPrice(captureContext, capturePriceDto.Symbol)
 	if err != nil {
 		return nil
 	}

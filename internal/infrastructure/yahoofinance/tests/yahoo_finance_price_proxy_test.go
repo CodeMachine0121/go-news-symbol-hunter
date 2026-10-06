@@ -37,6 +37,13 @@ func TestYahooFinancePriceProxy_QuotesTheRegularMarketPrice(t *testing.T) {
 	assert.Equal(t, "332.94", priceQuote.Price.String())
 }
 
+func TestYahooFinancePriceProxy_KeepsPrecisionBeyondFloatingPoint(t *testing.T) {
+	priceQuote, _, err := fetchFrom(t, http.StatusOK, `{"chart":{"result":[{"meta":{"currency":"USD","regularMarketPrice":123456789.123456789,"regularMarketTime":1791326022}}]}}`)
+
+	require.NoError(t, err)
+	assert.Equal(t, "123456789.123456789", priceQuote.Price.String())
+}
+
 func TestYahooFinancePriceProxy_FailsWithoutAUsablePrice(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string

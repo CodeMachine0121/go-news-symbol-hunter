@@ -142,7 +142,7 @@ func TestAnalysisResultRepository_StoresThePriceAtAnalysisExactly(t *testing.T) 
 	pricedResult := entities.AnalysisResult{
 		AnalysisEventID: 1, Symbol: "SHIB", Category: "crypto", Grade: "neutral", TimeHorizon: "short", Reason: "r",
 		KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{},
-		Price: decimal.NewNullDecimal(decimal.RequireFromString("0.000012345678901234")), PriceCurrency: "USDT", PricedAt: &analysisStartedAt, PriceSource: "Binance",
+		Price: decimal.NewNullDecimal(decimal.RequireFromString("123456789.123456789012345678")), PriceCurrency: "USDT", PricedAt: &analysisStartedAt, PriceSource: "Binance",
 	}
 	unpricedResult := entities.AnalysisResult{
 		AnalysisEventID: 2, Symbol: "XYZ", Category: "crypto", Grade: "neutral", TimeHorizon: "short", Reason: "r",
@@ -156,7 +156,7 @@ func TestAnalysisResultRepository_StoresThePriceAtAnalysisExactly(t *testing.T) 
 
 	require.NoError(t, err)
 	require.NoError(t, unpricedError)
-	assert.Equal(t, "0.000012345678901234", foundPricedResult.Price.Decimal.String())
+	assert.Equal(t, "123456789.123456789012345678", foundPricedResult.Price.Decimal.String())
 	assert.True(t, foundPricedResult.PricedAt.Equal(analysisStartedAt))
 	assert.Equal(t, "USDT", foundPricedResult.PriceCurrency)
 	assert.Equal(t, "Binance", foundPricedResult.PriceSource)

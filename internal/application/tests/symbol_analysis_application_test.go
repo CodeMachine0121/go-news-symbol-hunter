@@ -828,3 +828,24 @@ func TestCapturePrice_UsesTheMarketsPriceSource(t *testing.T) {
 		assert.Equal(t, expectedSource, priceQuote.Source)
 	}
 }
+
+func TestCapturePrice_GivesUpAfterTenSeconds(t *testing.T) {
+	stuckPriceProxy := mocks.NewMockIPriceProxy(t)
+	stuckPriceProxy.EXPECT().FetchPrice(mock.Anything, "BTC").RunAndReturn(func(ctx context.Context, _ string) (vo.PriceQuoteVo, error) {
+		deadline, hasDeadline := ctx.Deadline()
+		assert.True(t, hasDeadline)
+		assert.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
+		return vo.PriceQuoteVo{}, context.DeadlineExceeded
+	})
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{Crypto: stuckPriceProxy})
+
+	priceQuote := priceSnapshotService.CapturePrice(context.Background(), dto.CapturePriceDto{Symbol: "BTC", Category: "crypto"})
+
+	assert.Nil(t, priceQuote)
+}
+
+func TestCapturePrice_UnknownMarketHasNoPrice(t *testing.T) {
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: mocks.NewMockIPriceProxy(t), UsStock: mocks.NewMockIPriceProxy(t), Crypto: mocks.NewMockIPriceProxy(t)})
+
+	assert.Nil(t, priceSnapshotService.CapturePrice(context.Background(), dto.CapturePriceDto{Symbol: "0700", Category: "hk"}))
+}
