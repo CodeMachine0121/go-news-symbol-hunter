@@ -16,17 +16,13 @@ const (
 	AuthorizedApiKeyIDContextKey = "authorizedApiKeyId"
 )
 
-var apiKeyErrorResponses = []struct {
-	err    error
-	status int
-	code   string
-}{
-	{err: service.ErrApiKeyNameRequired, status: http.StatusBadRequest, code: "api_key_name_required"},
-	{err: service.ErrApiKeyNameTooLong, status: http.StatusBadRequest, code: "api_key_name_too_long"},
-	{err: service.ErrApiKeyNameInvalidCharacters, status: http.StatusBadRequest, code: "api_key_name_invalid_characters"},
-	{err: service.ErrApiKeyMissing, status: http.StatusUnauthorized, code: "api_key_missing"},
-	{err: service.ErrApiKeyInvalid, status: http.StatusUnauthorized, code: "api_key_invalid"},
-	{err: service.ErrApiKeyInactive, status: http.StatusForbidden, code: "api_key_inactive"},
+var apiKeyErrorResponseTable = ErrorResponseTable{
+	{Err: service.ErrApiKeyNameRequired, Status: http.StatusBadRequest, Code: "api_key_name_required"},
+	{Err: service.ErrApiKeyNameTooLong, Status: http.StatusBadRequest, Code: "api_key_name_too_long"},
+	{Err: service.ErrApiKeyNameInvalidCharacters, Status: http.StatusBadRequest, Code: "api_key_name_invalid_characters"},
+	{Err: service.ErrApiKeyMissing, Status: http.StatusUnauthorized, Code: "api_key_missing"},
+	{Err: service.ErrApiKeyInvalid, Status: http.StatusUnauthorized, Code: "api_key_invalid"},
+	{Err: service.ErrApiKeyInactive, Status: http.StatusForbidden, Code: "api_key_inactive"},
 }
 
 type IssueApiKeyRequest struct {
@@ -49,7 +45,7 @@ func (apiKeyController *ApiKeyController) IssueApiKey(context *gin.Context) {
 	}
 	issuedApiKey, err := apiKeyController.apiKeyApplication.IssueApiKey(dto.IssueApiKeyDto{Name: issueApiKeyRequest.Name})
 	if err != nil {
-		apiKeyController.respondError(context, err)
+		apiKeyErrorResponseTable.Respond(context, err)
 		return
 	}
 	context.JSON(http.StatusCreated, issuedApiKey)
@@ -58,7 +54,7 @@ func (apiKeyController *ApiKeyController) IssueApiKey(context *gin.Context) {
 func (apiKeyController *ApiKeyController) GetApiKeyStatus(context *gin.Context) {
 	apiKeyStatus, err := apiKeyController.apiKeyApplication.GetApiKeyStatus(context.GetHeader(ApiKeyHeader))
 	if err != nil {
-		apiKeyController.respondError(context, err)
+		apiKeyErrorResponseTable.Respond(context, err)
 		return
 	}
 	context.JSON(http.StatusOK, apiKeyStatus)
@@ -66,7 +62,7 @@ func (apiKeyController *ApiKeyController) GetApiKeyStatus(context *gin.Context) 
 
 func (apiKeyController *ApiKeyController) RevokeApiKey(context *gin.Context) {
 	if err := apiKeyController.apiKeyApplication.RevokeApiKey(context.GetHeader(ApiKeyHeader)); err != nil {
-		apiKeyController.respondError(context, err)
+		apiKeyErrorResponseTable.Respond(context, err)
 		return
 	}
 	context.Status(http.StatusNoContent)
@@ -76,21 +72,11 @@ func (apiKeyController *ApiKeyController) RequireActiveApiKey() gin.HandlerFunc 
 	return func(context *gin.Context) {
 		authorizedApiKey, err := apiKeyController.apiKeyApplication.AuthorizeApiKey(context.GetHeader(ApiKeyHeader))
 		if err != nil {
-			apiKeyController.respondError(context, err)
+			apiKeyErrorResponseTable.Respond(context, err)
 			context.Abort()
 			return
 		}
 		context.Set(AuthorizedApiKeyIDContextKey, authorizedApiKey.ApiKeyID)
 		context.Next()
 	}
-}
-
-func (apiKeyController *ApiKeyController) respondError(context *gin.Context, err error) {
-	for _, apiKeyErrorResponse := range apiKeyErrorResponses {
-		if errors.Is(err, apiKeyErrorResponse.err) {
-			context.JSON(apiKeyErrorResponse.status, ErrorResponseBody{Error: ErrorDetail{Code: apiKeyErrorResponse.code, Message: apiKeyErrorResponse.err.Error()}})
-			return
-		}
-	}
-	context.JSON(http.StatusServiceUnavailable, ErrorResponseBody{Error: ErrorDetail{Code: "service_unavailable", Message: "服務暫時無法使用"}})
 }

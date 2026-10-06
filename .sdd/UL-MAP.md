@@ -20,7 +20,11 @@
 | 評等 | `GradeResult` / `grade_result` | grade_result | AI 對標的資訊面的結論評等。值域待定（候選見 §4），非法值正規化為中性 | Confirmed（值域 Archeology） |
 | 分析理由 | `Reason` / `reason` | reason | 支撐評等的文字說明 | Confirmed |
 | 新聞來源 | `NewsProvider`（介面 `INewsProxy`，實作 `{Provider}NewsProxy`） | — | 可爬取新聞的外部平台。依市場類別選用，由程式決定，不交給 AI 選擇 | Confirmed |
-| 新聞 | `News` | — | 由新聞來源取回、正規化後的單則新聞（標題、URL、發布時間、來源） | Archeology |
+| 新聞 | `News` | news | 由新聞來源取回、正規化後的單則新聞：標題、連結、發布時間、新聞來源名稱、摘要（來源有提供時） | Confirmed |
+| 搜尋字 | `SearchKeyword` | — | 向新聞來源搜尋時使用的字：台股為公司簡稱、美股為標的代號、加密貨幣為幣種名稱（專門來源另以名稱或代號篩選） | Confirmed |
+| 標的辨識 | `ResolvedSymbol` | — | 依市場類別把標的轉為搜尋字的結果；台股查證交所上市公司清單、加密貨幣查幣種清單（同代號取市值排名最前）、美股不查 | Confirmed |
+| 新聞搜尋時間窗 | — | — | 只保留搜尋當下往回 7 天內發布的新聞 | Confirmed |
+| 失敗的新聞來源 | `FailedNewsProviders` | failedNewsProviders | 本次搜尋未取得資料的新聞來源名稱清單 | Confirmed |
 | 信心指數 | `Confidence` / `confidence` | confidence | AI 對評等的把握程度，0–100，超出範圍 clamp | Archeology |
 | 時間範圍 | `TimeHorizon` / `time_horizon` | time_horizon | 評等適用的持有期間（候選 `short`/`mid`） | Archeology |
 | 關鍵事件 | `KeyEvent` / `key_events` | key_events | 支撐評等的 3–5 則重點事件，每則附來源 URL 與發布時間 | Archeology |
@@ -43,8 +47,8 @@
 
 | Business Action | Technical Method | Trigger | Business Impact | Notes |
 | :--- | :--- | :--- | :--- | :--- |
-| 爬取新聞 | 待定（候選 `SearchNews`） | 分析過程中 AI 呼叫工具 | 依市場類別從對應新聞來源取回並正規化新聞，不落地 | 包成 application，再作為 AI tool 暴露 |
-| 選擇新聞來源 | 待定 | 爬取新聞時 | 依市場類別決定要打哪些新聞來源 | 由程式決定，不由 AI 決定 |
+| 搜尋標的新聞（爬取新聞） | `SearchSymbolNews` | 使用者以已啟用 API key 呼叫；之後亦由 AI 分析時呼叫 | 依市場類別同時向對應新聞來源取新聞，篩選 7 天內、標題去重、新到舊、最多 30 則，不落地 | 部分新聞來源失敗仍回傳其餘結果並列出失敗來源 |
+| 選擇新聞來源 | `NewsProviderSelection` | 搜尋標的新聞時 | 台股 → 鉅亨網、Google 新聞（繁中）；美股 → Yahoo 財經、Google 新聞（英文）；加密貨幣 → CoinDesk、Cointelegraph、Google 新聞（英文） | 由程式決定，不由 AI 決定 |
 | 分析標的 | 待定（候選 `AnalyzeSymbol`） | 使用者呼叫 API（參數：symbol、category） | 建立分析事件 → AI 使用爬取新聞工具分析 → 落地分析結果 | 同步 / 非同步待定（候選：POST 回 `analysis_event_id`，GET 查結果） |
 | 建立 API key | 待定 | 使用者呼叫公開的建立端點（必填名稱） | 新增一把停用中的 API key | 端點公開，靠預設停用把關；明文是否只回傳一次 TBD |
 | 撤銷 API key | 待定 | 持有者出示 API key 撤銷 | API key 永久失效 | 持有 API key 即可撤銷；撤銷後不可再啟用 |
@@ -60,7 +64,7 @@
 
 | Ambiguous Term | Meaning in Context A | Meaning in Context B | Resolution |
 | :--- | :--- | :--- | :--- |
-| 標的代號格式 | 台股：數字代號 `2330`，但新聞多寫公司名「台積電」 | Crypto：`BTC` / `BTCUSDT` / `bitcoin` 多種寫法 | 待定：需要「標的 → 搜尋關鍵字」對應，代號正規化規則於 `/clarify` 拍板 |
+| 標的代號格式 | 台股：數字代號 `2330`，但新聞多寫公司名「台積電」 | Crypto：`BTC` / `BTCUSDT` / `bitcoin` 多種寫法 | 已決議：標的去空白；加密貨幣與美股轉大寫；以「標的辨識」轉為搜尋字（見 §1） |
 | category 的值 | 使用者原文 `twSotck` | 討論中寫作 `twStock` | 以 `twStock` 為準（原文為筆誤，待確認） |
 | 分析事件 vs 分析結果 | 分析事件：執行過程（何時、狀態、失敗原因） | 分析結果：業務產出（評等、理由…） | 兩者分責；目前一個分析事件對應一個分析結果 |
 | 資料表名稱 | 使用者定義為單數 `analysis_event` / `analysis_result` | ORM 預設會轉為複數（如 GORM → `analysis_events`） | 待定：是否需覆寫表名以維持單數 |
