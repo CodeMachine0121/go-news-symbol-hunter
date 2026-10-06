@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/cache"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"github.com/shopspring/decimal"
-	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -36,31 +35,21 @@ type twseDailyClosing struct {
 }
 
 type TwsePriceProxy struct {
-	httpBodyReader      *httpfetch.HttpBodyReader
-	clockProxy          interfaces.IClockProxy
-	dailyClosingUrl     string
-	refreshGroup        singleflight.Group
-	cacheMutex          sync.RWMutex
-	dailyClosingsByCode map[string]twseDailyClosing
-	cacheExpiresAt      time.Time
+	httpBodyReader     *httpfetch.HttpBodyReader
+	dailyClosingUrl    string
+	dailyClosingsCache *cache.RefreshingCache[map[string]twseDailyClosing]
 }
 
 func NewTwsePriceProxy(httpBodyReader *httpfetch.HttpBodyReader, clockProxy interfaces.IClockProxy, dailyClosingUrl string) *TwsePriceProxy {
-	return &TwsePriceProxy{httpBodyReader: httpBodyReader, clockProxy: clockProxy, dailyClosingUrl: dailyClosingUrl}
+	twsePriceProxy := &TwsePriceProxy{httpBodyReader: httpBodyReader, dailyClosingUrl: dailyClosingUrl}
+	twsePriceProxy.dailyClosingsCache = cache.NewRefreshingCache(clockProxy, dailyClosingCacheDuration, twsePriceProxy.downloadDailyClosings)
+	return twsePriceProxy
 }
 
 func (twsePriceProxy *TwsePriceProxy) FetchPrice(ctx context.Context, symbol string) (vo.PriceQuoteVo, error) {
-	now := twsePriceProxy.clockProxy.Now()
-	dailyClosingsByCode, isFresh := twsePriceProxy.cachedDailyClosings(now)
-	if !isFresh {
-		// one download serves every concurrent caller; it outlives a single caller's cancellation
-		refreshedDailyClosings, err, _ := twsePriceProxy.refreshGroup.Do("dailyClosings", func() (any, error) {
-			return twsePriceProxy.downloadDailyClosings(context.WithoutCancel(ctx), now)
-		})
-		if err != nil {
-			return vo.PriceQuoteVo{}, err
-		}
-		dailyClosingsByCode = refreshedDailyClosings.(map[string]twseDailyClosing)
+	dailyClosingsByCode, err := twsePriceProxy.dailyClosingsCache.Get(ctx)
+	if err != nil {
+		return vo.PriceQuoteVo{}, err
 	}
 	dailyClosing, found := dailyClosingsByCode[symbol]
 	if !found {
@@ -77,15 +66,8 @@ func (twsePriceProxy *TwsePriceProxy) FetchPrice(ctx context.Context, symbol str
 	return vo.NewPriceQuoteVo(closingPrice, twseQuoteCurrency, tradingDate, TwsePriceSource)
 }
 
-// scopes the read lock so it is released before any network call
-func (twsePriceProxy *TwsePriceProxy) cachedDailyClosings(now time.Time) (map[string]twseDailyClosing, bool) {
-	twsePriceProxy.cacheMutex.RLock()
-	defer twsePriceProxy.cacheMutex.RUnlock()
-	return twsePriceProxy.dailyClosingsByCode, twsePriceProxy.dailyClosingsByCode != nil && now.Before(twsePriceProxy.cacheExpiresAt)
-}
-
-// runs inside singleflight, which only accepts a function value
-func (twsePriceProxy *TwsePriceProxy) downloadDailyClosings(ctx context.Context, now time.Time) (map[string]twseDailyClosing, error) {
+// handed to the cache as its download function
+func (twsePriceProxy *TwsePriceProxy) downloadDailyClosings(ctx context.Context) (map[string]twseDailyClosing, error) {
 	responseBody, err := twsePriceProxy.httpBodyReader.Read(ctx, twsePriceProxy.dailyClosingUrl)
 	if err != nil {
 		return nil, err
@@ -101,10 +83,6 @@ func (twsePriceProxy *TwsePriceProxy) downloadDailyClosings(ctx context.Context,
 	for _, dailyClosing := range dailyClosings {
 		dailyClosingsByCode[strings.TrimSpace(dailyClosing.Code)] = dailyClosing
 	}
-	twsePriceProxy.cacheMutex.Lock()
-	defer twsePriceProxy.cacheMutex.Unlock()
-	twsePriceProxy.dailyClosingsByCode = dailyClosingsByCode
-	twsePriceProxy.cacheExpiresAt = now.Add(dailyClosingCacheDuration)
 	return dailyClosingsByCode, nil
 }
 
