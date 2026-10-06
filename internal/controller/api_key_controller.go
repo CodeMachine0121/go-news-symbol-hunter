@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/application"
@@ -41,7 +42,7 @@ func NewApiKeyController(apiKeyApplication *application.ApiKeyApplication) *ApiK
 
 func (apiKeyController *ApiKeyController) IssueApiKey(context *gin.Context) {
 	var issueApiKeyRequest IssueApiKeyRequest
-	if err := context.ShouldBindJSON(&issueApiKeyRequest); err != nil {
+	if err := context.ShouldBindJSON(&issueApiKeyRequest); err != nil && !errors.Is(err, io.EOF) {
 		context.JSON(http.StatusBadRequest, ErrorResponseBody{Error: ErrorDetail{Code: "invalid_request_body", Message: "請求內容格式錯誤"}})
 		return
 	}

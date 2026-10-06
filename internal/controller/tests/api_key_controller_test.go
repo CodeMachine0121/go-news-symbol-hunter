@@ -91,6 +91,7 @@ func TestIssueApiKey_Rejections(t *testing.T) {
 		expectedMessage string
 	}{
 		{name: "name too long", body: `{"name":"` + strings.Repeat("研", 101) + `"}`, expectedStatus: http.StatusBadRequest, expectedCode: "api_key_name_too_long", expectedMessage: "API key 名稱不可超過 100 個字"},
+		{name: "empty body", body: ``, expectedStatus: http.StatusBadRequest, expectedCode: "api_key_name_required", expectedMessage: "API key 名稱為必填"},
 		{name: "missing name", body: `{}`, expectedStatus: http.StatusBadRequest, expectedCode: "api_key_name_required", expectedMessage: "API key 名稱為必填"},
 		{name: "blank name", body: `{"name":"   "}`, expectedStatus: http.StatusBadRequest, expectedCode: "api_key_name_required", expectedMessage: "API key 名稱為必填"},
 		{name: "malformed body", body: `{"name":`, expectedStatus: http.StatusBadRequest, expectedCode: "invalid_request_body", expectedMessage: "請求內容格式錯誤"},
