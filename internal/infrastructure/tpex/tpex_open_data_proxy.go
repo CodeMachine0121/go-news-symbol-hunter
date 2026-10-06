@@ -13,7 +13,6 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/cache"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/utilities"
-	"github.com/shopspring/decimal"
 )
 
 const (
@@ -23,8 +22,8 @@ const (
 )
 
 var (
-	errTpexDailyClosingsEmpty  = errors.New("TPEx returned no daily closing quotes")
-	errTpexClosingPriceMissing = errors.New("TPEx has no closing price for this stock")
+	errTpexDailyClosingsEmpty = errors.New("TPEx returned no daily closing quotes")
+	errClosingPriceMissing    = errors.New("TPEx has no closing price for this stock")
 )
 
 type tpexDailyClosing struct {
@@ -35,14 +34,14 @@ type tpexDailyClosing struct {
 }
 
 type TpexOpenDataProxy struct {
-	httpBodyReader            *httpfetch.HttpBodyReader
-	republicOfChinaDateParser *utilities.RepublicOfChinaDateParser
-	dailyClosingUrl           string
-	dailyClosingsCache        *cache.RefreshingCache[map[string]tpexDailyClosing]
+	httpBodyReader     *httpfetch.HttpBodyReader
+	quoteParser        *utilities.TaiwanExchangeQuoteParser
+	dailyClosingUrl    string
+	dailyClosingsCache *cache.RefreshingCache[map[string]tpexDailyClosing]
 }
 
 func NewTpexOpenDataProxy(httpBodyReader *httpfetch.HttpBodyReader, clockProxy interfaces.IClockProxy, dailyClosingUrl string) *TpexOpenDataProxy {
-	tpexOpenDataProxy := &TpexOpenDataProxy{httpBodyReader: httpBodyReader, republicOfChinaDateParser: utilities.NewRepublicOfChinaDateParser(), dailyClosingUrl: dailyClosingUrl}
+	tpexOpenDataProxy := &TpexOpenDataProxy{httpBodyReader: httpBodyReader, quoteParser: utilities.NewTaiwanExchangeQuoteParser(), dailyClosingUrl: dailyClosingUrl}
 	tpexOpenDataProxy.dailyClosingsCache = cache.NewRefreshingCache(clockProxy, dailyClosingCacheDuration, tpexOpenDataProxy.downloadDailyClosings)
 	return tpexOpenDataProxy
 }
@@ -63,14 +62,13 @@ func (tpexOpenDataProxy *TpexOpenDataProxy) FetchPrice(ctx context.Context, symb
 	}
 	dailyClosing, found := dailyClosingsByCode[symbol]
 	if !found {
-		return vo.PriceQuoteVo{}, errTpexClosingPriceMissing
+		return vo.PriceQuoteVo{}, errClosingPriceMissing
 	}
-	// a stock without trades that day carries a placeholder such as "---" instead of a price
-	closingPrice, err := decimal.NewFromString(strings.ReplaceAll(strings.TrimSpace(dailyClosing.Close), ",", ""))
+	closingPrice, err := tpexOpenDataProxy.quoteParser.ParseClosingPrice(dailyClosing.Close)
 	if err != nil {
-		return vo.PriceQuoteVo{}, fmt.Errorf("%w: %q", errTpexClosingPriceMissing, dailyClosing.Close)
+		return vo.PriceQuoteVo{}, fmt.Errorf("%w: %v", errClosingPriceMissing, err)
 	}
-	tradingDate, err := tpexOpenDataProxy.republicOfChinaDateParser.ParseTaipeiMidnight(dailyClosing.Date)
+	tradingDate, err := tpexOpenDataProxy.quoteParser.ParseTradingDate(dailyClosing.Date)
 	if err != nil {
 		return vo.PriceQuoteVo{}, err
 	}
