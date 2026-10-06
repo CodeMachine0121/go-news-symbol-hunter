@@ -22,16 +22,18 @@ const (
 type SymbolAnalysisService struct {
 	symbolResolutionService  *SymbolResolutionService
 	newsSearchService        *NewsSearchService
+	priceSnapshotService     *PriceSnapshotService
 	analystProxy             interfaces.IAnalystProxy
 	analysisEventRepository  interfaces.IAnalysisEventRepository
 	analysisResultRepository interfaces.IAnalysisResultRepository
 	clockProxy               interfaces.IClockProxy
 }
 
-func NewSymbolAnalysisService(symbolResolutionService *SymbolResolutionService, newsSearchService *NewsSearchService, analystProxy interfaces.IAnalystProxy, analysisEventRepository interfaces.IAnalysisEventRepository, analysisResultRepository interfaces.IAnalysisResultRepository, clockProxy interfaces.IClockProxy) *SymbolAnalysisService {
+func NewSymbolAnalysisService(symbolResolutionService *SymbolResolutionService, newsSearchService *NewsSearchService, priceSnapshotService *PriceSnapshotService, analystProxy interfaces.IAnalystProxy, analysisEventRepository interfaces.IAnalysisEventRepository, analysisResultRepository interfaces.IAnalysisResultRepository, clockProxy interfaces.IClockProxy) *SymbolAnalysisService {
 	return &SymbolAnalysisService{
 		symbolResolutionService:  symbolResolutionService,
 		newsSearchService:        newsSearchService,
+		priceSnapshotService:     priceSnapshotService,
 		analystProxy:             analystProxy,
 		analysisEventRepository:  analysisEventRepository,
 		analysisResultRepository: analysisResultRepository,
@@ -125,7 +127,8 @@ func (symbolAnalysisService *SymbolAnalysisService) AnalyzeSymbol(ctx context.Co
 				failureReason = FailureReasonAnalystIncomplete
 				break
 			}
-			analysisResult := conclusion.ToResultEntity(*storedAnalysisEvent, symbolAnalysisService.clockProxy.Now())
+			priceQuote := symbolAnalysisService.priceSnapshotService.CapturePrice(analysisContext, dto.CapturePriceDto{Symbol: storedAnalysisEvent.Symbol, Category: storedAnalysisEvent.Category})
+			analysisResult := conclusion.ToResultEntity(*storedAnalysisEvent, symbolAnalysisService.clockProxy.Now(), priceQuote)
 			if saveError := symbolAnalysisService.analysisResultRepository.Create(context.WithoutCancel(ctx), &analysisResult); saveError != nil {
 				failureReason = FailureReasonResultNotSaved
 				break

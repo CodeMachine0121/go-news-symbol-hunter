@@ -91,6 +91,10 @@ func (analysisEventDomain AnalysisEventDomain) ToDto(analysisResult *entities.An
 	for _, newsEvidence := range analysisResult.Evidence {
 		evidence = append(evidence, dto.AnalysisEvidenceDto{Title: newsEvidence.Title, Link: newsEvidence.Link, PublishedAt: newsEvidence.PublishedAt, ProviderName: newsEvidence.ProviderName})
 	}
+	priceAtAnalysis := (*dto.PriceAtAnalysisDto)(nil)
+	if analysisResult.Price.Valid && analysisResult.PricedAt != nil {
+		priceAtAnalysis = &dto.PriceAtAnalysisDto{Price: analysisResult.Price.Decimal, Currency: analysisResult.PriceCurrency, PricedAt: *analysisResult.PricedAt, Source: analysisResult.PriceSource}
+	}
 	analysisEventDto.Result = &dto.AnalysisResultDto{
 		AnalysisEventID: analysisResult.AnalysisEventID,
 		Symbol:          analysisResult.Symbol,
@@ -102,6 +106,7 @@ func (analysisEventDomain AnalysisEventDomain) ToDto(analysisResult *entities.An
 		KeyEvents:       keyEvents,
 		RiskFactors:     append([]string{}, analysisResult.RiskFactors...),
 		Evidence:        evidence,
+		PriceAtAnalysis: priceAtAnalysis,
 		CreatedAt:       analysisResult.CreatedAt,
 	}
 	return analysisEventDto

@@ -100,9 +100,9 @@ AI 回覆沒有工具呼叫也沒有結論（純文字結束）→ 視為 AI 未
 | 變數 | 預設 | 用途 |
 | :--- | :--- | :--- |
 | `ANTHROPIC_API_KEY` | — | SDK 自動讀取 |
-| `AI_ANALYSIS_MODEL` | `claude-opus-5-5` | 分析模型 |
+| `AI_ANALYSIS_MODEL` | `claude-sonnet-5-5` | 分析模型（成本考量自 Opus 5.5 改為 Sonnet 5.5；新聞整理與分類屬中等難度工作） |
 | `AI_ANALYSIS_MAX_CONCURRENCY` | `4` | 同時進行的背景分析上限 |
-| `AI_ANALYSIS_EFFORT` | `high` | 思考深度（`low`/`medium`/`high`/`xhigh`/`max`；Opus 5.5 預設為 medium，投資判斷屬高智力工作故設 high） |
+| `AI_ANALYSIS_EFFORT` | `medium` | 思考深度（`low`/`medium`/`high`/`xhigh`/`max`；Sonnet 5.5 建議多步工具使用從 medium 起，成本約為 high 的一半到七成） |
 
 ---
 

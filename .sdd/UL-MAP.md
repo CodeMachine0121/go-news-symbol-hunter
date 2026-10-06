@@ -29,7 +29,9 @@
 | 時間範圍 | `TimeHorizon` / `time_horizon` | time_horizon | 評等適用的持有期間（候選 `short`/`mid`） | Confirmed |
 | 關鍵事件 | `KeyEvent` / `key_events` | key_events | 支撐評等的 3–5 則重點事件，每則附來源 URL 與發布時間 | Confirmed |
 | 風險因子 | `RiskFactor` / `risk_factors` | risk_factors | 與主結論方向相反的訊號 | Confirmed |
-| 分析時價格 | `PriceAtAnalysis` / `price_at_analysis` | price_at_analysis | 分析當下的標的價格，供日後回頭驗證評等；金額欄位，用精確小數。專案成功指標為「評等可回測驗證」，故為必要欄位 | Confirmed |
+| 分析時價格 | `PriceAtAnalysis`（`Price`、`PriceCurrency`、`PricedAt`、`PriceSource`） | priceAtAnalysis | 分析完成時依市場類別取得的價格；精確小數；必須大於 0，取不到時為「未取得」（null），不影響分析完成。專案成功指標「評等可回測驗證」的基準點 | Confirmed |
+| 價格來源 | `PriceSource` | priceSource | 加密貨幣 Binance（對 USDT）、美股 Yahoo 財經、台股證交所（最近交易日收盤） | Confirmed |
+| 價格時間 | `PricedAt` | pricedAt | 報價所屬的時間：Binance 為取得時間、Yahoo 財經為來源報價時間、證交所為收盤日期（台北時間） | Confirmed |
 | 分析佐證 | `Evidence` / `evidence` | — | 當次餵給 AI 的新聞清單快照（JSON），存於分析結果，供稽核 AI 為何如此評等 | Confirmed |
 | 分析事件狀態 | `AnalysisEventStatus` / `status` | status | 分析事件的執行狀態（見 §4） | Confirmed |
 | API key | `ApiKey`（table 名 TBD） | API key | 使用者呼叫分析的憑證。建立時由使用者提供名稱，**預設停用**；僅已啟用者可呼叫分析 | Confirmed |
@@ -54,6 +56,7 @@
 | 發起分析 | `StartSymbolAnalysis` | 使用者以已啟用 API key 呼叫（標的、市場類別） | 驗證並辨識標的 → 重用或建立分析事件 → 背景執行分析 | 非同步：立即回傳分析事件 |
 | 執行分析 | `AnalyzeSymbol` | 新建立的分析事件，於背景執行 | AI 以搜尋標的新聞取得新聞 → 提交結論 → 正規化 → 保存分析結果、分析事件改為已完成；失敗則記錄原因 | 最多 5 輪工具使用 |
 | 查詢分析事件 | `GetAnalysisEvent` | 使用者以已啟用 API key 查詢編號 | 回傳狀態、失敗原因或分析結果 | 不限發起者 |
+| 取得分析時價格 | `FetchPrice` | 分析結論通過正規化後 | 依市場類別向價格來源取價；失敗則記為未取得 | 最多等待 10 秒 |
 | 中斷分析事件 | `FailInterruptedAnalysisEvents` | 服務啟動時 | 仍為分析中的分析事件改為失敗 | 原因「服務重新啟動，分析中斷」 |
 | 建立 API key | 待定 | 使用者呼叫公開的建立端點（必填名稱） | 新增一把停用中的 API key | 端點公開，靠預設停用把關；明文是否只回傳一次 TBD |
 | 撤銷 API key | 待定 | 持有者出示 API key 撤銷 | API key 永久失效 | 持有 API key 即可撤銷；撤銷後不可再啟用 |

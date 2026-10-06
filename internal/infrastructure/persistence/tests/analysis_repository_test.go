@@ -8,6 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/service"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/persistence"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -133,4 +134,32 @@ func TestAnalysisRepositories_ReportStorageFailures(t *testing.T) {
 	assert.Error(t, resultError)
 	assert.Error(t, createError)
 	assert.NotErrorIs(t, createError, service.ErrAnalysisAlreadyRunning)
+}
+
+func TestAnalysisResultRepository_StoresThePriceAtAnalysisExactly(t *testing.T) {
+	analysisResultRepository := persistence.NewAnalysisResultRepository(openTestDatabase(t))
+	ctx := context.Background()
+	pricedResult := entities.AnalysisResult{
+		AnalysisEventID: 1, Symbol: "SHIB", Category: "crypto", Grade: "neutral", TimeHorizon: "short", Reason: "r",
+		KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{},
+		Price: decimal.NewNullDecimal(decimal.RequireFromString("123456789.123456789012345678")), PriceCurrency: "USDT", PricedAt: &analysisStartedAt, PriceSource: "Binance",
+	}
+	unpricedResult := entities.AnalysisResult{
+		AnalysisEventID: 2, Symbol: "XYZ", Category: "crypto", Grade: "neutral", TimeHorizon: "short", Reason: "r",
+		KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{},
+	}
+	require.NoError(t, analysisResultRepository.Create(ctx, &pricedResult))
+	require.NoError(t, analysisResultRepository.Create(ctx, &unpricedResult))
+
+	foundPricedResult, err := analysisResultRepository.FindByAnalysisEventID(ctx, 1)
+	foundUnpricedResult, unpricedError := analysisResultRepository.FindByAnalysisEventID(ctx, 2)
+
+	require.NoError(t, err)
+	require.NoError(t, unpricedError)
+	assert.Equal(t, "123456789.123456789012345678", foundPricedResult.Price.Decimal.String())
+	assert.True(t, foundPricedResult.PricedAt.Equal(analysisStartedAt))
+	assert.Equal(t, "USDT", foundPricedResult.PriceCurrency)
+	assert.Equal(t, "Binance", foundPricedResult.PriceSource)
+	assert.False(t, foundUnpricedResult.Price.Valid)
+	assert.Nil(t, foundUnpricedResult.PricedAt)
 }

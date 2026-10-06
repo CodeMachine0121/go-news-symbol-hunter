@@ -8,6 +8,7 @@ import (
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -86,8 +87,8 @@ func NewAnalysisConclusionDomain(rawConclusion vo.RawAnalysisConclusionVo, analy
 	}, nil
 }
 
-func (analysisConclusionDomain AnalysisConclusionDomain) ToResultEntity(analysisEvent entities.AnalysisEvent, createdAt time.Time) entities.AnalysisResult {
-	return entities.AnalysisResult{
+func (analysisConclusionDomain AnalysisConclusionDomain) ToResultEntity(analysisEvent entities.AnalysisEvent, createdAt time.Time, priceQuote *vo.PriceQuoteVo) entities.AnalysisResult {
+	analysisResult := entities.AnalysisResult{
 		AnalysisEventID: analysisEvent.ID,
 		Symbol:          analysisEvent.Symbol,
 		Category:        analysisEvent.Category,
@@ -100,4 +101,11 @@ func (analysisConclusionDomain AnalysisConclusionDomain) ToResultEntity(analysis
 		Evidence:        analysisConclusionDomain.evidence,
 		CreatedAt:       createdAt,
 	}
+	if priceQuote != nil {
+		analysisResult.Price = decimal.NewNullDecimal(priceQuote.Price)
+		analysisResult.PriceCurrency = priceQuote.Currency
+		analysisResult.PricedAt = &priceQuote.PricedAt
+		analysisResult.PriceSource = priceQuote.Source
+	}
+	return analysisResult
 }

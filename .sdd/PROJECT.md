@@ -29,7 +29,7 @@
 | Database | PostgreSQL · GORM（`gorm.io/driver/postgres`） | 不使用 SQLite；Code First，啟動時 `AutoMigrate`；連線字串 `DATABASE_URL`（必填，見 `.env.example`） |
 | Infrastructure | 本機 `go run` | 部署方式 TBD |
 | Key Libraries | `shopspring/decimal`（金額欄位）、`joho/godotenv`（讀 `.env`） | 測試：`testing` + `stretchr/testify`；mock 由 `mockery` 依介面產生於 `internal/domain/interface/mocks/` |
-| External Services | Anthropic Claude（`anthropic-sdk-go`，Beta Messages API + tool use；模型 `AI_ANALYSIS_MODEL` 預設 `claude-opus-5-5`）、各市場新聞來源 | 新聞來源見 symbol-news-search 切片 |
+| External Services | Anthropic Claude（`anthropic-sdk-go`，Beta Messages API + tool use；模型 `AI_ANALYSIS_MODEL` 預設 `claude-sonnet-5-5`、`AI_ANALYSIS_EFFORT` 預設 `medium`（成本考量；需要更強判斷時可改 `claude-opus-5-5`））、各市場新聞來源 | 新聞來源見 symbol-news-search 切片 |
 
 ---
 

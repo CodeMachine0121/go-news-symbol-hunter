@@ -51,9 +51,9 @@
 | `ErrorResponseTable` | Controller 輔助型別 | 「哨兵錯誤 → 狀態碼 / code」對照表，`Respond(context, err)`；未列出者 → 503 | — | 兩個 controller 共用 |
 | `CnyesNewsProxy` | Proxy | 鉅亨網關鍵字搜尋 JSON → `NewsVo`（連結 `https://news.cnyes.com/news/id/{newsId}`，摘要反轉義 HTML 實體） | `http.Client` | US-03 台股 |
 | `GoogleNewsProxy` | Proxy | Google 新聞 RSS 搜尋（`q={keyword} when:7d`，語系由建構參數決定：繁中 / 英文） | `RssFeedParser` | US-03 |
-| `YahooFinanceNewsProxy` | Proxy | Yahoo 財經個股 RSS | `RssFeedParser` | US-03 美股 |
+| `YahooFinanceNewsProxy` | Proxy | Yahoo 財經個股 RSS（自 analysis-price-snapshot 起合併入 `YahooFinanceProxy`） | `RssFeedParser` | US-03 美股 |
 | `CoinDeskNewsProxy` / `CointelegraphNewsProxy` | Proxy | 整體 RSS（忽略搜尋字，由 Domain 篩選） | `RssFeedParser` | US-03 加密貨幣 |
-| `TwseListedCompanyProxy` | Proxy | 證交所上市公司開放資料（公司代號 → 公司簡稱），整份清單快取 24 小時；同時過期的請求只下載一次（singleflight）；清單沒有任何有效公司 → 失敗且不快取 | `IClockProxy` | US-02、US-03 台股 |
+| `TwseListedCompanyProxy`（自 analysis-price-snapshot 起合併入 `TwseOpenDataProxy`） | Proxy | 證交所上市公司開放資料（公司代號 → 公司簡稱），整份清單快取 24 小時；同時過期的請求只下載一次（singleflight）；清單沒有任何有效公司 → 失敗且不快取 | `IClockProxy` | US-02、US-03 台股 |
 | `CoinGeckoCryptocurrencyProxy` | Proxy | CoinGecko 搜尋，代號完全相符（不分大小寫）中取市值排名最前；結果（含查無）依代號快取 24 小時，最多 1000 筆（滿時先清除過期項目，仍滿則不快取） | `IClockProxy` | US-02、US-03 加密貨幣 |
 | `RssFeedParser` | Utility（`internal/utilities/`） | RSS 2.0 → `RssItem`（標題去掉彙整來源附加的「 - 媒體名」後綴、純文字描述：先去 HTML 標籤再反轉義一次、收斂空白）；根元素須為 `rss`；無法解析的發布時間該則略過 | — | Edge cases |
 | `HttpBodyReader` | Infrastructure（`internal/infrastructure/httpfetch/`） | 帶 request context 與 User-Agent 的 GET；非 2xx、超過 10 MB 視為錯誤；所有外部 Proxy 共用。會連網、持有 client，不屬於 `utilities/` | `http.Client`（逾時 10 秒） | US-05 |

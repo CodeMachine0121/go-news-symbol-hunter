@@ -13,6 +13,7 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/service"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -29,6 +30,7 @@ type symbolAnalysisFixture struct {
 	analystProxy              *mocks.MockIAnalystProxy
 	analysisEventRepository   *mocks.MockIAnalysisEventRepository
 	analysisResultRepository  *mocks.MockIAnalysisResultRepository
+	priceQuotesBySymbol       map[string]vo.PriceQuoteVo
 }
 
 func createSymbolAnalysisFixture(t *testing.T) symbolAnalysisFixture {
@@ -44,8 +46,21 @@ func createSymbolAnalysisFixtureWithCapacity(t *testing.T, maximumConcurrentAnal
 		analystProxy:             mocks.NewMockIAnalystProxy(t),
 		analysisEventRepository:  mocks.NewMockIAnalysisEventRepository(t),
 		analysisResultRepository: mocks.NewMockIAnalysisResultRepository(t),
+		priceQuotesBySymbol:      map[string]vo.PriceQuoteVo{},
 	}
 	fixture.analystProxy.EXPECT().ModelName().Return("claude-opus-5-5").Maybe()
+	newPriceProxy := func() *mocks.MockIPriceProxy {
+		priceProxy := mocks.NewMockIPriceProxy(t)
+		priceProxy.EXPECT().FetchPrice(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, symbol string) (vo.PriceQuoteVo, error) {
+			priceQuote, priced := fixture.priceQuotesBySymbol[symbol]
+			if !priced {
+				return vo.PriceQuoteVo{}, errDatabaseDown
+			}
+			return priceQuote, nil
+		}).Maybe()
+		return priceProxy
+	}
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: newPriceProxy(), UsStock: newPriceProxy(), Crypto: newPriceProxy()})
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(analysisStartedAt).Maybe()
 	symbolResolutionService := service.NewSymbolResolutionService(fixture.listedCompanyProxy, fixture.cryptocurrencyProxy)
@@ -54,7 +69,7 @@ func createSymbolAnalysisFixtureWithCapacity(t *testing.T, maximumConcurrentAnal
 		UsStock: []dto.NewsProviderDto{{NewsProxy: fixture.usStockNewsProxy}},
 	})
 	fixture.symbolAnalysisApplication = application.NewSymbolAnalysisApplication(service.NewSymbolAnalysisService(
-		symbolResolutionService, newsSearchService, fixture.analystProxy, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,
+		symbolResolutionService, newsSearchService, priceSnapshotService, fixture.analystProxy, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,
 	), maximumConcurrentAnalyses)
 	return fixture
 }
@@ -752,4 +767,103 @@ func TestAnalyzeSymbol_RunsTheSearchesOfOneTurnConcurrently(t *testing.T) {
 	assert.Equal(t, []string{"btc", "eth"}, receivedToolCallIDs)
 	assert.Equal(t, "https://news/btc", savedAnalysisResult.Evidence[0].Link)
 	assert.Equal(t, "https://news/eth", savedAnalysisResult.Evidence[1].Link)
+}
+
+func TestAnalyzeSymbol_SavesThePriceAtAnalysis(t *testing.T) {
+	fixture := createSymbolAnalysisFixture(t)
+	priceQuote, err := vo.NewPriceQuoteVo(decimal.RequireFromString("86607.62"), "USDT", analysisStartedAt, "Binance")
+	require.NoError(t, err)
+	fixture.priceQuotesBySymbol["BTC"] = priceQuote
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
+	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).Return(vo.AnalystTurnVo{Conclusion: &vo.RawAnalysisConclusionVo{Grade: "bullish", Reason: "r"}}, nil)
+	savedAnalysisResult := entities.AnalysisResult{}
+	fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.AnalysisResult) error {
+		savedAnalysisResult = *analysisResult
+		return nil
+	})
+	fixture.captureFinishedEvent()
+
+	fixture.symbolAnalysisApplication.AnalyzeSymbol(context.Background(), dto.AnalyzeSymbolDto{AnalysisEventID: 21})
+
+	assert.Equal(t, "86607.62", savedAnalysisResult.Price.Decimal.String())
+	assert.Equal(t, "USDT", savedAnalysisResult.PriceCurrency)
+	assert.Equal(t, "Binance", savedAnalysisResult.PriceSource)
+}
+
+func TestAnalyzeSymbol_CompletesWithoutAPrice(t *testing.T) {
+	fixture := createSymbolAnalysisFixture(t)
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
+	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).Return(vo.AnalystTurnVo{Conclusion: &vo.RawAnalysisConclusionVo{Grade: "bullish", Reason: "r"}}, nil)
+	savedAnalysisResult := entities.AnalysisResult{}
+	fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.AnalysisResult) error {
+		savedAnalysisResult = *analysisResult
+		return nil
+	})
+	finishedAnalysisEvent := fixture.captureFinishedEvent()
+
+	fixture.symbolAnalysisApplication.AnalyzeSymbol(context.Background(), dto.AnalyzeSymbolDto{AnalysisEventID: 21})
+
+	assert.Equal(t, "succeeded", finishedAnalysisEvent.Status)
+	assert.False(t, savedAnalysisResult.Price.Valid)
+	assert.Nil(t, savedAnalysisResult.PricedAt)
+}
+
+func TestCapturePrice_UsesTheMarketsPriceSource(t *testing.T) {
+	pricedAt := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+	priceQuoteOf := func(source string) vo.PriceQuoteVo {
+		priceQuote, _ := vo.NewPriceQuoteVo(decimal.NewFromInt(1), "X", pricedAt, source)
+		return priceQuote
+	}
+	priceProxyReturning := func(source string) *mocks.MockIPriceProxy {
+		priceProxy := mocks.NewMockIPriceProxy(t)
+		priceProxy.EXPECT().FetchPrice(mock.Anything, mock.Anything).Return(priceQuoteOf(source), nil).Maybe()
+		return priceProxy
+	}
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: priceProxyReturning("證交所"), UsStock: priceProxyReturning("Yahoo 財經"), Crypto: priceProxyReturning("Binance")})
+
+	for category, expectedSource := range map[string]string{"twStock": "證交所", "usStock": "Yahoo 財經", "crypto": "Binance"} {
+		priceQuote := priceSnapshotService.CapturePrice(context.Background(), dto.CapturePriceDto{Symbol: "S", Category: category})
+
+		require.NotNil(t, priceQuote)
+		assert.Equal(t, expectedSource, priceQuote.Source)
+	}
+}
+
+func TestCapturePrice_GivesUpAfterTenSeconds(t *testing.T) {
+	stuckPriceProxy := mocks.NewMockIPriceProxy(t)
+	stuckPriceProxy.EXPECT().FetchPrice(mock.Anything, "BTC").RunAndReturn(func(ctx context.Context, _ string) (vo.PriceQuoteVo, error) {
+		deadline, hasDeadline := ctx.Deadline()
+		assert.True(t, hasDeadline)
+		assert.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
+		return vo.PriceQuoteVo{}, context.DeadlineExceeded
+	})
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{Crypto: stuckPriceProxy})
+
+	priceQuote := priceSnapshotService.CapturePrice(context.Background(), dto.CapturePriceDto{Symbol: "BTC", Category: "crypto"})
+
+	assert.Nil(t, priceQuote)
+}
+
+func TestCapturePrice_UnknownMarketHasNoPrice(t *testing.T) {
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: mocks.NewMockIPriceProxy(t), UsStock: mocks.NewMockIPriceProxy(t), Crypto: mocks.NewMockIPriceProxy(t)})
+
+	assert.Nil(t, priceSnapshotService.CapturePrice(context.Background(), dto.CapturePriceDto{Symbol: "0700", Category: "hk"}))
+}
+
+func TestCapturePrice_HasItsOwnBudgetEvenNearTheAnalysisDeadline(t *testing.T) {
+	priceProxy := mocks.NewMockIPriceProxy(t)
+	priceProxy.EXPECT().FetchPrice(mock.Anything, "BTC").RunAndReturn(func(ctx context.Context, _ string) (vo.PriceQuoteVo, error) {
+		deadline, _ := ctx.Deadline()
+		assert.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
+		return vo.NewPriceQuoteVo(decimal.NewFromInt(1), "USDT", analysisStartedAt, "Binance")
+	})
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{Crypto: priceProxy})
+	almostExpiredContext, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	time.Sleep(5 * time.Millisecond)
+
+	priceQuote := priceSnapshotService.CapturePrice(almostExpiredContext, dto.CapturePriceDto{Symbol: "BTC", Category: "crypto"})
+
+	require.NotNil(t, priceQuote)
+	assert.Equal(t, "Binance", priceQuote.Source)
 }

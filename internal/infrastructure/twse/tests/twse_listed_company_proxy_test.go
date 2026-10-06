@@ -35,7 +35,7 @@ func TestTwseListedCompanyProxy_FindsShortNamesByStockCode(t *testing.T) {
 	server, _ := startListedCompanyServer(t, http.StatusOK, listedCompanies)
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(lookedUpAt)
-	twseListedCompanyProxy := twse.NewTwseListedCompanyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+	twseListedCompanyProxy := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, twse.TwseOpenDataUrls{ListedCompanies: server.URL})
 
 	shortName, found, err := twseListedCompanyProxy.FindCompanyShortName(context.Background(), "2330")
 	trimmedShortName, trimmedFound, _ := twseListedCompanyProxy.FindCompanyShortName(context.Background(), "1101")
@@ -52,10 +52,10 @@ func TestTwseListedCompanyProxy_FindsShortNamesByStockCode(t *testing.T) {
 func TestTwseListedCompanyProxy_ReusesTheListForTwentyFourHours(t *testing.T) {
 	server, requestCount := startListedCompanyServer(t, http.StatusOK, listedCompanies)
 	clockProxy := mocks.NewMockIClockProxy(t)
-	clockProxy.EXPECT().Now().Return(lookedUpAt).Once()
+	clockProxy.EXPECT().Now().Return(lookedUpAt).Times(2)
 	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(24*time.Hour - time.Second)).Once()
-	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(24 * time.Hour)).Once()
-	twseListedCompanyProxy := twse.NewTwseListedCompanyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(24 * time.Hour))
+	twseListedCompanyProxy := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, twse.TwseOpenDataUrls{ListedCompanies: server.URL})
 
 	_, _, _ = twseListedCompanyProxy.FindCompanyShortName(context.Background(), "2330")
 	_, _, _ = twseListedCompanyProxy.FindCompanyShortName(context.Background(), "2330")
@@ -79,7 +79,7 @@ func TestTwseListedCompanyProxy_ReportsUnavailableOrMalformedLists(t *testing.T)
 			clockProxy := mocks.NewMockIClockProxy(t)
 			clockProxy.EXPECT().Now().Return(lookedUpAt)
 
-			_, found, err := twse.NewTwseListedCompanyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL).FindCompanyShortName(context.Background(), "2330")
+			_, found, err := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, twse.TwseOpenDataUrls{ListedCompanies: server.URL}).FindCompanyShortName(context.Background(), "2330")
 
 			assert.Error(t, err)
 			assert.False(t, found)
@@ -98,10 +98,10 @@ func TestTwseListedCompanyProxy_ServesCachedLookupsWhileARefreshIsInFlight(t *te
 	}))
 	defer server.Close()
 	clockProxy := mocks.NewMockIClockProxy(t)
-	clockProxy.EXPECT().Now().Return(lookedUpAt).Once()
+	clockProxy.EXPECT().Now().Return(lookedUpAt).Times(2)
 	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(25 * time.Hour)).Once()
 	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(time.Hour))
-	twseListedCompanyProxy := twse.NewTwseListedCompanyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+	twseListedCompanyProxy := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, twse.TwseOpenDataUrls{ListedCompanies: server.URL})
 	_, _, _ = twseListedCompanyProxy.FindCompanyShortName(context.Background(), "2330")
 	refreshDone := make(chan struct{})
 	go func() {
@@ -125,7 +125,7 @@ func TestTwseListedCompanyProxy_TreatsAListWithoutCompaniesAsAFailure(t *testing
 			server, requestCount := startListedCompanyServer(t, http.StatusOK, body)
 			clockProxy := mocks.NewMockIClockProxy(t)
 			clockProxy.EXPECT().Now().Return(lookedUpAt)
-			twseListedCompanyProxy := twse.NewTwseListedCompanyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+			twseListedCompanyProxy := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, twse.TwseOpenDataUrls{ListedCompanies: server.URL})
 
 			_, _, firstError := twseListedCompanyProxy.FindCompanyShortName(context.Background(), "2330")
 			_, _, secondError := twseListedCompanyProxy.FindCompanyShortName(context.Background(), "2330")
@@ -148,7 +148,7 @@ func TestTwseListedCompanyProxy_DownloadsOnceForConcurrentCacheMisses(t *testing
 	defer server.Close()
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(lookedUpAt)
-	twseListedCompanyProxy := twse.NewTwseListedCompanyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+	twseListedCompanyProxy := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, twse.TwseOpenDataUrls{ListedCompanies: server.URL})
 	var waitGroup sync.WaitGroup
 	shortNames := make([]string, 5)
 	for index := range shortNames {
