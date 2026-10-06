@@ -96,3 +96,26 @@ func TestNewsCollectionDomain_ToDtos_CarriesEveryField(t *testing.T) {
 func TestNewsCollectionDomain_EmptyCollectionYieldsAnEmptyList(t *testing.T) {
 	assert.Equal(t, []dto.NewsDto{}, domains.NewNewsCollectionDomain(nil).Curate(searchedAt).ToDtos())
 }
+
+func TestNewsCollectionDomain_KeepMentioning_MatchesLatinTermsAsWholeWords(t *testing.T) {
+	newsCollection := domains.NewNewsCollectionDomain([]vo.NewsVo{
+		{Title: "SOL rallies", PublishedAt: searchedAt},
+		{Title: "A solution for scaling", PublishedAt: searchedAt},
+		{Title: "Markets wrap", Summary: "sol, eth and btc moved", PublishedAt: searchedAt},
+	})
+
+	mentioningNews := newsCollection.KeepMentioning([]string{"Solana", "SOL"}).Curate(searchedAt).ToDtos()
+
+	assert.Equal(t, []string{"SOL rallies", "Markets wrap"}, titlesOf(mentioningNews))
+}
+
+func TestNewsCollectionDomain_KeepMentioning_MatchesChineseTermsAnywhere(t *testing.T) {
+	newsCollection := domains.NewNewsCollectionDomain([]vo.NewsVo{
+		{Title: "外資加碼台積電", PublishedAt: searchedAt},
+		{Title: "聯電法說會", PublishedAt: searchedAt},
+	})
+
+	mentioningNews := newsCollection.KeepMentioning([]string{"台積電", "2330"}).Curate(searchedAt).ToDtos()
+
+	assert.Equal(t, []string{"外資加碼台積電"}, titlesOf(mentioningNews))
+}

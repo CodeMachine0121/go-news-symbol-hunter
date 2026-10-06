@@ -1,6 +1,7 @@
 package domains
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -14,6 +15,8 @@ const (
 	NewsSearchMaximumCount = 30
 )
 
+var asciiWordPattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
+
 type NewsCollectionDomain struct {
 	news []vo.NewsVo
 }
@@ -23,11 +26,20 @@ func NewNewsCollectionDomain(news []vo.NewsVo) NewsCollectionDomain {
 }
 
 func (newsCollectionDomain NewsCollectionDomain) KeepMentioning(relevanceTerms []string) NewsCollectionDomain {
+	relevancePatterns := make([]*regexp.Regexp, 0, len(relevanceTerms))
+	for _, relevanceTerm := range relevanceTerms {
+		// latin terms must match whole words (ETH must not match "something"); CJK has no word boundaries
+		wordBoundary := ""
+		if asciiWordPattern.MatchString(relevanceTerm) {
+			wordBoundary = `\b`
+		}
+		relevancePatterns = append(relevancePatterns, regexp.MustCompile(`(?i)`+wordBoundary+regexp.QuoteMeta(relevanceTerm)+wordBoundary))
+	}
 	mentioningNews := []vo.NewsVo{}
 	for _, news := range newsCollectionDomain.news {
-		searchableText := strings.ToLower(news.Title + " " + news.Summary)
-		if slices.ContainsFunc(relevanceTerms, func(relevanceTerm string) bool {
-			return strings.Contains(searchableText, strings.ToLower(relevanceTerm))
+		searchableText := news.Title + " " + news.Summary
+		if slices.ContainsFunc(relevancePatterns, func(relevancePattern *regexp.Regexp) bool {
+			return relevancePattern.MatchString(searchableText)
 		}) {
 			mentioningNews = append(mentioningNews, news)
 		}
