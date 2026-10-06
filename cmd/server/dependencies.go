@@ -23,6 +23,32 @@ import (
 
 const externalRequestTimeout = 10 * time.Second
 
+type ExternalSourceUrls struct {
+	CnyesSearch          string
+	CnyesArticle         string
+	GoogleNewsSearch     string
+	YahooFinanceHeadline string
+	CoinDeskFeed         string
+	CointelegraphFeed    string
+	TwseListedCompanies  string
+	CoinGeckoSearch      string
+}
+
+var productionExternalSourceUrls = ExternalSourceUrls{
+	CnyesSearch:          "https://ess.api.cnyes.com/ess/api/v1/news/keyword",
+	CnyesArticle:         "https://news.cnyes.com/news/id",
+	GoogleNewsSearch:     "https://news.google.com/rss/search",
+	YahooFinanceHeadline: "https://feeds.finance.yahoo.com/rss/2.0/headline",
+	CoinDeskFeed:         "https://www.coindesk.com/arc/outboundfeeds/rss/",
+	CointelegraphFeed:    "https://cointelegraph.com/rss",
+	TwseListedCompanies:  "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
+	CoinGeckoSearch:      "https://api.coingecko.com/api/v3/search",
+}
+
+func newExternalHttpClient() *http.Client {
+	return &http.Client{Timeout: externalRequestTimeout}
+}
+
 type Controllers struct {
 	healthController *controller.HealthController
 	apiKeyController *controller.ApiKeyController
@@ -40,22 +66,22 @@ func openDatabase(serverConfig ServerConfig) (*gorm.DB, error) {
 	return database, nil
 }
 
-func buildNewsProvidersByCategory(httpBodyReader *utilities.HttpBodyReader) map[string][]dto.NewsProviderDto {
+func buildNewsProvidersByCategory(httpBodyReader *utilities.HttpBodyReader, externalSourceUrls ExternalSourceUrls) map[string][]dto.NewsProviderDto {
 	rssNewsReader := news.NewRssNewsReader(httpBodyReader, utilities.NewRssFeedParser())
-	traditionalChineseGoogleNewsProxy := news.NewGoogleNewsProxy(rssNewsReader, "https://news.google.com/rss/search", news.GoogleNewsTraditionalChineseLocale)
-	englishGoogleNewsProxy := news.NewGoogleNewsProxy(rssNewsReader, "https://news.google.com/rss/search", news.GoogleNewsEnglishLocale)
+	traditionalChineseGoogleNewsProxy := news.NewGoogleNewsProxy(rssNewsReader, externalSourceUrls.GoogleNewsSearch, news.GoogleNewsTraditionalChineseLocale)
+	englishGoogleNewsProxy := news.NewGoogleNewsProxy(rssNewsReader, externalSourceUrls.GoogleNewsSearch, news.GoogleNewsEnglishLocale)
 	return map[string][]dto.NewsProviderDto{
 		vo.MarketCategoryTwStock: {
-			{NewsProxy: news.NewCnyesNewsProxy(httpBodyReader, "https://ess.api.cnyes.com/ess/api/v1/news/keyword", "https://news.cnyes.com/news/id")},
+			{NewsProxy: news.NewCnyesNewsProxy(httpBodyReader, externalSourceUrls.CnyesSearch, externalSourceUrls.CnyesArticle)},
 			{NewsProxy: traditionalChineseGoogleNewsProxy},
 		},
 		vo.MarketCategoryUsStock: {
-			{NewsProxy: news.NewYahooFinanceNewsProxy(rssNewsReader, "https://feeds.finance.yahoo.com/rss/2.0/headline")},
+			{NewsProxy: news.NewYahooFinanceNewsProxy(rssNewsReader, externalSourceUrls.YahooFinanceHeadline)},
 			{NewsProxy: englishGoogleNewsProxy},
 		},
 		vo.MarketCategoryCrypto: {
-			{NewsProxy: news.NewCoinDeskNewsProxy(rssNewsReader, "https://www.coindesk.com/arc/outboundfeeds/rss/"), RequiresRelevanceFilter: true},
-			{NewsProxy: news.NewCointelegraphNewsProxy(rssNewsReader, "https://cointelegraph.com/rss"), RequiresRelevanceFilter: true},
+			{NewsProxy: news.NewCoinDeskNewsProxy(rssNewsReader, externalSourceUrls.CoinDeskFeed), RequiresRelevanceFilter: true},
+			{NewsProxy: news.NewCointelegraphNewsProxy(rssNewsReader, externalSourceUrls.CointelegraphFeed), RequiresRelevanceFilter: true},
 			{NewsProxy: englishGoogleNewsProxy},
 		},
 	}
@@ -63,13 +89,13 @@ func buildNewsProvidersByCategory(httpBodyReader *utilities.HttpBodyReader) map[
 
 func buildControllers(database *gorm.DB) Controllers {
 	clockProxy := system.NewSystemClockProxy()
-	httpBodyReader := utilities.NewHttpBodyReader(&http.Client{Timeout: externalRequestTimeout})
+	httpBodyReader := utilities.NewHttpBodyReader(newExternalHttpClient())
 	apiKeyService := service.NewApiKeyService(persistence.NewApiKeyRepository(database), clockProxy, system.NewCryptoRandomProxy())
 	symbolResolutionService := service.NewSymbolResolutionService(
-		twse.NewTwseListedCompanyProxy(httpBodyReader, clockProxy, "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"),
-		coingecko.NewCoinGeckoCryptocurrencyProxy(httpBodyReader, clockProxy, "https://api.coingecko.com/api/v3/search"),
+		twse.NewTwseListedCompanyProxy(httpBodyReader, clockProxy, productionExternalSourceUrls.TwseListedCompanies),
+		coingecko.NewCoinGeckoCryptocurrencyProxy(httpBodyReader, clockProxy, productionExternalSourceUrls.CoinGeckoSearch),
 	)
-	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, buildNewsProvidersByCategory(httpBodyReader))
+	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, buildNewsProvidersByCategory(httpBodyReader, productionExternalSourceUrls))
 	return Controllers{
 		healthController: controller.NewHealthController(),
 		apiKeyController: controller.NewApiKeyController(application.NewApiKeyApplication(apiKeyService)),

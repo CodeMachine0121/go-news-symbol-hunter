@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/utilities"
 	"github.com/gin-gonic/gin"
@@ -45,9 +46,27 @@ func TestRegisteredRoutes_ServeHealthAndGuardProtectedRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, newsRecorder.Code)
 }
 
-func TestBuildNewsProvidersByCategory_AssignsProvidersPerMarket(t *testing.T) {
-	newsProvidersByCategory := buildNewsProvidersByCategory(utilities.NewHttpBodyReader(http.DefaultClient))
+func TestBuildNewsProvidersByCategory_AssignsProvidersAndLocalesPerMarket(t *testing.T) {
+	receivedGoogleLanguages := make(chan string, 3)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if language := request.URL.Query().Get("hl"); language != "" {
+			receivedGoogleLanguages <- language + "|" + request.URL.Query().Get("gl") + "|" + request.URL.Query().Get("ceid")
+		}
+		_, _ = writer.Write([]byte(`<rss><channel></channel></rss>`))
+	}))
+	defer server.Close()
+	newsProvidersByCategory := buildNewsProvidersByCategory(utilities.NewHttpBodyReader(server.Client()), ExternalSourceUrls{GoogleNewsSearch: server.URL})
 
+	googleLocaleOf := func(category string) string {
+		for _, newsProvider := range newsProvidersByCategory[category] {
+			if newsProvider.NewsProxy.ProviderName() == "Google 新聞" {
+				_, err := newsProvider.NewsProxy.FetchNews("keyword")
+				require.NoError(t, err)
+				return <-receivedGoogleLanguages
+			}
+		}
+		return ""
+	}
 	providerNamesOf := func(category string) []string {
 		providerNames := []string{}
 		for _, newsProvider := range newsProvidersByCategory[category] {
@@ -65,6 +84,14 @@ func TestBuildNewsProvidersByCategory_AssignsProvidersPerMarket(t *testing.T) {
 	assert.Equal(t, []string{"鉅亨網", "Google 新聞"}, providerNamesOf("twStock"))
 	assert.Equal(t, []string{"Yahoo 財經", "Google 新聞"}, providerNamesOf("usStock"))
 	assert.Equal(t, []string{"CoinDesk", "Cointelegraph", "Google 新聞"}, providerNamesOf("crypto"))
-	assert.Equal(t, []bool{true, true, false}, relevanceFiltersOf("crypto"))
 	assert.Equal(t, []bool{false, false}, relevanceFiltersOf("twStock"))
+	assert.Equal(t, []bool{false, false}, relevanceFiltersOf("usStock"))
+	assert.Equal(t, []bool{true, true, false}, relevanceFiltersOf("crypto"))
+	assert.Equal(t, "zh-TW|TW|TW:zh-Hant", googleLocaleOf("twStock"))
+	assert.Equal(t, "en-US|US|US:en", googleLocaleOf("usStock"))
+	assert.Equal(t, "en-US|US|US:en", googleLocaleOf("crypto"))
+}
+
+func TestNewExternalHttpClient_GivesUpAfterTenSeconds(t *testing.T) {
+	assert.Equal(t, 10*time.Second, newExternalHttpClient().Timeout)
 }
