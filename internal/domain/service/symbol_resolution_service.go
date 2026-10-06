@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
@@ -30,14 +31,24 @@ func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx contex
 	}
 	switch category.Value {
 	case vo.MarketCategoryTwStock:
+		// asked together so a cold cache costs one download time, then read in priority order
+		companyShortNames := make([]string, len(symbolResolutionService.listedCompanyProxies))
+		foundInDirectories := make([]bool, len(symbolResolutionService.listedCompanyProxies))
+		lookupErrors := make([]error, len(symbolResolutionService.listedCompanyProxies))
+		var waitGroup sync.WaitGroup
+		for index, listedCompanyProxy := range symbolResolutionService.listedCompanyProxies {
+			waitGroup.Go(func() {
+				companyShortNames[index], foundInDirectories[index], lookupErrors[index] = listedCompanyProxy.FindCompanyShortName(ctx, symbol.Value)
+			})
+		}
+		waitGroup.Wait()
 		directoryErrors := []error{}
-		for _, listedCompanyProxy := range symbolResolutionService.listedCompanyProxies {
-			companyShortName, found, err := listedCompanyProxy.FindCompanyShortName(ctx, symbol.Value)
-			if found {
-				return vo.NewTwStockResolvedSymbolVo(symbol, companyShortName), nil
+		for index := range symbolResolutionService.listedCompanyProxies {
+			if foundInDirectories[index] {
+				return vo.NewTwStockResolvedSymbolVo(symbol, companyShortNames[index]), nil
 			}
-			if err != nil {
-				directoryErrors = append(directoryErrors, err)
+			if lookupErrors[index] != nil {
+				directoryErrors = append(directoryErrors, lookupErrors[index])
 			}
 		}
 		// a directory we could not read might have listed the stock, so absence is not proven

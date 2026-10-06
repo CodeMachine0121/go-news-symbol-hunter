@@ -27,10 +27,11 @@ type directoryAnswer struct {
 func searchTaiwanStockNews(t *testing.T, stockCode string, twseAnswer directoryAnswer, tpexAnswer *directoryAnswer) (dto.SymbolNewsDto, []string, error) {
 	twseDirectory := mocks.NewMockIListedCompanyProxy(t)
 	twseDirectory.EXPECT().FindCompanyShortName(mock.Anything, stockCode).Return(twseAnswer.shortName, twseAnswer.found, twseAnswer.err)
-	tpexDirectory := mocks.NewMockIListedCompanyProxy(t)
-	if tpexAnswer != nil {
-		tpexDirectory.EXPECT().FindCompanyShortName(mock.Anything, stockCode).Return(tpexAnswer.shortName, tpexAnswer.found, tpexAnswer.err)
+	if tpexAnswer == nil {
+		tpexAnswer = &directoryAnswer{}
 	}
+	tpexDirectory := mocks.NewMockIListedCompanyProxy(t)
+	tpexDirectory.EXPECT().FindCompanyShortName(mock.Anything, stockCode).Return(tpexAnswer.shortName, tpexAnswer.found, tpexAnswer.err)
 	searchedKeywords := []string{}
 	newsProxy := mocks.NewMockINewsProxy(t)
 	newsProxy.EXPECT().ProviderName().Return("鉅亨網").Maybe()
@@ -53,7 +54,7 @@ func searchTaiwanStockNews(t *testing.T, stockCode string, twseAnswer directoryA
 }
 
 func TestTaiwanStockResolution_ListedStocksStillComeFromTwse(t *testing.T) {
-	symbolNews, searchedKeywords, err := searchTaiwanStockNews(t, "2330", directoryAnswer{shortName: "台積電", found: true}, nil)
+	symbolNews, searchedKeywords, err := searchTaiwanStockNews(t, "2330", directoryAnswer{shortName: "台積電", found: true}, &directoryAnswer{shortName: "同代號的上櫃證券", found: true})
 
 	require.NoError(t, err)
 	assert.Equal(t, "2330", symbolNews.Symbol)
@@ -109,6 +110,7 @@ func TestCapturePrice_FallsBackToTheNextSourceOfTheMarket(t *testing.T) {
 	tpexPrices := mocks.NewMockIPriceProxy(t)
 	tpexPrices.EXPECT().FetchPrice(mock.Anything, "6182").Return(tpexQuote, nil)
 	tpexPrices.EXPECT().FetchPrice(mock.Anything, "9999").Return(vo.PriceQuoteVo{}, errDatabaseDown)
+	tpexPrices.EXPECT().FetchPrice(mock.Anything, "2330").Return(tpexQuote, nil)
 	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: []interfaces.IPriceProxy{twsePrices, tpexPrices}})
 
 	otcPrice := priceSnapshotService.CapturePrice(context.Background(), dto.CapturePriceDto{Symbol: "6182", Category: "twStock"})
@@ -152,4 +154,59 @@ func TestStartSymbolAnalysis_AcceptsAnOtcStock(t *testing.T) {
 	assert.Equal(t, uint(61), startedSymbolAnalysis.AnalysisEvent.AnalysisEventID)
 	assert.Equal(t, "running", startedSymbolAnalysis.AnalysisEvent.Status)
 	assert.Equal(t, "合晶", startedSymbolAnalysis.SearchKeyword)
+}
+
+func TestTaiwanStockResolution_AsksBothExchangesAtOnce(t *testing.T) {
+	bothAsked := make(chan struct{}, 2)
+	waitForTheOther := func() {
+		bothAsked <- struct{}{}
+		for len(bothAsked) < 2 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	twseDirectory := mocks.NewMockIListedCompanyProxy(t)
+	twseDirectory.EXPECT().FindCompanyShortName(mock.Anything, "6182").RunAndReturn(func(context.Context, string) (string, bool, error) {
+		waitForTheOther()
+		return "", false, nil
+	})
+	tpexDirectory := mocks.NewMockIListedCompanyProxy(t)
+	tpexDirectory.EXPECT().FindCompanyShortName(mock.Anything, "6182").RunAndReturn(func(context.Context, string) (string, bool, error) {
+		waitForTheOther()
+		return "合晶", true, nil
+	})
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{twseDirectory, tpexDirectory}})
+
+	resolvedSymbol, err := symbolResolutionService.ResolveSymbol(context.Background(), dto.ResolveSymbolDto{Symbol: "6182", Category: "twStock"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "合晶", resolvedSymbol.SearchKeyword)
+}
+
+func TestCapturePrice_AsksEverySourceOfTheMarketAtOnce(t *testing.T) {
+	tradingDate := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	tpexQuote, err := vo.NewPriceQuoteVo(decimal.RequireFromString("128.00"), "TWD", tradingDate, "櫃買中心")
+	require.NoError(t, err)
+	bothAsked := make(chan struct{}, 2)
+	waitForTheOther := func() {
+		bothAsked <- struct{}{}
+		for len(bothAsked) < 2 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	twsePrices := mocks.NewMockIPriceProxy(t)
+	twsePrices.EXPECT().FetchPrice(mock.Anything, "6182").RunAndReturn(func(context.Context, string) (vo.PriceQuoteVo, error) {
+		waitForTheOther()
+		return vo.PriceQuoteVo{}, errDatabaseDown
+	})
+	tpexPrices := mocks.NewMockIPriceProxy(t)
+	tpexPrices.EXPECT().FetchPrice(mock.Anything, "6182").RunAndReturn(func(context.Context, string) (vo.PriceQuoteVo, error) {
+		waitForTheOther()
+		return tpexQuote, nil
+	})
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: []interfaces.IPriceProxy{twsePrices, tpexPrices}})
+
+	priceQuote := priceSnapshotService.CapturePrice(context.Background(), dto.CapturePriceDto{Symbol: "6182", Category: "twStock"})
+
+	require.NotNil(t, priceQuote)
+	assert.Equal(t, "櫃買中心", priceQuote.Source)
 }
