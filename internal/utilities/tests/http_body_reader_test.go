@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/utilities"
 	"github.com/stretchr/testify/assert"
@@ -44,4 +45,19 @@ func TestHttpBodyReader_RejectsInvalidUrls(t *testing.T) {
 	_, err := utilities.NewHttpBodyReader(http.DefaultClient).Read("http://bad host")
 
 	assert.Error(t, err)
+}
+
+func TestHttpBodyReader_FailsWhenTheSourceExceedsTheClientTimeout(t *testing.T) {
+	releaseServer := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		<-releaseServer
+	}))
+	defer server.Close()
+	defer close(releaseServer)
+	timeoutClient := server.Client()
+	timeoutClient.Timeout = 50 * time.Millisecond
+
+	_, err := utilities.NewHttpBodyReader(timeoutClient).Read(server.URL)
+
+	assert.ErrorContains(t, err, "Timeout")
 }

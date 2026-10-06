@@ -25,6 +25,7 @@ type rssPublishedAt string
 type rssText string
 
 type rssDocument struct {
+	XMLName xml.Name `xml:"rss"`
 	Channel struct {
 		Items []struct {
 			Title       rssText        `xml:"title"`

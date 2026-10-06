@@ -2,6 +2,7 @@ package news
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"net/url"
@@ -12,9 +13,11 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/utilities"
 )
 
+var errCnyesResponseWithoutItems = errors.New("cnyes response has no news items")
+
 type cnyesSearchResponse struct {
-	Data struct {
-		Items []cnyesNewsItem `json:"items"`
+	Data *struct {
+		Items *[]cnyesNewsItem `json:"items"`
 	} `json:"data"`
 }
 
@@ -48,8 +51,11 @@ func (cnyesNewsProxy *CnyesNewsProxy) FetchNews(searchKeyword string) ([]vo.News
 	if err := json.Unmarshal(responseBody, &searchResponse); err != nil {
 		return nil, err
 	}
-	news := make([]vo.NewsVo, 0, len(searchResponse.Data.Items))
-	for _, item := range searchResponse.Data.Items {
+	if searchResponse.Data == nil || searchResponse.Data.Items == nil {
+		return nil, errCnyesResponseWithoutItems
+	}
+	news := make([]vo.NewsVo, 0, len(*searchResponse.Data.Items))
+	for _, item := range *searchResponse.Data.Items {
 		news = append(news, vo.NewsVo{
 			Title:        strings.TrimSpace(html.UnescapeString(item.Title)),
 			Link:         fmt.Sprintf("%s/%d", strings.TrimRight(cnyesNewsProxy.articleBaseUrl, "/"), item.NewsID),

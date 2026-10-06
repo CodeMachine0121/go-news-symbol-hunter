@@ -120,6 +120,9 @@ func TestNewsProxies_FailOnUnavailableOrMalformedSources(t *testing.T) {
 	unavailableServer := startServer(t, http.StatusServiceUnavailable, "", nil)
 	malformedServer := startServer(t, http.StatusOK, "<rss><channel><item>", nil)
 	malformedJsonServer := startServer(t, http.StatusOK, "{", nil)
+	cnyesErrorServer := startServer(t, http.StatusOK, `{"statusCode":500,"data":null}`, nil)
+	cnyesWithoutItemsServer := startServer(t, http.StatusOK, `{"data":{}}`, nil)
+	notRssServer := startServer(t, http.StatusOK, `<error>rate limited</error>`, nil)
 	testCases := []struct {
 		name      string
 		fetchNews func() ([]vo.NewsVo, error)
@@ -129,6 +132,15 @@ func TestNewsProxies_FailOnUnavailableOrMalformedSources(t *testing.T) {
 		}},
 		{name: "cnyes malformed", fetchNews: func() ([]vo.NewsVo, error) {
 			return news.NewCnyesNewsProxy(reader(malformedJsonServer), malformedJsonServer.URL, "x").FetchNews("台積電")
+		}},
+		{name: "cnyes error payload", fetchNews: func() ([]vo.NewsVo, error) {
+			return news.NewCnyesNewsProxy(reader(cnyesErrorServer), cnyesErrorServer.URL, "x").FetchNews("台積電")
+		}},
+		{name: "cnyes payload without items", fetchNews: func() ([]vo.NewsVo, error) {
+			return news.NewCnyesNewsProxy(reader(cnyesWithoutItemsServer), cnyesWithoutItemsServer.URL, "x").FetchNews("台積電")
+		}},
+		{name: "google returns a non-rss document", fetchNews: func() ([]vo.NewsVo, error) {
+			return news.NewGoogleNewsProxy(rssReader(notRssServer), notRssServer.URL, news.GoogleNewsEnglishLocale).FetchNews("AAPL")
 		}},
 		{name: "google unavailable", fetchNews: func() ([]vo.NewsVo, error) {
 			return news.NewGoogleNewsProxy(rssReader(unavailableServer), unavailableServer.URL, news.GoogleNewsEnglishLocale).FetchNews("AAPL")

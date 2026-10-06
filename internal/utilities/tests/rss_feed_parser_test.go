@@ -30,3 +30,9 @@ func TestRssFeedParser_RejectsMalformedFeeds(t *testing.T) {
 
 	assert.Error(t, err)
 }
+
+func TestRssFeedParser_RejectsWellFormedDocumentsThatAreNotRss(t *testing.T) {
+	_, err := utilities.NewRssFeedParser().Parse([]byte(`<error><message>rate limited</message></error>`))
+
+	assert.Error(t, err)
+}
