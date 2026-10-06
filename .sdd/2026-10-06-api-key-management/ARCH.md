@@ -39,7 +39,7 @@
 | `ApiKeyNameVo` | VO | 名稱正規化與驗證：去前後空白、必填、≤100 字（以字元數計） | — | US-01 名稱相關 scenarios |
 | `ApiKeySecretVo` | VO | 完整 API key：`GenerateApiKeySecretVo()` 產生（`snh_` + 32 bytes `crypto/rand` base64url）、`NewApiKeySecretVo(presented)`（空字串 → 需要提供）、`Hash()`（SHA-256 hex） | — | US-01、US-02、未提供 API key scenarios |
 | `IssueApiKeyDto` / `IssuedApiKeyDto` / `ApiKeyStatusDto` / `AuthorizedApiKeyDto` | DTO | 申請輸入；申請結果（含完整 API key，唯一一次）；狀態（只有名稱與狀態）；驗證通過的 API key 識別 | — | US-01、US-02、US-03、US-05 |
-| `IApiKeyRepository` | Interface | `Create`、`FindBySecretHash`（找不到回 `nil, nil`）、`UpdateRevokedAt` | — | 全部 |
+| `IApiKeyRepository` | Interface | `Create`、`FindBySecretHash`（找不到回 `nil, nil`）、`MarkRevoked`（僅在尚未撤銷時寫入，回傳是否寫入） | — | 全部 |
 | `ApiKeyService` | Domain Service | `IssueApiKey`、`GetApiKeyStatus`、`RevokeApiKey`、`AuthorizeApiKey`；查找 + 交給 `ApiKeyDomain` 判斷 + 轉 DTO；定義哨兵錯誤 | `IApiKeyRepository`、`ApiKeyDomain`、VO | 全部 |
 | `ApiKeyApplication` | Application | 用例入口，轉呼叫 `ApiKeyService` | `ApiKeyService` | 全部 |
 | `ApiKeyController` | Controller | `POST /api-keys`、`GET /api-keys/me`、`DELETE /api-keys/me`；`RequireActiveApiKey()` 回傳可掛在任何路由前的關卡（通過後把 API key ID 放進 request context）；錯誤 → HTTP 狀態對映 | `ApiKeyApplication` | 全部 |
@@ -48,7 +48,7 @@
 ### 介面細節
 
 - **出示 API key：** request header `X-API-Key`。
-- **申請：** body `{"name": "..."}` → `201 {"id", "name", "apiKey", "status": "inactive"}`。
+- **申請：** body `{"name": "..."}` → `201 {"name", "apiKey", "status": "inactive"}`；不回流水號，避免外部推算發出數量；空 body 視同未提供名稱。
 - **查詢狀態：** `200 {"name", "status": "inactive" | "active"}`（不含完整 API key）。
 - **撤銷：** `204`。
 - **錯誤格式：** `{"error": {"code", "message"}}`，message 使用 PRD 文字。
@@ -107,7 +107,9 @@ flowchart TD
 - **`GenerateApiKeySecretVo()` 不回傳錯誤：** Go 1.24 起 `crypto/rand.Read` 失敗會直接中止程式而非回傳錯誤。
 
 - **雜湊採 SHA-256 而非 bcrypt：** API key 為 256-bit 隨機值，不需慢雜湊抗暴力破解；SHA-256 可直接以雜湊值做唯一索引查找。
-- **撤銷只更新 `revoked_at` 欄位：** 不整筆覆寫，避免把 administrator 同時修改的 `is_active` 蓋回舊值。
+- **撤銷只更新 `revoked_at` 欄位，且僅在 `revoked_at` 為空時寫入：** 不整筆覆寫，避免把 administrator 同時修改的 `is_active` 蓋回舊值；同時送出的兩次撤銷只有一次成功，另一次回「API key 無效」。
+- **出示的 API key 會先去除前後空白再比對**；只有空白視為未提供。
+- **驗證效能：** 每次驗證只做一次 SHA-256 與一次唯一索引查找，不另設效能測試。
 - **測試：** Domain Model / VO 單元測試；Application 測試注入真實 `ApiKeyService`、mock `IApiKeyRepository`；Controller 以 `httptest` + 真實 application/service + mock repository 驗證狀態碼與訊息；Repository 以真實 PostgreSQL 測試（未設 `TEST_POSTGRES_DSN` 時 skip）。
 
 ---
@@ -125,7 +127,7 @@ flowchart TD
 | US-02 之後查詢看不到完整 API key | `ApiKeyStatusDto`（無 API key 欄位）+ 只存 `SecretHash` |
 | US-03 停用中 / 已啟用 | `ApiKeyDomain.ToStatusDto` |
 | US-03 已撤銷 / 不存在 / 未提供 | `ApiKeyService.GetApiKeyStatus` + `ApiKeySecretVo` + controller 401 |
-| US-04 撤銷已啟用 / 尚未啟用 | `ApiKeyDomain.Revoke` + `IApiKeyRepository.UpdateRevokedAt` |
+| US-04 撤銷已啟用 / 尚未啟用 | `ApiKeyDomain.Revoke` + `IApiKeyRepository.MarkRevoked` |
 | US-04 再次撤銷 / 不存在 | `ApiKeyDomain.Revoke` / `ApiKeyService.RevokeApiKey` → `ErrApiKeyInvalid` |
 | US-04 撤銷後 administrator 重新啟用仍無效 | `ApiKeyDomain.Authorize`（撤銷優先於啟用） |
 | US-05 五個關卡 scenarios | `ApiKeyController.RequireActiveApiKey` + `ApiKeyService.AuthorizeApiKey` + `ApiKeyDomain.Authorize` |
