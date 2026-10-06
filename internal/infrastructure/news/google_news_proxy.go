@@ -4,7 +4,6 @@ import (
 	"net/url"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
-	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/utilities"
 )
 
 type GoogleNewsLocale struct {
@@ -19,14 +18,13 @@ var (
 )
 
 type GoogleNewsProxy struct {
-	httpBodyReader *utilities.HttpBodyReader
-	rssFeedParser  *utilities.RssFeedParser
-	searchUrl      string
-	locale         GoogleNewsLocale
+	rssNewsReader *RssNewsReader
+	searchUrl     string
+	locale        GoogleNewsLocale
 }
 
-func NewGoogleNewsProxy(httpBodyReader *utilities.HttpBodyReader, rssFeedParser *utilities.RssFeedParser, searchUrl string, locale GoogleNewsLocale) *GoogleNewsProxy {
-	return &GoogleNewsProxy{httpBodyReader: httpBodyReader, rssFeedParser: rssFeedParser, searchUrl: searchUrl, locale: locale}
+func NewGoogleNewsProxy(rssNewsReader *RssNewsReader, searchUrl string, locale GoogleNewsLocale) *GoogleNewsProxy {
+	return &GoogleNewsProxy{rssNewsReader: rssNewsReader, searchUrl: searchUrl, locale: locale}
 }
 
 func (googleNewsProxy *GoogleNewsProxy) ProviderName() string {
@@ -40,18 +38,6 @@ func (googleNewsProxy *GoogleNewsProxy) FetchNews(searchKeyword string) ([]vo.Ne
 		"gl":   {googleNewsProxy.locale.Country},
 		"ceid": {googleNewsProxy.locale.Edition},
 	}
-	feedBody, err := googleNewsProxy.httpBodyReader.Read(googleNewsProxy.searchUrl + "?" + query.Encode())
-	if err != nil {
-		return nil, err
-	}
-	rssItems, err := googleNewsProxy.rssFeedParser.Parse(feedBody)
-	if err != nil {
-		return nil, err
-	}
-	news := make([]vo.NewsVo, 0, len(rssItems))
-	for _, rssItem := range rssItems {
-		// Google News descriptions only repeat the headline and outlet, so they are not a summary
-		news = append(news, vo.NewsVo{Title: rssItem.Title, Link: rssItem.Link, PublishedAt: rssItem.PublishedAt, ProviderName: GoogleNewsProviderName})
-	}
-	return news, nil
+	// Google News descriptions only repeat the headline and outlet, so they are not a summary
+	return googleNewsProxy.rssNewsReader.ReadNews(googleNewsProxy.searchUrl+"?"+query.Encode(), GoogleNewsProviderName, false)
 }

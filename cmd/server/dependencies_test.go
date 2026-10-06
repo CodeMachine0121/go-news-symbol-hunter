@@ -46,7 +46,7 @@ func TestRegisteredRoutes_ServeHealthAndGuardProtectedRoutes(t *testing.T) {
 }
 
 func TestBuildNewsProvidersByCategory_AssignsProvidersPerMarket(t *testing.T) {
-	newsProvidersByCategory := buildNewsProvidersByCategory(utilities.NewHttpBodyReader(http.DefaultClient), utilities.NewRssFeedParser())
+	newsProvidersByCategory := buildNewsProvidersByCategory(utilities.NewHttpBodyReader(http.DefaultClient))
 
 	providerNamesOf := func(category string) []string {
 		providerNames := []string{}

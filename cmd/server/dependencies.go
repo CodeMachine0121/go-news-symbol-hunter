@@ -40,21 +40,22 @@ func openDatabase(serverConfig ServerConfig) (*gorm.DB, error) {
 	return database, nil
 }
 
-func buildNewsProvidersByCategory(httpBodyReader *utilities.HttpBodyReader, rssFeedParser *utilities.RssFeedParser) map[string][]dto.NewsProviderDto {
-	traditionalChineseGoogleNewsProxy := news.NewGoogleNewsProxy(httpBodyReader, rssFeedParser, "https://news.google.com/rss/search", news.GoogleNewsTraditionalChineseLocale)
-	englishGoogleNewsProxy := news.NewGoogleNewsProxy(httpBodyReader, rssFeedParser, "https://news.google.com/rss/search", news.GoogleNewsEnglishLocale)
+func buildNewsProvidersByCategory(httpBodyReader *utilities.HttpBodyReader) map[string][]dto.NewsProviderDto {
+	rssNewsReader := news.NewRssNewsReader(httpBodyReader, utilities.NewRssFeedParser())
+	traditionalChineseGoogleNewsProxy := news.NewGoogleNewsProxy(rssNewsReader, "https://news.google.com/rss/search", news.GoogleNewsTraditionalChineseLocale)
+	englishGoogleNewsProxy := news.NewGoogleNewsProxy(rssNewsReader, "https://news.google.com/rss/search", news.GoogleNewsEnglishLocale)
 	return map[string][]dto.NewsProviderDto{
 		vo.MarketCategoryTwStock: {
 			{NewsProxy: news.NewCnyesNewsProxy(httpBodyReader, "https://ess.api.cnyes.com/ess/api/v1/news/keyword", "https://news.cnyes.com/news/id")},
 			{NewsProxy: traditionalChineseGoogleNewsProxy},
 		},
 		vo.MarketCategoryUsStock: {
-			{NewsProxy: news.NewYahooFinanceNewsProxy(httpBodyReader, rssFeedParser, "https://feeds.finance.yahoo.com/rss/2.0/headline")},
+			{NewsProxy: news.NewYahooFinanceNewsProxy(rssNewsReader, "https://feeds.finance.yahoo.com/rss/2.0/headline")},
 			{NewsProxy: englishGoogleNewsProxy},
 		},
 		vo.MarketCategoryCrypto: {
-			{NewsProxy: news.NewCoinDeskNewsProxy(httpBodyReader, rssFeedParser, "https://www.coindesk.com/arc/outboundfeeds/rss/"), RequiresRelevanceFilter: true},
-			{NewsProxy: news.NewCointelegraphNewsProxy(httpBodyReader, rssFeedParser, "https://cointelegraph.com/rss"), RequiresRelevanceFilter: true},
+			{NewsProxy: news.NewCoinDeskNewsProxy(rssNewsReader, "https://www.coindesk.com/arc/outboundfeeds/rss/"), RequiresRelevanceFilter: true},
+			{NewsProxy: news.NewCointelegraphNewsProxy(rssNewsReader, "https://cointelegraph.com/rss"), RequiresRelevanceFilter: true},
 			{NewsProxy: englishGoogleNewsProxy},
 		},
 	}
@@ -68,7 +69,7 @@ func buildControllers(database *gorm.DB) Controllers {
 		twse.NewTwseListedCompanyProxy(httpBodyReader, clockProxy, "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"),
 		coingecko.NewCoinGeckoCryptocurrencyProxy(httpBodyReader, clockProxy, "https://api.coingecko.com/api/v3/search"),
 	)
-	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, buildNewsProvidersByCategory(httpBodyReader, utilities.NewRssFeedParser()))
+	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, buildNewsProvidersByCategory(httpBodyReader))
 	return Controllers{
 		healthController: controller.NewHealthController(),
 		apiKeyController: controller.NewApiKeyController(application.NewApiKeyApplication(apiKeyService)),
