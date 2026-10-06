@@ -36,3 +36,22 @@ func TestRssFeedParser_RejectsWellFormedDocumentsThatAreNotRss(t *testing.T) {
 
 	assert.Error(t, err)
 }
+
+func TestRssFeedParser_RemovesTheOutletSuffixAddedByAggregators(t *testing.T) {
+	feedBody := []byte(`<rss><channel><item><title>台積電法說會 - 鉅亨網</title><link>x</link><pubDate>Tue, 06 Oct 2026 14:00:00 +0000</pubDate><source url="https://news.cnyes.com">鉅亨網</source></item><item><title>Fed holds rates - live</title><link>y</link><pubDate>Tue, 06 Oct 2026 14:00:00 +0000</pubDate></item></channel></rss>`)
+
+	rssItems, err := utilities.NewRssFeedParser().Parse(feedBody)
+
+	require.NoError(t, err)
+	assert.Equal(t, "台積電法說會", rssItems[0].Title)
+	assert.Equal(t, "Fed holds rates - live", rssItems[1].Title)
+}
+
+func TestRssFeedParser_KeepsEscapedAngleBracketsAsText(t *testing.T) {
+	feedBody := []byte(`<rss><channel><item><title>Rates</title><link>x</link><pubDate>Tue, 06 Oct 2026 14:00:00 +0000</pubDate><description>S&amp;amp;P &amp;lt; 5000 and yields &amp;gt; 4%</description></item></channel></rss>`)
+
+	rssItems, err := utilities.NewRssFeedParser().Parse(feedBody)
+
+	require.NoError(t, err)
+	assert.Equal(t, "S&P < 5000 and yields > 4%", rssItems[0].Description)
+}

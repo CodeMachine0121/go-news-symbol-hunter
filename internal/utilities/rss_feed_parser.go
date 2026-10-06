@@ -24,6 +24,8 @@ type rssPublishedAt string
 
 type rssText string
 
+type rssSource string
+
 type rssDocument struct {
 	XMLName xml.Name `xml:"rss"`
 	Channel struct {
@@ -32,6 +34,7 @@ type rssDocument struct {
 			Link        string         `xml:"link"`
 			PubDate     rssPublishedAt `xml:"pubDate"`
 			Description rssText        `xml:"description"`
+			Source      rssSource      `xml:"source"`
 		} `xml:"item"`
 	} `xml:"channel"`
 }
@@ -54,7 +57,7 @@ func (rssFeedParser *RssFeedParser) Parse(feedBody []byte) ([]RssItem, error) {
 			continue
 		}
 		rssItems = append(rssItems, RssItem{
-			Title:       item.Title.toPlainText(),
+			Title:       item.Source.trimFrom(item.Title.toPlainText()),
 			Link:        strings.TrimSpace(item.Link),
 			PublishedAt: publishedAt,
 			Description: item.Description.toPlainText(),
@@ -73,6 +76,15 @@ func (publishedAt rssPublishedAt) toTime() (time.Time, bool) {
 }
 
 func (text rssText) toPlainText() string {
-	withoutTags := htmlTagPattern.ReplaceAllString(html.UnescapeString(string(text)), " ")
+	withoutTags := htmlTagPattern.ReplaceAllString(string(text), " ")
 	return strings.Join(strings.Fields(html.UnescapeString(withoutTags)), " ")
+}
+
+// aggregators such as Google News append " - <outlet>" to every title
+func (source rssSource) trimFrom(title string) string {
+	outlet := strings.TrimSpace(string(source))
+	if outlet == "" {
+		return title
+	}
+	return strings.TrimSpace(strings.TrimSuffix(title, " - "+outlet))
 }
