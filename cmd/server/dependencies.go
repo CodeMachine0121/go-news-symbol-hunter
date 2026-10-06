@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/claude"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"github.com/anthropics/anthropic-sdk-go"
@@ -116,6 +118,15 @@ func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers 
 		analysisEventController:   controller.NewAnalysisEventController(symbolAnalysisApplication),
 		symbolAnalysisApplication: symbolAnalysisApplication,
 	}
+}
+
+func prepareRouter(ctx context.Context, controllers Controllers) (*gin.Engine, error) {
+	if err := controllers.symbolAnalysisApplication.FailInterruptedAnalysisEvents(ctx); err != nil {
+		return nil, fmt.Errorf("fail interrupted analysis events: %w", err)
+	}
+	router := gin.Default()
+	registerRoutes(router, controllers)
+	return router, nil
 }
 
 func registerRoutes(router *gin.Engine, controllers Controllers) {

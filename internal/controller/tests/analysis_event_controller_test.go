@@ -50,12 +50,16 @@ func createAnalysisRouter(t *testing.T) analysisRouterFixture {
 	protectedRoutes := fixture.router.Group("/", apiKeyController.RequireActiveApiKey())
 	protectedRoutes.POST("/analysis-events", analysisEventController.StartSymbolAnalysis)
 	protectedRoutes.GET("/analysis-events/:analysisEventId", analysisEventController.GetAnalysisEvent)
-	fixture.apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 12, IsActive: true}, nil).Maybe()
 	return fixture
+}
+
+func (fixture analysisRouterFixture) givenActiveKey() {
+	fixture.apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 12, IsActive: true}, nil)
 }
 
 func TestStartSymbolAnalysis_AcceptsANewAnalysisForTheCallingKey(t *testing.T) {
 	fixture := createAnalysisRouter(t)
+	fixture.givenActiveKey()
 	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "BTC").Return("Bitcoin", true, nil)
 	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "crypto").Return(nil, nil)
 	createdApiKeyID := make(chan uint, 1)
@@ -80,6 +84,7 @@ func TestStartSymbolAnalysis_AcceptsANewAnalysisForTheCallingKey(t *testing.T) {
 
 func TestStartSymbolAnalysis_ReturnsAReusedAnalysisWithOk(t *testing.T) {
 	fixture := createAnalysisRouter(t)
+	fixture.givenActiveKey()
 	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "BTC").Return("Bitcoin", true, nil)
 	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "crypto").Return(&entities.AnalysisEvent{ID: 30, Symbol: "BTC", Category: "crypto", Status: "running", StartedAt: analysisStartedAt}, nil)
 
@@ -116,6 +121,7 @@ func TestStartSymbolAnalysis_ErrorResponses(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := createAnalysisRouter(t)
+			fixture.givenActiveKey()
 			if testCase.given != nil {
 				testCase.given(fixture)
 			}
@@ -140,6 +146,7 @@ func TestAnalysisEventRoutes_RequireAnActiveKey(t *testing.T) {
 
 func TestGetAnalysisEvent_ReturnsTheResultOfASucceededAnalysis(t *testing.T) {
 	fixture := createAnalysisRouter(t)
+	fixture.givenActiveKey()
 	finishedAt := analysisStartedAt.Add(time.Minute)
 	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(30)).Return(&entities.AnalysisEvent{ID: 30, ApiKeyID: 99, Symbol: "BTC", Category: "crypto", Status: "succeeded", StartedAt: analysisStartedAt, FinishedAt: &finishedAt}, nil)
 	fixture.analysisResultRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(30)).Return(&entities.AnalysisResult{
@@ -161,6 +168,7 @@ func TestGetAnalysisEvent_ReturnsTheResultOfASucceededAnalysis(t *testing.T) {
 
 func TestGetAnalysisEvent_ShowsAFailureReason(t *testing.T) {
 	fixture := createAnalysisRouter(t)
+	fixture.givenActiveKey()
 	finishedAt := analysisStartedAt.Add(time.Minute)
 	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(32)).Return(&entities.AnalysisEvent{ID: 32, Symbol: "BTC", Category: "crypto", Status: "failed", FailureReason: "AI 服務暫時無法使用", StartedAt: analysisStartedAt, FinishedAt: &finishedAt}, nil)
 
@@ -174,6 +182,7 @@ func TestGetAnalysisEvent_UnknownIdsAreNotFound(t *testing.T) {
 	for _, path := range []string{"/analysis-events/999", "/analysis-events/abc", "/analysis-events/-1"} {
 		t.Run(path, func(t *testing.T) {
 			fixture := createAnalysisRouter(t)
+			fixture.givenActiveKey()
 			fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(999)).Return(nil, nil).Maybe()
 
 			recorder := send(fixture.router, http.MethodGet, path, presentedApiKey, "")
@@ -182,4 +191,14 @@ func TestGetAnalysisEvent_UnknownIdsAreNotFound(t *testing.T) {
 			assert.Equal(t, controller.ErrorDetail{Code: "analysis_event_not_found", Message: "找不到此分析事件"}, decodeError(t, recorder))
 		})
 	}
+}
+
+func TestAnalysisEventRoutes_RejectAnInactiveKey(t *testing.T) {
+	fixture := createAnalysisRouter(t)
+	fixture.apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 12, IsActive: false}, nil)
+
+	recorder := send(fixture.router, http.MethodPost, "/analysis-events", presentedApiKey, `{"symbol":"BTC","category":"crypto"}`)
+
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
+	assert.Equal(t, controller.ErrorDetail{Code: "api_key_inactive", Message: "API key 尚未啟用"}, decodeError(t, recorder))
 }

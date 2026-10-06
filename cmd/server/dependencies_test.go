@@ -104,3 +104,14 @@ func TestBuildNewsProvidersByCategory_AssignsProvidersAndLocalesPerMarket(t *tes
 func TestNewExternalHttpClient_GivesUpAfterTenSeconds(t *testing.T) {
 	assert.Equal(t, 10*time.Second, newExternalHttpClient().Timeout)
 }
+
+func TestPrepareRouter_FailsInterruptedAnalysesBeforeServing(t *testing.T) {
+	// never connects, so the startup sweep is the only step that can fail
+	database, err := gorm.Open(postgres.New(postgres.Config{DSN: "host=127.0.0.1 port=1 dbname=unused_test connect_timeout=1"}), &gorm.Config{DisableAutomaticPing: true})
+	require.NoError(t, err)
+
+	router, err := prepareRouter(context.Background(), buildControllers(database, ServerConfig{AiAnalysisModel: "claude-opus-5-5", AiAnalysisEffort: "high"}))
+
+	assert.ErrorContains(t, err, "fail interrupted analysis events")
+	assert.Nil(t, router)
+}
