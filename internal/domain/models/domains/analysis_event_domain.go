@@ -54,6 +54,12 @@ func (analysisEventDomain *AnalysisEventDomain) Succeed(finishedAt time.Time, us
 	analysisEventDomain.finish(AnalysisStatusSucceeded, "", finishedAt, usage)
 }
 
+func (analysisEventDomain *AnalysisEventDomain) RecordAnsweringModel(modelName string) {
+	if modelName != "" {
+		analysisEventDomain.analysisEvent.Model = modelName
+	}
+}
+
 func (analysisEventDomain *AnalysisEventDomain) Fail(failureReason string, finishedAt time.Time, usage vo.AnalystUsageVo) {
 	analysisEventDomain.finish(AnalysisStatusFailed, failureReason, finishedAt, usage)
 }

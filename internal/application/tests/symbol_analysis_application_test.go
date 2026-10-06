@@ -465,3 +465,88 @@ func TestFailInterruptedAnalysisEvents(t *testing.T) {
 		})
 	}
 }
+
+func TestStartSymbolAnalysis_RespondsBeforeTheAnalystAnswers(t *testing.T) {
+	fixture := createSymbolAnalysisFixture(t)
+	fixture.givenBitcoin()
+	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "crypto").Return(nil, nil)
+	fixture.analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisEvent *entities.AnalysisEvent) error {
+		analysisEvent.ID = 11
+		return nil
+	})
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(11)).Return(runningBitcoinAnalysis(), nil)
+	analystCalled := make(chan struct{})
+	releaseAnalyst := make(chan struct{})
+	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(context.Context, vo.AnalystRequestVo, []vo.AnalystExchangeVo) (vo.AnalystTurnVo, error) {
+		close(analystCalled)
+		<-releaseAnalyst
+		return vo.AnalystTurnVo{IsRefused: true}, nil
+	})
+	finished := make(chan struct{})
+	fixture.analysisEventRepository.EXPECT().Update(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, *entities.AnalysisEvent) error {
+		close(finished)
+		return nil
+	})
+
+	startedSymbolAnalysis, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: "BTC", Category: "crypto"})
+	<-analystCalled
+
+	require.NoError(t, err)
+	assert.Equal(t, "running", startedSymbolAnalysis.AnalysisEvent.Status)
+	close(releaseAnalyst)
+	<-finished
+}
+
+func TestAnalyzeSymbol_TellsTheAnalystWhenASearchFailsAndContinues(t *testing.T) {
+	fixture := createSymbolAnalysisFixture(t)
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
+	fixture.givenBitcoin()
+	fixture.cryptoNewsProxy.EXPECT().FetchNews(mock.Anything, "Bitcoin").Return(nil, errDatabaseDown)
+	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "NOTACOIN").Return("", false, nil)
+	receivedToolResults := []vo.AnalystToolResultVo{}
+	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, _ vo.AnalystRequestVo, exchanges []vo.AnalystExchangeVo) (vo.AnalystTurnVo, error) {
+		if len(exchanges) == 0 {
+			return vo.AnalystTurnVo{NewsSearches: []vo.AnalystNewsSearchVo{
+				{ToolCallID: "all-providers-down", Symbol: "BTC", Category: "crypto"},
+				{ToolCallID: "unknown-related", Symbol: "NOTACOIN", Category: "crypto"},
+			}}, nil
+		}
+		receivedToolResults = exchanges[0].ToolResults
+		return vo.AnalystTurnVo{Conclusion: &vo.RawAnalysisConclusionVo{Grade: "bullish", Confidence: 60, TimeHorizon: "short", Reason: "r"}}, nil
+	})
+	fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(nil)
+	finishedAnalysisEvent := fixture.captureFinishedEvent()
+
+	fixture.symbolAnalysisApplication.AnalyzeSymbol(context.Background(), dto.AnalyzeSymbolDto{AnalysisEventID: 21})
+
+	assert.Equal(t, []vo.AnalystToolResultVo{
+		{ToolCallID: "all-providers-down", Content: "新聞來源暫時無法使用", IsError: true},
+		{ToolCallID: "unknown-related", Content: "找不到此標的", IsError: true},
+	}, receivedToolResults)
+	assert.Equal(t, "succeeded", finishedAnalysisEvent.Status)
+}
+
+func TestAnalyzeSymbol_RecordsTheModelThatActuallyAnswered(t *testing.T) {
+	fixture := createSymbolAnalysisFixture(t)
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
+	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).Return(vo.AnalystTurnVo{ModelName: "claude-opus-4-8", Conclusion: &vo.RawAnalysisConclusionVo{Grade: "neutral", Reason: "r"}}, nil)
+	fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(nil)
+	finishedAnalysisEvent := fixture.captureFinishedEvent()
+
+	fixture.symbolAnalysisApplication.AnalyzeSymbol(context.Background(), dto.AnalyzeSymbolDto{AnalysisEventID: 21})
+
+	assert.Equal(t, "claude-opus-4-8", finishedAnalysisEvent.Model)
+}
+
+func TestAnalyzeSymbol_DoesNotSearchInTheFinalRound(t *testing.T) {
+	fixture := createSymbolAnalysisFixture(t)
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
+	fixture.givenBitcoin()
+	fixture.cryptoNewsProxy.EXPECT().FetchNews(mock.Anything, "Bitcoin").Return([]vo.NewsVo{}, nil).Times(4)
+	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).Return(vo.AnalystTurnVo{NewsSearches: []vo.AnalystNewsSearchVo{{ToolCallID: "x", Symbol: "BTC", Category: "crypto"}}}, nil).Times(5)
+	finishedAnalysisEvent := fixture.captureFinishedEvent()
+
+	fixture.symbolAnalysisApplication.AnalyzeSymbol(context.Background(), dto.AnalyzeSymbolDto{AnalysisEventID: 21})
+
+	assert.Equal(t, "AI 未在限制內完成分析", finishedAnalysisEvent.FailureReason)
+}

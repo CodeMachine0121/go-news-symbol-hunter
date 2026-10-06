@@ -129,7 +129,7 @@ func TestAnalysisConclusionDomain_WithoutEvidenceIsNeutralWithZeroConfidence(t *
 func TestAnalysisConclusionDomain_KeyEventsCiteOnlyEvidenceUpToFive(t *testing.T) {
 	analysisResult := conclude(t, vo.RawAnalysisConclusionVo{
 		Grade: "bullish", Confidence: 60, TimeHorizon: "short", Reason: "r",
-		KeyEventLinks: []string{"a", "made-up", " b ", "c", "d", "e", "f"},
+		KeyEventLinks: []string{"a", "made-up", "a", " b ", "c", "d", "e", "f"},
 	}, recordedEvidence("a", "b", "c", "d", "e", "f"))
 
 	links := []string{}
@@ -171,4 +171,15 @@ func TestAnalysisConclusionDomain_ToResultEntityCarriesTheEventAndEvidence(t *te
 	assert.Equal(t, []entities.AnalysisKeyEvent{}, analysisResult.KeyEvents)
 	assert.Equal(t, []string{}, analysisResult.RiskFactors)
 	assert.False(t, strings.Contains(analysisResult.Reason, " "))
+}
+
+func TestAnalysisEventDomain_RecordsTheAnsweringModel(t *testing.T) {
+	analysisEvent := domains.NewAnalysisEventDomain(entities.AnalysisEvent{Model: "claude-opus-5-5"})
+
+	analysisEvent.RecordAnsweringModel("")
+	unchangedModel := analysisEvent.ToEntity().Model
+	analysisEvent.RecordAnsweringModel("claude-opus-4-8")
+
+	assert.Equal(t, "claude-opus-5-5", unchangedModel)
+	assert.Equal(t, "claude-opus-4-8", analysisEvent.ToEntity().Model)
 }

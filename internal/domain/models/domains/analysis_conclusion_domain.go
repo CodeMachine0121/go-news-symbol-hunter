@@ -63,7 +63,8 @@ func NewAnalysisConclusionDomain(rawConclusion vo.RawAnalysisConclusionVo, analy
 	keyEvents := []entities.AnalysisKeyEvent{}
 	for _, keyEventLink := range rawConclusion.KeyEventLinks {
 		evidence, cited := analysisEvidence.FindByLink(strings.TrimSpace(keyEventLink))
-		if cited && len(keyEvents) < MaximumKeyEventCount {
+		alreadyListed := slices.ContainsFunc(keyEvents, func(keyEvent entities.AnalysisKeyEvent) bool { return keyEvent.Link == evidence.Link })
+		if cited && !alreadyListed && len(keyEvents) < MaximumKeyEventCount {
 			keyEvents = append(keyEvents, entities.AnalysisKeyEvent{Title: evidence.Title, Link: evidence.Link, PublishedAt: evidence.PublishedAt})
 		}
 	}

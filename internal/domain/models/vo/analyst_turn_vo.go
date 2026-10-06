@@ -6,4 +6,5 @@ type AnalystTurnVo struct {
 	Conclusion   *RawAnalysisConclusionVo
 	IsRefused    bool
 	Usage        AnalystUsageVo
+	ModelName    string
 }

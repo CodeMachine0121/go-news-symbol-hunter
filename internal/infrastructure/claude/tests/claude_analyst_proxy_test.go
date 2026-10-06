@@ -84,6 +84,7 @@ func TestClaudeAnalystProxy_FirstTurnSendsTheConfiguredRequest(t *testing.T) {
 		Reply:        searchReply,
 		NewsSearches: []vo.AnalystNewsSearchVo{{ToolCallID: "toolu_search", Symbol: "BTC", Category: "crypto"}},
 		Usage:        vo.AnalystUsageVo{InputTokens: 100, OutputTokens: 10},
+		ModelName:    "claude-opus-5-5",
 	}, analystTurn)
 }
 
@@ -150,4 +151,14 @@ func TestClaudeAnalystProxy_FailsOnAnUnrestorableExchange(t *testing.T) {
 	_, err := claudeAnalystProxy.Respond(context.Background(), bitcoinRequest, []vo.AnalystExchangeVo{{Reply: "not json"}})
 
 	assert.ErrorContains(t, err, "restore analyst reply")
+}
+
+func TestClaudeAnalystProxy_ReportsTheAnsweringModelAndCachedInput(t *testing.T) {
+	claudeAnalystProxy, _ := startMessagesServer(t, http.StatusOK, `{"id":"msg_4","type":"message","role":"assistant","model":"claude-opus-4-8","content":[],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":10,"cache_creation_input_tokens":20,"cache_read_input_tokens":30,"output_tokens":5}}`)
+
+	analystTurn, err := claudeAnalystProxy.Respond(context.Background(), bitcoinRequest, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-4-8", analystTurn.ModelName)
+	assert.Equal(t, vo.AnalystUsageVo{InputTokens: 60, OutputTokens: 5}, analystTurn.Usage)
 }

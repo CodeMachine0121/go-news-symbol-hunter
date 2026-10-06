@@ -90,7 +90,12 @@ func (claudeAnalystProxy *ClaudeAnalystProxy) Respond(ctx context.Context, reque
 	analystTurn := vo.AnalystTurnVo{
 		Reply:     response.RawJSON(),
 		IsRefused: response.StopReason == anthropic.BetaStopReasonRefusal,
-		Usage:     vo.AnalystUsageVo{InputTokens: response.Usage.InputTokens, OutputTokens: response.Usage.OutputTokens},
+		Usage: vo.AnalystUsageVo{
+			InputTokens:  response.Usage.InputTokens + response.Usage.CacheCreationInputTokens + response.Usage.CacheReadInputTokens,
+			OutputTokens: response.Usage.OutputTokens,
+		},
+		// a server-side fallback may answer with a different model than the one requested
+		ModelName: string(response.Model),
 	}
 	for _, block := range response.Content {
 		toolUse, isToolUse := block.AsAny().(anthropic.BetaToolUseBlock)

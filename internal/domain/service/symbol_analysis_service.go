@@ -82,13 +82,14 @@ func (symbolAnalysisService *SymbolAnalysisService) AnalyzeSymbol(ctx context.Co
 	usage := vo.AnalystUsageVo{}
 	failureReason := FailureReasonAnalystExceededRounds
 	isSucceeded := false
-	for range MaximumAnalystRounds {
+	for round := range MaximumAnalystRounds {
 		analystTurn, respondError := symbolAnalysisService.analystProxy.Respond(ctx, analystRequest, exchanges)
 		usage = vo.AnalystUsageVo{InputTokens: usage.InputTokens + analystTurn.Usage.InputTokens, OutputTokens: usage.OutputTokens + analystTurn.Usage.OutputTokens}
 		if respondError != nil {
 			failureReason = FailureReasonAnalystUnavailable
 			break
 		}
+		analysisEvent.RecordAnsweringModel(analystTurn.ModelName)
 		if analystTurn.IsRefused {
 			failureReason = FailureReasonAnalystRefused
 			break
@@ -109,6 +110,10 @@ func (symbolAnalysisService *SymbolAnalysisService) AnalyzeSymbol(ctx context.Co
 				break
 			}
 			isSucceeded = true
+			break
+		}
+		// the analyst could never read search results requested in the final round
+		if round == MaximumAnalystRounds-1 {
 			break
 		}
 		toolResults := make([]vo.AnalystToolResultVo, 0, len(analystTurn.NewsSearches))
