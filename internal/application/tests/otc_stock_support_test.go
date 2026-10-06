@@ -9,6 +9,7 @@ import (
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/service"
 	"github.com/shopspring/decimal"
@@ -119,4 +120,36 @@ func TestCapturePrice_FallsBackToTheNextSourceOfTheMarket(t *testing.T) {
 	require.NotNil(t, listedPrice)
 	assert.Equal(t, "證交所", listedPrice.Source)
 	assert.Nil(t, missingPrice)
+}
+
+func TestStartSymbolAnalysis_AcceptsAnOtcStock(t *testing.T) {
+	twseDirectory := mocks.NewMockIListedCompanyProxy(t)
+	twseDirectory.EXPECT().FindCompanyShortName(mock.Anything, "6182").Return("", false, nil)
+	tpexDirectory := mocks.NewMockIListedCompanyProxy(t)
+	tpexDirectory.EXPECT().FindCompanyShortName(mock.Anything, "6182").Return("合晶", true, nil)
+	clockProxy := mocks.NewMockIClockProxy(t)
+	clockProxy.EXPECT().Now().Return(time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)).Maybe()
+	analystProxy := mocks.NewMockIAnalystProxy(t)
+	analystProxy.EXPECT().ModelName().Return("claude-sonnet-5-5").Maybe()
+	analysisEventRepository := mocks.NewMockIAnalysisEventRepository(t)
+	analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "6182", "twStock").Return(nil, nil)
+	analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisEvent *entities.AnalysisEvent) error {
+		analysisEvent.ID = 61
+		return nil
+	})
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{twseDirectory, tpexDirectory}})
+	symbolAnalysisService := service.NewSymbolAnalysisService(
+		symbolResolutionService,
+		service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{}),
+		service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{}),
+		analystProxy, analysisEventRepository, mocks.NewMockIAnalysisResultRepository(t), clockProxy,
+	)
+
+	startedSymbolAnalysis, err := symbolAnalysisService.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: "6182", Category: "twStock", AllowsNewAnalysis: true})
+
+	require.NoError(t, err)
+	assert.True(t, startedSymbolAnalysis.IsNew)
+	assert.Equal(t, uint(61), startedSymbolAnalysis.AnalysisEvent.AnalysisEventID)
+	assert.Equal(t, "running", startedSymbolAnalysis.AnalysisEvent.Status)
+	assert.Equal(t, "合晶", startedSymbolAnalysis.SearchKeyword)
 }

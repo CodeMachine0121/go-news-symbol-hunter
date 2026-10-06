@@ -106,3 +106,51 @@ func TestTpexOpenDataProxy_ReportsUnavailableOrEmptyData(t *testing.T) {
 		})
 	}
 }
+
+func TestTpexOpenDataProxy_ReusesTheDailyClosingsForAnHour(t *testing.T) {
+	requestCount := &atomic.Int32{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount.Add(1)
+		_, _ = writer.Write([]byte(dailyClosings))
+	}))
+	defer server.Close()
+	clockProxy := mocks.NewMockIClockProxy(t)
+	clockProxy.EXPECT().Now().Return(lookedUpAt).Times(2)
+	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(time.Hour - time.Second)).Once()
+	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(time.Hour))
+	tpexOpenDataProxy := tpex.NewTpexOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+
+	_, _, _ = tpexOpenDataProxy.FindCompanyShortName(context.Background(), "6182")
+	_, _ = tpexOpenDataProxy.FetchPrice(context.Background(), "6182")
+	assert.Equal(t, int32(1), requestCount.Load())
+	_, _, _ = tpexOpenDataProxy.FindCompanyShortName(context.Background(), "6182")
+
+	assert.Equal(t, int32(2), requestCount.Load())
+}
+
+func TestTpexOpenDataProxy_KeepsTheLastGoodDataWhenARefreshFails(t *testing.T) {
+	requestCount := &atomic.Int32{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if requestCount.Add(1) > 1 {
+			writer.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		_, _ = writer.Write([]byte(dailyClosings))
+	}))
+	defer server.Close()
+	clockProxy := mocks.NewMockIClockProxy(t)
+	clockProxy.EXPECT().Now().Return(lookedUpAt).Times(2)
+	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(2 * time.Hour))
+	tpexOpenDataProxy := tpex.NewTpexOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+	_, _, _ = tpexOpenDataProxy.FindCompanyShortName(context.Background(), "6182")
+
+	shortName, found, lookupError := tpexOpenDataProxy.FindCompanyShortName(context.Background(), "6182")
+	priceQuote, priceError := tpexOpenDataProxy.FetchPrice(context.Background(), "6182")
+
+	require.NoError(t, lookupError)
+	assert.True(t, found)
+	assert.Equal(t, "合晶", shortName)
+	require.NoError(t, priceError)
+	assert.True(t, decimal.RequireFromString("128.00").Equal(priceQuote.Price))
+	assert.GreaterOrEqual(t, requestCount.Load(), int32(2))
+}
