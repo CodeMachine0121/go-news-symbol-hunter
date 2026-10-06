@@ -17,8 +17,16 @@ func NewSymbolResolutionService(listedCompanyProxy interfaces.IListedCompanyProx
 	return &SymbolResolutionService{listedCompanyProxy: listedCompanyProxy, cryptocurrencyProxy: cryptocurrencyProxy}
 }
 
-func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx context.Context, symbol vo.SymbolVo) (vo.ResolvedSymbolVo, error) {
-	switch symbol.Category.Value {
+func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx context.Context, rawSymbol string, rawCategory string) (vo.ResolvedSymbolVo, error) {
+	category, err := vo.NewMarketCategoryVo(rawCategory)
+	if err != nil {
+		return vo.ResolvedSymbolVo{}, err
+	}
+	symbol, err := vo.NewSymbolVo(rawSymbol, category)
+	if err != nil {
+		return vo.ResolvedSymbolVo{}, err
+	}
+	switch category.Value {
 	case vo.MarketCategoryTwStock:
 		companyShortName, found, err := symbolResolutionService.listedCompanyProxy.FindCompanyShortName(ctx, symbol.Value)
 		if err != nil {

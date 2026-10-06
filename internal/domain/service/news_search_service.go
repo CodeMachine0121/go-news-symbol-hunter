@@ -32,21 +32,14 @@ func NewNewsSearchService(symbolResolutionService *SymbolResolutionService, cloc
 }
 
 func (newsSearchService *NewsSearchService) SearchSymbolNews(ctx context.Context, searchSymbolNewsDto dto.SearchSymbolNewsDto) (dto.SymbolNewsDto, error) {
-	category, err := vo.NewMarketCategoryVo(searchSymbolNewsDto.Category)
+	resolvedSymbol, err := newsSearchService.symbolResolutionService.ResolveSymbol(ctx, searchSymbolNewsDto.Symbol, searchSymbolNewsDto.Category)
 	if err != nil {
 		return dto.SymbolNewsDto{}, err
 	}
-	symbol, err := vo.NewSymbolVo(searchSymbolNewsDto.Symbol, category)
-	if err != nil {
-		return dto.SymbolNewsDto{}, err
-	}
-	resolvedSymbol, err := newsSearchService.symbolResolutionService.ResolveSymbol(ctx, symbol)
-	if err != nil {
-		return dto.SymbolNewsDto{}, err
-	}
+	symbol := resolvedSymbol.Symbol
 
 	newsProviders := newsSearchService.newsProviderCatalog.UsStock
-	switch category.Value {
+	switch symbol.Category.Value {
 	case vo.MarketCategoryTwStock:
 		newsProviders = newsSearchService.newsProviderCatalog.TwStock
 	case vo.MarketCategoryCrypto:
@@ -87,7 +80,7 @@ func (newsSearchService *NewsSearchService) SearchSymbolNews(ctx context.Context
 	}
 	return dto.SymbolNewsDto{
 		Symbol:              symbol.Value,
-		Category:            category.Value,
+		Category:            symbol.Category.Value,
 		News:                mergedNewsCollection.Curate(newsSearchService.clockProxy.Now()).ToDtos(),
 		FailedNewsProviders: failedNewsProviders,
 	}, nil

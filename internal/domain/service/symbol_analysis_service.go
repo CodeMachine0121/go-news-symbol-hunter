@@ -36,20 +36,13 @@ func NewSymbolAnalysisService(symbolResolutionService *SymbolResolutionService, 
 }
 
 func (symbolAnalysisService *SymbolAnalysisService) StartSymbolAnalysis(ctx context.Context, startSymbolAnalysisDto dto.StartSymbolAnalysisDto) (dto.StartedSymbolAnalysisDto, error) {
-	category, err := vo.NewMarketCategoryVo(startSymbolAnalysisDto.Category)
+	resolvedSymbol, err := symbolAnalysisService.symbolResolutionService.ResolveSymbol(ctx, startSymbolAnalysisDto.Symbol, startSymbolAnalysisDto.Category)
 	if err != nil {
 		return dto.StartedSymbolAnalysisDto{}, err
 	}
-	symbol, err := vo.NewSymbolVo(startSymbolAnalysisDto.Symbol, category)
-	if err != nil {
-		return dto.StartedSymbolAnalysisDto{}, err
-	}
-	resolvedSymbol, err := symbolAnalysisService.symbolResolutionService.ResolveSymbol(ctx, symbol)
-	if err != nil {
-		return dto.StartedSymbolAnalysisDto{}, err
-	}
+	symbol := resolvedSymbol.Symbol
 	for attempt := range 2 {
-		latestAnalysisEvent, findError := symbolAnalysisService.analysisEventRepository.FindLatestReusable(ctx, symbol.Value, category.Value)
+		latestAnalysisEvent, findError := symbolAnalysisService.analysisEventRepository.FindLatestReusable(ctx, symbol.Value, symbol.Category.Value)
 		if findError != nil {
 			return dto.StartedSymbolAnalysisDto{}, fmt.Errorf("%w: %v", ErrAnalysisStorageUnavailable, findError)
 		}

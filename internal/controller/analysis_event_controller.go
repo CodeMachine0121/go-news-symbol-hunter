@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/application"
@@ -12,13 +13,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var analysisEventErrorResponseTable = ErrorResponseTable{
-	{Err: service.ErrMarketCategoryUnsupported, Status: http.StatusBadRequest, Code: "market_category_unsupported"},
-	{Err: service.ErrSymbolRequired, Status: http.StatusBadRequest, Code: "symbol_required"},
-	{Err: service.ErrSymbolNotFound, Status: http.StatusNotFound, Code: "symbol_not_found"},
-	{Err: service.ErrNewsProvidersUnavailable, Status: http.StatusBadGateway, Code: "news_providers_unavailable"},
+var analysisEventErrorResponseTable = ErrorResponseTable(slices.Concat(symbolErrorResponseRules, []ErrorResponseRule{
 	{Err: service.ErrAnalysisEventNotFound, Status: http.StatusNotFound, Code: "analysis_event_not_found"},
-}
+}))
 
 type StartSymbolAnalysisRequest struct {
 	Symbol   string `json:"symbol"`
