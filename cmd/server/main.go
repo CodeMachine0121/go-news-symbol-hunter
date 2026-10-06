@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"log"
 
-	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
@@ -17,8 +17,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
-	router := gin.Default()
-	registerRoutes(router, buildControllers(database))
+	router, err := prepareRouter(context.Background(), buildControllers(database, serverConfig))
+	if err != nil {
+		log.Fatalf("prepare router: %v", err)
+	}
 	if err := router.Run(":" + serverConfig.ServerPort); err != nil {
 		log.Fatalf("run server: %v", err)
 	}

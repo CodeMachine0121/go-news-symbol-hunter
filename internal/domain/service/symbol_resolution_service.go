@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 )
 
@@ -17,8 +18,16 @@ func NewSymbolResolutionService(listedCompanyProxy interfaces.IListedCompanyProx
 	return &SymbolResolutionService{listedCompanyProxy: listedCompanyProxy, cryptocurrencyProxy: cryptocurrencyProxy}
 }
 
-func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx context.Context, symbol vo.SymbolVo) (vo.ResolvedSymbolVo, error) {
-	switch symbol.Category.Value {
+func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx context.Context, resolveSymbolDto dto.ResolveSymbolDto) (vo.ResolvedSymbolVo, error) {
+	category, err := vo.NewMarketCategoryVo(resolveSymbolDto.Category)
+	if err != nil {
+		return vo.ResolvedSymbolVo{}, err
+	}
+	symbol, err := vo.NewSymbolVo(resolveSymbolDto.Symbol, category)
+	if err != nil {
+		return vo.ResolvedSymbolVo{}, err
+	}
+	switch category.Value {
 	case vo.MarketCategoryTwStock:
 		companyShortName, found, err := symbolResolutionService.listedCompanyProxy.FindCompanyShortName(ctx, symbol.Value)
 		if err != nil {

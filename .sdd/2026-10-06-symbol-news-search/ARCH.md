@@ -43,7 +43,7 @@
 | `INewsProxy` | Interface | `ProviderName() string`、`FetchNews(searchKeyword string) ([]vo.NewsVo, error)` | — | US-03、US-05 |
 | `IListedCompanyProxy` | Interface | `FindCompanyShortName(stockCode) (shortName, found, error)` | — | US-02 台股、US-03 台股 |
 | `ICryptocurrencyProxy` | Interface | `FindCoinName(symbol) (coinName, found, error)`（同代號取市值排名最前） | — | US-02 加密貨幣、US-03 加密貨幣 |
-| `SymbolResolutionService` | Domain Service | `ResolveSymbol(vo.SymbolVo)`：台股查公司簡稱、加密貨幣查幣種名稱、美股直接使用代號；查無 → `ErrSymbolNotFound`；辨識資料取不到 → `ErrNewsProvidersUnavailable`。獨立成 service 供下一個切片（AI 分析）重用 | `IListedCompanyProxy`、`ICryptocurrencyProxy` | US-02、US-03 |
+| `SymbolResolutionService` | Domain Service | `ResolveSymbol(ctx, rawSymbol, rawCategory)`：一次完成市場類別驗證、標的正規化與辨識；台股查公司簡稱、加密貨幣查幣種名稱、美股直接使用代號；查無 → `ErrSymbolNotFound`；辨識資料取不到 → `ErrNewsProvidersUnavailable`。獨立成 service 供下一個切片（AI 分析）重用 | `IListedCompanyProxy`、`ICryptocurrencyProxy` | US-02、US-03 |
 | `NewsSearchService` | Domain Service | `SearchSymbolNews(ctx, dto.SearchSymbolNewsDto)`；單一來源 panic 視為該來源失敗：驗證 → `SymbolResolutionService` 辨識 → 以 goroutine 同時呼叫該市場所有新聞來源 → 收集成功結果與失敗來源 → 全失敗 → `ErrNewsProvidersUnavailable` → `NewsCollectionDomain` 整理 → DTO | `SymbolResolutionService`、`INewsProxy`、`IClockProxy` | 全部 |
 | `SearchSymbolNewsDto` / `SymbolNewsDto` / `NewsDto` | DTO | 搜尋輸入；搜尋結果（`symbol`、`category`、`news[]`、`failedNewsProviders[]`） | — | 全部 |
 | `NewsSearchApplication` | Application | 用例入口 | `NewsSearchService` | 全部 |

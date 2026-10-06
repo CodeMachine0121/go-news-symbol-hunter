@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/claude"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
+	"github.com/anthropics/anthropic-sdk-go"
 	"net/http"
 	"time"
 
@@ -50,17 +54,19 @@ func newExternalHttpClient() *http.Client {
 }
 
 type Controllers struct {
-	healthController *controller.HealthController
-	apiKeyController *controller.ApiKeyController
-	newsController   *controller.NewsController
+	healthController          *controller.HealthController
+	apiKeyController          *controller.ApiKeyController
+	newsController            *controller.NewsController
+	analysisEventController   *controller.AnalysisEventController
+	symbolAnalysisApplication *application.SymbolAnalysisApplication
 }
 
 func openDatabase(serverConfig ServerConfig) (*gorm.DB, error) {
-	database, err := gorm.Open(postgres.Open(serverConfig.DatabaseUrl), &gorm.Config{})
+	database, err := gorm.Open(postgres.Open(serverConfig.DatabaseUrl), &gorm.Config{TranslateError: true})
 	if err != nil {
 		return nil, err
 	}
-	if err := database.AutoMigrate(&entities.ApiKey{}); err != nil {
+	if err := database.AutoMigrate(&entities.ApiKey{}, &entities.AnalysisEvent{}, &entities.AnalysisResult{}); err != nil {
 		return nil, err
 	}
 	return database, nil
@@ -87,7 +93,7 @@ func buildNewsProviderCatalog(httpBodyReader *httpfetch.HttpBodyReader, external
 	}
 }
 
-func buildControllers(database *gorm.DB) Controllers {
+func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers {
 	clockProxy := system.NewSystemClockProxy()
 	httpBodyReader := httpfetch.NewHttpBodyReader(newExternalHttpClient())
 	apiKeyService := service.NewApiKeyService(persistence.NewApiKeyRepository(database), clockProxy, system.NewCryptoRandomProxy())
@@ -96,11 +102,31 @@ func buildControllers(database *gorm.DB) Controllers {
 		coingecko.NewCoinGeckoCryptocurrencyProxy(httpBodyReader, clockProxy, productionExternalSourceUrls.CoinGeckoSearch),
 	)
 	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, buildNewsProviderCatalog(httpBodyReader, productionExternalSourceUrls))
+	symbolAnalysisService := service.NewSymbolAnalysisService(
+		symbolResolutionService,
+		newsSearchService,
+		claude.NewClaudeAnalystProxy(anthropic.NewClient(), serverConfig.AiAnalysisModel, serverConfig.AiAnalysisEffort),
+		persistence.NewAnalysisEventRepository(database),
+		persistence.NewAnalysisResultRepository(database),
+		clockProxy,
+	)
+	symbolAnalysisApplication := application.NewSymbolAnalysisApplication(symbolAnalysisService, serverConfig.AiAnalysisMaximumConcurrency)
 	return Controllers{
-		healthController: controller.NewHealthController(),
-		apiKeyController: controller.NewApiKeyController(application.NewApiKeyApplication(apiKeyService)),
-		newsController:   controller.NewNewsController(application.NewNewsSearchApplication(newsSearchService)),
+		healthController:          controller.NewHealthController(),
+		apiKeyController:          controller.NewApiKeyController(application.NewApiKeyApplication(apiKeyService)),
+		newsController:            controller.NewNewsController(application.NewNewsSearchApplication(newsSearchService)),
+		analysisEventController:   controller.NewAnalysisEventController(symbolAnalysisApplication),
+		symbolAnalysisApplication: symbolAnalysisApplication,
 	}
+}
+
+func prepareRouter(ctx context.Context, controllers Controllers) (*gin.Engine, error) {
+	if err := controllers.symbolAnalysisApplication.FailInterruptedAnalysisEvents(ctx); err != nil {
+		return nil, fmt.Errorf("fail interrupted analysis events: %w", err)
+	}
+	router := gin.Default()
+	registerRoutes(router, controllers)
+	return router, nil
 }
 
 func registerRoutes(router *gin.Engine, controllers Controllers) {
@@ -110,4 +136,6 @@ func registerRoutes(router *gin.Engine, controllers Controllers) {
 	router.DELETE("/api-keys/me", controllers.apiKeyController.RevokeApiKey)
 	protectedRoutes := router.Group("/", controllers.apiKeyController.RequireActiveApiKey())
 	protectedRoutes.GET("/news", controllers.newsController.SearchSymbolNews)
+	protectedRoutes.POST("/analysis-events", controllers.analysisEventController.StartSymbolAnalysis)
+	protectedRoutes.GET("/analysis-events/:analysisEventId", controllers.analysisEventController.GetAnalysisEvent)
 }

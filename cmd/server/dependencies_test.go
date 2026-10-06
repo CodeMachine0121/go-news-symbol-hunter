@@ -28,7 +28,7 @@ func TestRegisteredRoutes_ServeHealthAndGuardProtectedRoutes(t *testing.T) {
 	require.NoError(t, err)
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	registerRoutes(router, buildControllers(database))
+	registerRoutes(router, buildControllers(database, ServerConfig{AiAnalysisModel: "claude-opus-5-5", AiAnalysisEffort: "high"}))
 
 	healthRecorder := httptest.NewRecorder()
 	router.ServeHTTP(healthRecorder, httptest.NewRequest(http.MethodGet, "/health", nil))
@@ -40,12 +40,18 @@ func TestRegisteredRoutes_ServeHealthAndGuardProtectedRoutes(t *testing.T) {
 	router.ServeHTTP(revokeRecorder, httptest.NewRequest(http.MethodDelete, "/api-keys/me", nil))
 	newsRecorder := httptest.NewRecorder()
 	router.ServeHTTP(newsRecorder, httptest.NewRequest(http.MethodGet, "/news?symbol=BTC&category=crypto", nil))
+	startAnalysisRecorder := httptest.NewRecorder()
+	router.ServeHTTP(startAnalysisRecorder, httptest.NewRequest(http.MethodPost, "/analysis-events", nil))
+	getAnalysisRecorder := httptest.NewRecorder()
+	router.ServeHTTP(getAnalysisRecorder, httptest.NewRequest(http.MethodGet, "/analysis-events/1", nil))
 
 	assert.Equal(t, http.StatusOK, healthRecorder.Code)
 	assert.Equal(t, http.StatusBadRequest, issueRecorder.Code)
 	assert.Equal(t, http.StatusUnauthorized, statusRecorder.Code)
 	assert.Equal(t, http.StatusUnauthorized, revokeRecorder.Code)
 	assert.Equal(t, http.StatusUnauthorized, newsRecorder.Code)
+	assert.Equal(t, http.StatusUnauthorized, startAnalysisRecorder.Code)
+	assert.Equal(t, http.StatusUnauthorized, getAnalysisRecorder.Code)
 }
 
 func TestBuildNewsProvidersByCategory_AssignsProvidersAndLocalesPerMarket(t *testing.T) {
@@ -97,4 +103,15 @@ func TestBuildNewsProvidersByCategory_AssignsProvidersAndLocalesPerMarket(t *tes
 
 func TestNewExternalHttpClient_GivesUpAfterTenSeconds(t *testing.T) {
 	assert.Equal(t, 10*time.Second, newExternalHttpClient().Timeout)
+}
+
+func TestPrepareRouter_FailsInterruptedAnalysesBeforeServing(t *testing.T) {
+	// never connects, so the startup sweep is the only step that can fail
+	database, err := gorm.Open(postgres.New(postgres.Config{DSN: "host=127.0.0.1 port=1 dbname=unused_test connect_timeout=1"}), &gorm.Config{DisableAutomaticPing: true})
+	require.NoError(t, err)
+
+	router, err := prepareRouter(context.Background(), buildControllers(database, ServerConfig{AiAnalysisModel: "claude-opus-5-5", AiAnalysisEffort: "high"}))
+
+	assert.ErrorContains(t, err, "fail interrupted analysis events")
+	assert.Nil(t, router)
 }
