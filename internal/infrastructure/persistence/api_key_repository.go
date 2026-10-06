@@ -34,7 +34,8 @@ func (apiKeyRepository *ApiKeyRepository) FindBySecretHash(secretHash string) (*
 }
 
 func (apiKeyRepository *ApiKeyRepository) MarkRevoked(apiKeyID uint, revokedAt time.Time) (bool, error) {
-	result := apiKeyRepository.database.Model(&entities.ApiKey{ID: apiKeyID}).
+	result := apiKeyRepository.database.Model(&entities.ApiKey{}).
+		Where(clause.Eq{Column: clause.Column{Name: "id"}, Value: apiKeyID}).
 		Where(clause.Eq{Column: clause.Column{Name: "revoked_at"}, Value: nil}).
 		Updates(entities.ApiKey{RevokedAt: &revokedAt})
 	return result.RowsAffected == 1, result.Error

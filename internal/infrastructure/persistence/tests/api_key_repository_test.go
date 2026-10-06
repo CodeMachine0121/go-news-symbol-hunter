@@ -101,3 +101,16 @@ func TestApiKeyRepository_FindBySecretHash_EmptyHashMatchesNothing(t *testing.T)
 	assert.NoError(t, err)
 	assert.Nil(t, foundApiKey)
 }
+
+func TestApiKeyRepository_MarkRevoked_ZeroIdRevokesNothing(t *testing.T) {
+	apiKeyRepository := persistence.NewApiKeyRepository(openTestDatabase(t))
+	require.NoError(t, apiKeyRepository.Create(&entities.ApiKey{Name: "研究", SecretHash: "hash-untouched"}))
+
+	isMarkedRevoked, err := apiKeyRepository.MarkRevoked(0, time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC))
+	untouchedApiKey, findError := apiKeyRepository.FindBySecretHash("hash-untouched")
+
+	require.NoError(t, err)
+	require.NoError(t, findError)
+	assert.False(t, isMarkedRevoked)
+	assert.Nil(t, untouchedApiKey.RevokedAt)
+}
