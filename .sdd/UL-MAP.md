@@ -32,6 +32,9 @@
 | API key 名稱 | `Name` / `name` | name | 使用者建立 API key 時必填的名稱 | Confirmed |
 | 啟用狀態 | `IsActive` / `is_active` | is_active | API key 是否可用。預設 `false`，由 administrator 改為 `true` 才算啟用 | Confirmed |
 | Administrator | — | administrator | 專案擁有者；以直接修改資料庫的方式啟用 API key，不提供管理 API | Confirmed |
+| 撤銷時間 | `RevokedAt` / `revoked_at` | — | API key 被撤銷的時間；有值即「已撤銷」，不可逆，且優先於啟用狀態 | Confirmed |
+| API key 狀態 | `ApiKeyStatus` | status | 對外呈現的狀態：停用中 / 已啟用（見 §4）；已撤銷的 API key 對外一律視為「無效」 | Confirmed |
+| 受保護功能 | — | — | 需要已啟用且未撤銷的 API key 才能使用的功能（如分析標的） | Confirmed |
 | 重用時間窗 | 待定 | — | 同標的（標的 + 市場類別）在此時間窗內已有分析結果時，直接回傳既有結果、不重跑 AI；長度 TBD | Archeology |
 
 ---
@@ -44,7 +47,9 @@
 | 選擇新聞來源 | 待定 | 爬取新聞時 | 依市場類別決定要打哪些新聞來源 | 由程式決定，不由 AI 決定 |
 | 分析標的 | 待定（候選 `AnalyzeSymbol`） | 使用者呼叫 API（參數：symbol、category） | 建立分析事件 → AI 使用爬取新聞工具分析 → 落地分析結果 | 同步 / 非同步待定（候選：POST 回 `analysis_event_id`，GET 查結果） |
 | 建立 API key | 待定 | 使用者呼叫公開的建立端點（必填名稱） | 新增一把停用中的 API key | 端點公開，靠預設停用把關；明文是否只回傳一次 TBD |
-| 撤銷 API key | 待定 | 使用者呼叫撤銷端點 | API key 不再可用 | 誰有權撤銷、撤銷後能否重新啟用 TBD（見 §3） |
+| 撤銷 API key | 待定 | 持有者出示 API key 撤銷 | API key 永久失效 | 持有 API key 即可撤銷；撤銷後不可再啟用 |
+| 查詢 API key 狀態 | 待定 | 使用者出示 API key 查詢 | 回傳名稱與狀態，不回傳完整 API key | 已撤銷 / 不存在 → 無效 |
+| 驗證 API key | 待定 | 每次呼叫受保護功能 | 未提供 → 需要提供；不存在或已撤銷 → 無效；停用中 → 尚未啟用；其餘放行 | |
 | 啟用 API key | —（直接改資料庫） | Administrator 手動操作 | API key 的啟用狀態改為 `true` | 不提供 API |
 | 重用分析結果 | 待定 | 分析標的時，重用時間窗內已有同標的分析結果 | 直接回傳既有分析結果，不建立新的 AI 分析 | 控制 AI 成本 |
 | 標準化分析輸出 | 待定 | AI 回傳後 | AI 原始 JSON 經 Domain Model 建構子正規化（非法 enum → 安全預設值、數值 clamp）後成為分析結果 | 不信任 AI 原始值 |
@@ -59,7 +64,7 @@
 | category 的值 | 使用者原文 `twSotck` | 討論中寫作 `twStock` | 以 `twStock` 為準（原文為筆誤，待確認） |
 | 分析事件 vs 分析結果 | 分析事件：執行過程（何時、狀態、失敗原因） | 分析結果：業務產出（評等、理由…） | 兩者分責；目前一個分析事件對應一個分析結果 |
 | 資料表名稱 | 使用者定義為單數 `analysis_event` / `analysis_result` | ORM 預設會轉為複數（如 GORM → `analysis_events`） | 待定：是否需覆寫表名以維持單數 |
-| 撤銷 vs 停用 | 撤銷：使用者主動作廢 API key | 停用：啟用狀態為 `false`（含尚未經 administrator 啟用） | 待定：撤銷是否只是把啟用狀態改回 `false`（administrator 可再啟用），或是獨立的不可逆狀態 |
+| 撤銷 vs 停用 | 撤銷：使用者主動作廢 API key | 停用：啟用狀態為 `false`（含尚未經 administrator 啟用） | 已決議：撤銷是獨立且不可逆的狀態（撤銷時間），優先於啟用狀態；administrator 停用則可再啟用 |
 | 新聞來源 vs provider | 中文「新聞來源」 | 英文 provider；命名規範要求外部資源以 `Proxy` 結尾 | 業務詞用「新聞來源」；程式介面以能力命名 `INewsProxy`，實作帶供應商前綴 |
 
 ---
@@ -73,6 +78,7 @@
 | 市場類別 | `usStock` | 美股 | Confirmed |
 | 評等（候選） | `strongBullish` / `bullish` / `neutral` / `bearish` / `strongBearish` | 強烈看多 / 看多 / 中性 / 看空 / 強烈看空 | Archeology；非法值正規化為 `neutral` |
 | 分析事件狀態（候選） | `running` / `succeeded` / `failed` | 執行中 / 成功 / 失敗 | Archeology；服務重啟時殘留 `running` 掃成 `failed` |
+| API key 狀態 | `inactive` / `active` | 停用中 / 已啟用 | Confirmed；已撤銷不作為對外狀態，一律回「無效」 |
 | 時間範圍（候選） | `short` / `mid` | 短期 / 中期 | Archeology；具體天數待定 |
 
 ---

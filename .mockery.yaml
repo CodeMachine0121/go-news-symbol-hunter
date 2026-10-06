@@ -1,0 +1,14 @@
+with-expecter: true
+issue-845-fix: True
+disable-version-string: True
+packages:
+  github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface:
+    config:
+      dir: internal/domain/interface/mocks
+      outpkg: mocks
+      filename: "mock_{{.InterfaceName | snakecase}}.go"
+      mockname: "Mock{{.InterfaceName}}"
+    interfaces:
+      IApiKeyRepository: {}
+      IClockProxy: {}
+      IRandomProxy: {}
