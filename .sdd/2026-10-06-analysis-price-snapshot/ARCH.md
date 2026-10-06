@@ -40,7 +40,8 @@
 | `PriceAtAnalysisDto` | DTO | `price`（十進位字串）、`currency`、`pricedAt`、`source` | — | US-03 |
 | `BinancePriceProxy` | Proxy | `GET /api/v3/ticker/price?symbol={SYMBOL}USDT` → 價格字串直接轉 decimal；價格時間取 `IClockProxy.Now()`；幣別 USDT；來源「Binance」 | `HttpBodyReader`、`IClockProxy` | US-01 加密貨幣、US-02 |
 | `YahooFinancePriceProxy` | Proxy | `GET /v8/finance/chart/{SYMBOL}?range=1d&interval=1d` → `meta.regularMarketPrice`（以 `json.Number` 保留原字面值）、`regularMarketTime`、`currency`；`result` 為空 → error；來源「Yahoo 財經」 | `HttpBodyReader` | US-01 美股、US-02 |
-| `TwsePriceProxy` | Proxy | `STOCK_DAY_ALL` 每日收盤：`ClosingPrice` 轉 decimal、民國日期 `Date`（如 `1151005`）轉台北時間當日 00:00；幣別 TWD；來源「證交所」；整份資料快取 1 小時（singleflight、HTTP 期間不持鎖） | `HttpBodyReader`、`IClockProxy` | US-01 台股、US-02 |
+| `RefreshingCache[T]` | Infrastructure（`internal/infrastructure/cache/`） | 泛型快取：過期才下載、併發呼叫共用一次下載（singleflight）、下載失敗不快取、讀寫鎖只圈住存取、下載不受單一呼叫者取消影響；`TwseListedCompanyProxy` 與 `TwsePriceProxy` 共用 | `IClockProxy` | US-01 台股 |
+| `TwsePriceProxy` | Proxy | `STOCK_DAY_ALL` 每日收盤：`ClosingPrice` 轉 decimal、民國日期 `Date`（如 `1151005`）轉台北時間當日 00:00；幣別 TWD；來源「證交所」；整份資料以 `RefreshingCache` 快取 1 小時 | `HttpBodyReader`、`IClockProxy` | US-01 台股、US-02 |
 
 ### 資料欄位
 
