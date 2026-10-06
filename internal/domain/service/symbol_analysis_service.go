@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/domains"
@@ -13,7 +14,10 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 )
 
-const MaximumAnalystRounds = 5
+const (
+	MaximumAnalystRounds = 5
+	maximumStartAttempts = 3
+)
 
 type SymbolAnalysisService struct {
 	symbolResolutionService  *SymbolResolutionService
@@ -36,24 +40,36 @@ func NewSymbolAnalysisService(symbolResolutionService *SymbolResolutionService, 
 }
 
 func (symbolAnalysisService *SymbolAnalysisService) StartSymbolAnalysis(ctx context.Context, startSymbolAnalysisDto dto.StartSymbolAnalysisDto) (dto.StartedSymbolAnalysisDto, error) {
-	resolvedSymbol, err := symbolAnalysisService.symbolResolutionService.ResolveSymbol(ctx, startSymbolAnalysisDto.Symbol, startSymbolAnalysisDto.Category)
+	resolvedSymbol, err := symbolAnalysisService.symbolResolutionService.ResolveSymbol(ctx, dto.ResolveSymbolDto{Symbol: startSymbolAnalysisDto.Symbol, Category: startSymbolAnalysisDto.Category})
 	if err != nil {
 		return dto.StartedSymbolAnalysisDto{}, err
 	}
 	symbol := resolvedSymbol.Symbol
-	for attempt := range 2 {
+	// retried because a concurrent start may win the single-running-analysis index and then finish before we can reuse it
+	for range maximumStartAttempts {
+		now := symbolAnalysisService.clockProxy.Now()
 		latestAnalysisEvent, findError := symbolAnalysisService.analysisEventRepository.FindLatestReusable(ctx, symbol.Value, symbol.Category.Value)
 		if findError != nil {
 			return dto.StartedSymbolAnalysisDto{}, fmt.Errorf("%w: %v", ErrAnalysisStorageUnavailable, findError)
 		}
-		if latestAnalysisEvent != nil && domains.NewAnalysisEventDomain(*latestAnalysisEvent).IsReusableAt(symbolAnalysisService.clockProxy.Now()) {
-			reusedAnalysisEvent, dtoError := symbolAnalysisService.toDtoWithResult(ctx, *latestAnalysisEvent)
-			return dto.StartedSymbolAnalysisDto{AnalysisEvent: reusedAnalysisEvent, IsNew: false, SearchKeyword: resolvedSymbol.SearchKeyword}, dtoError
+		if latestAnalysisEvent != nil {
+			latestAnalysisEventDomain := domains.NewAnalysisEventDomain(*latestAnalysisEvent)
+			if latestAnalysisEventDomain.IsReusableAt(now) {
+				reusedAnalysisEvent, dtoError := symbolAnalysisService.toDtoWithResult(ctx, *latestAnalysisEvent)
+				return dto.StartedSymbolAnalysisDto{AnalysisEvent: reusedAnalysisEvent, IsNew: false, SearchKeyword: resolvedSymbol.SearchKeyword}, dtoError
+			}
+			if latestAnalysisEventDomain.IsStaleAt(now) {
+				latestAnalysisEventDomain.Fail(FailureReasonTimedOut, now, vo.AnalystUsageVo{InputTokens: latestAnalysisEvent.InputTokens, OutputTokens: latestAnalysisEvent.OutputTokens})
+				staleAnalysisEvent := latestAnalysisEventDomain.ToEntity()
+				if updateError := symbolAnalysisService.analysisEventRepository.Update(ctx, &staleAnalysisEvent); updateError != nil {
+					return dto.StartedSymbolAnalysisDto{}, fmt.Errorf("%w: %v", ErrAnalysisStorageUnavailable, updateError)
+				}
+			}
 		}
-		if attempt > 0 {
-			break
+		if !startSymbolAnalysisDto.AllowsNewAnalysis {
+			return dto.StartedSymbolAnalysisDto{}, ErrAnalysisCapacityReached
 		}
-		analysisEvent := domains.NewStartedAnalysisEventDomain(startSymbolAnalysisDto.ApiKeyID, symbol, symbolAnalysisService.analystProxy.ModelName(), symbolAnalysisService.clockProxy.Now()).ToEntity()
+		analysisEvent := domains.NewStartedAnalysisEventDomain(startSymbolAnalysisDto.ApiKeyID, symbol, symbolAnalysisService.analystProxy.ModelName(), now).ToEntity()
 		createError := symbolAnalysisService.analysisEventRepository.Create(ctx, &analysisEvent)
 		if errors.Is(createError, ErrAnalysisAlreadyRunning) {
 			continue
@@ -63,7 +79,6 @@ func (symbolAnalysisService *SymbolAnalysisService) StartSymbolAnalysis(ctx cont
 		}
 		return dto.StartedSymbolAnalysisDto{AnalysisEvent: domains.NewAnalysisEventDomain(analysisEvent).ToDto(nil), IsNew: true, SearchKeyword: resolvedSymbol.SearchKeyword}, nil
 	}
-	// a concurrent request created the running analysis and it finished as failed before we could reuse it
 	return dto.StartedSymbolAnalysisDto{}, ErrAnalysisStorageUnavailable
 }
 
@@ -76,6 +91,8 @@ func (symbolAnalysisService *SymbolAnalysisService) AnalyzeSymbol(ctx context.Co
 		return ErrAnalysisEventNotFound
 	}
 	analysisEvent := domains.NewAnalysisEventDomain(*storedAnalysisEvent)
+	analysisContext, cancelAnalysis := context.WithTimeout(ctx, domains.AnalysisTimeout)
+	defer cancelAnalysis()
 	analystRequest := vo.AnalystRequestVo{Symbol: storedAnalysisEvent.Symbol, Category: storedAnalysisEvent.Category, SearchKeyword: analyzeSymbolDto.SearchKeyword}
 	analysisEvidence := domains.NewAnalysisEvidenceDomain()
 	exchanges := []vo.AnalystExchangeVo{}
@@ -83,8 +100,12 @@ func (symbolAnalysisService *SymbolAnalysisService) AnalyzeSymbol(ctx context.Co
 	failureReason := FailureReasonAnalystExceededRounds
 	isSucceeded := false
 	for round := range MaximumAnalystRounds {
-		analystTurn, respondError := symbolAnalysisService.analystProxy.Respond(ctx, analystRequest, exchanges)
+		analystTurn, respondError := symbolAnalysisService.analystProxy.Respond(analysisContext, analystRequest, exchanges)
 		usage = vo.AnalystUsageVo{InputTokens: usage.InputTokens + analystTurn.Usage.InputTokens, OutputTokens: usage.OutputTokens + analystTurn.Usage.OutputTokens}
+		if errors.Is(respondError, context.DeadlineExceeded) {
+			failureReason = FailureReasonTimedOut
+			break
+		}
 		if respondError != nil {
 			failureReason = FailureReasonAnalystUnavailable
 			break
@@ -105,7 +126,7 @@ func (symbolAnalysisService *SymbolAnalysisService) AnalyzeSymbol(ctx context.Co
 				break
 			}
 			analysisResult := conclusion.ToResultEntity(*storedAnalysisEvent, symbolAnalysisService.clockProxy.Now())
-			if saveError := symbolAnalysisService.analysisResultRepository.Create(ctx, &analysisResult); saveError != nil {
+			if saveError := symbolAnalysisService.analysisResultRepository.Create(context.WithoutCancel(ctx), &analysisResult); saveError != nil {
 				failureReason = FailureReasonResultNotSaved
 				break
 			}
@@ -116,15 +137,23 @@ func (symbolAnalysisService *SymbolAnalysisService) AnalyzeSymbol(ctx context.Co
 		if round == MaximumAnalystRounds-1 {
 			break
 		}
+		searchedNews := make([]dto.SymbolNewsDto, len(analystTurn.NewsSearches))
+		searchErrors := make([]error, len(analystTurn.NewsSearches))
+		var waitGroup sync.WaitGroup
+		for index, newsSearch := range analystTurn.NewsSearches {
+			waitGroup.Go(func() {
+				searchedNews[index], searchErrors[index] = symbolAnalysisService.newsSearchService.SearchSymbolNews(analysisContext, dto.SearchSymbolNewsDto{Symbol: newsSearch.Symbol, Category: newsSearch.Category})
+			})
+		}
+		waitGroup.Wait()
 		toolResults := make([]vo.AnalystToolResultVo, 0, len(analystTurn.NewsSearches))
-		for _, newsSearch := range analystTurn.NewsSearches {
-			symbolNews, searchError := symbolAnalysisService.newsSearchService.SearchSymbolNews(ctx, dto.SearchSymbolNewsDto{Symbol: newsSearch.Symbol, Category: newsSearch.Category})
-			if searchError != nil {
-				toolResults = append(toolResults, vo.AnalystToolResultVo{ToolCallID: newsSearch.ToolCallID, Content: searchError.Error(), IsError: true})
+		for index, newsSearch := range analystTurn.NewsSearches {
+			if searchErrors[index] != nil {
+				toolResults = append(toolResults, vo.AnalystToolResultVo{ToolCallID: newsSearch.ToolCallID, Content: searchErrors[index].Error(), IsError: true})
 				continue
 			}
-			analysisEvidence.Record(symbolNews.News)
-			searchResult, _ := json.Marshal(symbolNews)
+			analysisEvidence.Record(searchedNews[index].News)
+			searchResult, _ := json.Marshal(searchedNews[index])
 			toolResults = append(toolResults, vo.AnalystToolResultVo{ToolCallID: newsSearch.ToolCallID, Content: string(searchResult)})
 		}
 		exchanges = append(exchanges, vo.AnalystExchangeVo{Reply: analystTurn.Reply, ToolResults: toolResults})
@@ -135,7 +164,8 @@ func (symbolAnalysisService *SymbolAnalysisService) AnalyzeSymbol(ctx context.Co
 		analysisEvent.Fail(failureReason, symbolAnalysisService.clockProxy.Now(), usage)
 	}
 	finishedAnalysisEvent := analysisEvent.ToEntity()
-	if err := symbolAnalysisService.analysisEventRepository.Update(ctx, &finishedAnalysisEvent); err != nil {
+	// recorded even when the analysis ran out of time
+	if err := symbolAnalysisService.analysisEventRepository.Update(context.WithoutCancel(ctx), &finishedAnalysisEvent); err != nil {
 		return fmt.Errorf("%w: %v", ErrAnalysisStorageUnavailable, err)
 	}
 	return nil

@@ -110,7 +110,7 @@ func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers 
 		persistence.NewAnalysisResultRepository(database),
 		clockProxy,
 	)
-	symbolAnalysisApplication := application.NewSymbolAnalysisApplication(symbolAnalysisService)
+	symbolAnalysisApplication := application.NewSymbolAnalysisApplication(symbolAnalysisService, serverConfig.AiAnalysisMaximumConcurrency)
 	return Controllers{
 		healthController:          controller.NewHealthController(),
 		apiKeyController:          controller.NewApiKeyController(application.NewApiKeyApplication(apiKeyService)),

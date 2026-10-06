@@ -13,6 +13,8 @@ const (
 	AnalysisStatusSucceeded = "succeeded"
 	AnalysisStatusFailed    = "failed"
 	AnalysisReuseWindow     = 6 * time.Hour
+	AnalysisTimeout         = 10 * time.Minute
+	AnalysisStaleAfter      = AnalysisTimeout + 5*time.Minute
 )
 
 type AnalysisEventDomain struct {
@@ -37,13 +39,17 @@ func NewStartedAnalysisEventDomain(apiKeyID uint, symbol vo.SymbolVo, model stri
 func (analysisEventDomain AnalysisEventDomain) IsReusableAt(now time.Time) bool {
 	switch analysisEventDomain.analysisEvent.Status {
 	case AnalysisStatusRunning:
-		return true
+		return !analysisEventDomain.IsStaleAt(now)
 	case AnalysisStatusSucceeded:
 		finishedAt := analysisEventDomain.analysisEvent.FinishedAt
 		return finishedAt != nil && !finishedAt.Before(now.Add(-AnalysisReuseWindow))
 	default:
 		return false
 	}
+}
+
+func (analysisEventDomain AnalysisEventDomain) IsStaleAt(now time.Time) bool {
+	return analysisEventDomain.analysisEvent.Status == AnalysisStatusRunning && analysisEventDomain.analysisEvent.StartedAt.Before(now.Add(-AnalysisStaleAfter))
 }
 
 func (analysisEventDomain AnalysisEventDomain) IsSucceeded() bool {

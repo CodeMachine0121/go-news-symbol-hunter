@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 )
 
@@ -17,12 +18,12 @@ func NewSymbolResolutionService(listedCompanyProxy interfaces.IListedCompanyProx
 	return &SymbolResolutionService{listedCompanyProxy: listedCompanyProxy, cryptocurrencyProxy: cryptocurrencyProxy}
 }
 
-func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx context.Context, rawSymbol string, rawCategory string) (vo.ResolvedSymbolVo, error) {
-	category, err := vo.NewMarketCategoryVo(rawCategory)
+func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx context.Context, resolveSymbolDto dto.ResolveSymbolDto) (vo.ResolvedSymbolVo, error) {
+	category, err := vo.NewMarketCategoryVo(resolveSymbolDto.Category)
 	if err != nil {
 		return vo.ResolvedSymbolVo{}, err
 	}
-	symbol, err := vo.NewSymbolVo(rawSymbol, category)
+	symbol, err := vo.NewSymbolVo(resolveSymbolDto.Symbol, category)
 	if err != nil {
 		return vo.ResolvedSymbolVo{}, err
 	}

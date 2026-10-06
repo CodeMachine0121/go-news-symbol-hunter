@@ -45,7 +45,7 @@ func createAnalysisRouter(t *testing.T) analysisRouterFixture {
 	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(fixture.apiKeyRepository, clockProxy, mocks.NewMockIRandomProxy(t))))
 	analysisEventController := controller.NewAnalysisEventController(application.NewSymbolAnalysisApplication(service.NewSymbolAnalysisService(
 		symbolResolutionService, newsSearchService, fixture.analystProxy, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,
-	)))
+	), 1))
 	fixture.router = gin.New()
 	protectedRoutes := fixture.router.Group("/", apiKeyController.RequireActiveApiKey())
 	protectedRoutes.POST("/analysis-events", analysisEventController.StartSymbolAnalysis)
@@ -201,4 +201,27 @@ func TestAnalysisEventRoutes_RejectAnInactiveKey(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, recorder.Code)
 	assert.Equal(t, controller.ErrorDetail{Code: "api_key_inactive", Message: "API key 尚未啟用"}, decodeError(t, recorder))
+}
+
+func TestStartSymbolAnalysis_RejectsWhenAnalysisCapacityIsReached(t *testing.T) {
+	fixture := createAnalysisRouter(t)
+	fixture.apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 12, IsActive: true}, nil).Times(2)
+	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, symbol string) (string, bool, error) {
+		return symbol, true, nil
+	})
+	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, mock.Anything, "crypto").Return(nil, nil)
+	fixture.analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(nil).Once()
+	releaseAnalysis := make(chan struct{})
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(0)).RunAndReturn(func(context.Context, uint) (*entities.AnalysisEvent, error) {
+		<-releaseAnalysis
+		return nil, nil
+	})
+
+	firstRecorder := send(fixture.router, http.MethodPost, "/analysis-events", presentedApiKey, `{"symbol":"BTC","category":"crypto"}`)
+	saturatedRecorder := send(fixture.router, http.MethodPost, "/analysis-events", presentedApiKey, `{"symbol":"ETH","category":"crypto"}`)
+	close(releaseAnalysis)
+
+	assert.Equal(t, http.StatusAccepted, firstRecorder.Code)
+	assert.Equal(t, http.StatusTooManyRequests, saturatedRecorder.Code)
+	assert.Equal(t, controller.ErrorDetail{Code: "analysis_capacity_reached", Message: "目前分析數量已達上限，請稍後再試"}, decodeError(t, saturatedRecorder))
 }

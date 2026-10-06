@@ -26,7 +26,8 @@ func TestAnalysisEventDomain_IsReusableAt(t *testing.T) {
 		analysisEvent entities.AnalysisEvent
 		expected      bool
 	}{
-		{name: "running", analysisEvent: entities.AnalysisEvent{Status: "running"}, expected: true},
+		{name: "running for 15 minutes", analysisEvent: entities.AnalysisEvent{Status: "running", StartedAt: analyzedAt.Add(-15 * time.Minute)}, expected: true},
+		{name: "running for 15 minutes and 1 second", analysisEvent: entities.AnalysisEvent{Status: "running", StartedAt: analyzedAt.Add(-15*time.Minute - time.Second)}, expected: false},
 		{name: "succeeded 5h59m ago", analysisEvent: entities.AnalysisEvent{Status: "succeeded", FinishedAt: finishedBefore(5*time.Hour + 59*time.Minute)}, expected: true},
 		{name: "succeeded exactly 6h ago", analysisEvent: entities.AnalysisEvent{Status: "succeeded", FinishedAt: finishedBefore(6 * time.Hour)}, expected: true},
 		{name: "succeeded 6h1m ago", analysisEvent: entities.AnalysisEvent{Status: "succeeded", FinishedAt: finishedBefore(6*time.Hour + time.Minute)}, expected: false},
@@ -182,4 +183,10 @@ func TestAnalysisEventDomain_RecordsTheAnsweringModel(t *testing.T) {
 
 	assert.Equal(t, "claude-opus-5-5", unchangedModel)
 	assert.Equal(t, "claude-opus-4-8", analysisEvent.ToEntity().Model)
+}
+
+func TestAnalysisEventDomain_IsStaleAt(t *testing.T) {
+	assert.False(t, domains.NewAnalysisEventDomain(entities.AnalysisEvent{Status: "running", StartedAt: analyzedAt.Add(-15 * time.Minute)}).IsStaleAt(analyzedAt))
+	assert.True(t, domains.NewAnalysisEventDomain(entities.AnalysisEvent{Status: "running", StartedAt: analyzedAt.Add(-15*time.Minute - time.Second)}).IsStaleAt(analyzedAt))
+	assert.False(t, domains.NewAnalysisEventDomain(entities.AnalysisEvent{Status: "failed", StartedAt: analyzedAt.Add(-time.Hour)}).IsStaleAt(analyzedAt))
 }

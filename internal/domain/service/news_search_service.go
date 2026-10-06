@@ -32,7 +32,7 @@ func NewNewsSearchService(symbolResolutionService *SymbolResolutionService, cloc
 }
 
 func (newsSearchService *NewsSearchService) SearchSymbolNews(ctx context.Context, searchSymbolNewsDto dto.SearchSymbolNewsDto) (dto.SymbolNewsDto, error) {
-	resolvedSymbol, err := newsSearchService.symbolResolutionService.ResolveSymbol(ctx, searchSymbolNewsDto.Symbol, searchSymbolNewsDto.Category)
+	resolvedSymbol, err := newsSearchService.symbolResolutionService.ResolveSymbol(ctx, dto.ResolveSymbolDto{Symbol: searchSymbolNewsDto.Symbol, Category: searchSymbolNewsDto.Category})
 	if err != nil {
 		return dto.SymbolNewsDto{}, err
 	}

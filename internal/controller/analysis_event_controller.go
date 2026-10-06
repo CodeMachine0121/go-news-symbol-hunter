@@ -15,6 +15,7 @@ import (
 
 var analysisEventErrorResponseTable = ErrorResponseTable(slices.Concat(symbolErrorResponseRules, []ErrorResponseRule{
 	{Err: service.ErrAnalysisEventNotFound, Status: http.StatusNotFound, Code: "analysis_event_not_found"},
+	{Err: service.ErrAnalysisCapacityReached, Status: http.StatusTooManyRequests, Code: "analysis_capacity_reached"},
 }))
 
 type StartSymbolAnalysisRequest struct {
