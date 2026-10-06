@@ -10,3 +10,5 @@ packages:
       mockname: "Mock{{.InterfaceName}}"
     interfaces:
       IApiKeyRepository: {}
+      IClockProxy: {}
+      IRandomProxy: {}

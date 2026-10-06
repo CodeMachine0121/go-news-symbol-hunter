@@ -1,27 +1,26 @@
 package vo_test
 
 import (
-	"encoding/base64"
-	"strings"
 	"testing"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestGenerateApiKeySecretVo_ProducesDistinctPrefixedSecrets(t *testing.T) {
-	firstSecret := vo.GenerateApiKeySecretVo()
-	secondSecret := vo.GenerateApiKeySecretVo()
+func TestNewIssuedApiKeySecretVo_PrefixesTheEncodedRandomBytes(t *testing.T) {
+	secret := vo.NewIssuedApiKeySecretVo(make([]byte, vo.ApiKeySecretRandomByteLength))
 
-	assert.Regexp(t, `^snh_[A-Za-z0-9_-]{43}$`, firstSecret.Plaintext)
-	assert.NotEqual(t, firstSecret.Plaintext, secondSecret.Plaintext)
-	randomPart, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(firstSecret.Plaintext, "snh_"))
-	require.NoError(t, err)
-	assert.Len(t, randomPart, 32)
-	presentedSecret, err := vo.NewApiKeySecretVo(firstSecret.Plaintext)
-	require.NoError(t, err)
-	assert.Equal(t, presentedSecret.Hash, firstSecret.Hash)
+	assert.Equal(t, "snh_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", secret.Plaintext)
+	assert.Equal(t, 32, vo.ApiKeySecretRandomByteLength)
+}
+
+func TestNewIssuedApiKeySecretVo_HashesLikeAPresentedSecret(t *testing.T) {
+	issuedSecret := vo.NewIssuedApiKeySecretVo([]byte{1, 2, 3})
+
+	presentedSecret, err := vo.NewApiKeySecretVo(issuedSecret.Plaintext)
+
+	assert.NoError(t, err)
+	assert.Equal(t, presentedSecret.Hash, issuedSecret.Hash)
 }
 
 func TestNewApiKeySecretVo(t *testing.T) {
@@ -33,6 +32,7 @@ func TestNewApiKeySecretVo(t *testing.T) {
 		expectedError     error
 	}{
 		{name: "hashes the presented secret with SHA-256", presentedSecret: "abc", expectedPlaintext: "abc", expectedHash: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
+		{name: "trims the presented secret", presentedSecret: " abc ", expectedPlaintext: "abc", expectedHash: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
 		{name: "rejects a missing secret", presentedSecret: "", expectedError: vo.ErrApiKeyMissing},
 		{name: "rejects a blank secret", presentedSecret: "  ", expectedError: vo.ErrApiKeyMissing},
 	}

@@ -33,7 +33,11 @@ type protectedResult struct {
 func createRouter(t *testing.T) (*gin.Engine, *mocks.MockIApiKeyRepository) {
 	gin.SetMode(gin.TestMode)
 	apiKeyRepository := mocks.NewMockIApiKeyRepository(t)
-	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(apiKeyRepository)))
+	clockProxy := mocks.NewMockIClockProxy(t)
+	clockProxy.EXPECT().Now().Return(time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)).Maybe()
+	randomProxy := mocks.NewMockIRandomProxy(t)
+	randomProxy.EXPECT().GenerateBytes(32).Return(make([]byte, 32)).Maybe()
+	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(apiKeyRepository, clockProxy, randomProxy)))
 	router := gin.New()
 	router.POST("/api-keys", apiKeyController.IssueApiKey)
 	router.GET("/api-keys/me", apiKeyController.GetApiKeyStatus)
@@ -77,7 +81,7 @@ func TestIssueApiKey_ReturnsTheFullKeyOnceAsInactive(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &issuedApiKey))
 	assert.JSONEq(t, `"我的研究腳本"`, string(issuedApiKey["name"]))
 	assert.JSONEq(t, `"inactive"`, string(issuedApiKey["status"]))
-	assert.Regexp(t, `^"snh_`, string(issuedApiKey["apiKey"]))
+	assert.JSONEq(t, `"snh_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"`, string(issuedApiKey["apiKey"]))
 	assert.NotContains(t, issuedApiKey, "id")
 }
 

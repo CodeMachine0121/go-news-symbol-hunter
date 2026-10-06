@@ -6,6 +6,7 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/service"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/persistence"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/system"
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -28,7 +29,7 @@ func openDatabase(serverConfig ServerConfig) (*gorm.DB, error) {
 }
 
 func buildControllers(database *gorm.DB) Controllers {
-	apiKeyService := service.NewApiKeyService(persistence.NewApiKeyRepository(database))
+	apiKeyService := service.NewApiKeyService(persistence.NewApiKeyRepository(database), system.NewSystemClockProxy(), system.NewCryptoRandomProxy())
 	return Controllers{
 		healthController: controller.NewHealthController(),
 		apiKeyController: controller.NewApiKeyController(application.NewApiKeyApplication(apiKeyService)),

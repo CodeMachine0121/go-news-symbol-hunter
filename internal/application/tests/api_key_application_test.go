@@ -22,9 +22,36 @@ const presentedApiKey = "snh_presented"
 
 var errDatabaseDown = errors.New("database down")
 
-func createApiKeyApplication(t *testing.T) (*application.ApiKeyApplication, *mocks.MockIApiKeyRepository) {
+var (
+	fixedNow         = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	zeroRandomBytes  = make([]byte, 32)
+	zeroRandomSecret = "snh_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+)
+
+type apiKeyApplicationFixture struct {
+	apiKeyApplication *application.ApiKeyApplication
+	apiKeyRepository  *mocks.MockIApiKeyRepository
+	clockProxy        *mocks.MockIClockProxy
+	randomProxy       *mocks.MockIRandomProxy
+}
+
+func createFixture(t *testing.T) apiKeyApplicationFixture {
 	apiKeyRepository := mocks.NewMockIApiKeyRepository(t)
-	return application.NewApiKeyApplication(service.NewApiKeyService(apiKeyRepository)), apiKeyRepository
+	clockProxy := mocks.NewMockIClockProxy(t)
+	randomProxy := mocks.NewMockIRandomProxy(t)
+	return apiKeyApplicationFixture{
+		apiKeyApplication: application.NewApiKeyApplication(service.NewApiKeyService(apiKeyRepository, clockProxy, randomProxy)),
+		apiKeyRepository:  apiKeyRepository,
+		clockProxy:        clockProxy,
+		randomProxy:       randomProxy,
+	}
+}
+
+func createApiKeyApplication(t *testing.T) (*application.ApiKeyApplication, *mocks.MockIApiKeyRepository) {
+	fixture := createFixture(t)
+	fixture.clockProxy.EXPECT().Now().Return(fixedNow).Maybe()
+	fixture.randomProxy.EXPECT().GenerateBytes(32).Return(zeroRandomBytes).Maybe()
+	return fixture.apiKeyApplication, fixture.apiKeyRepository
 }
 
 func hashOf(secret string) string {
@@ -44,15 +71,16 @@ func TestIssueApiKey_StoresInactiveKeyWithOnlyTheHashOfTheSecret(t *testing.T) {
 	issuedApiKey, err := apiKeyApplication.IssueApiKey(dto.IssueApiKeyDto{Name: "  我的研究腳本  "})
 
 	require.NoError(t, err)
-	assert.Equal(t, "我的研究腳本", issuedApiKey.Name)
-	assert.Equal(t, "inactive", issuedApiKey.Status)
-	assert.Regexp(t, `^snh_`, issuedApiKey.ApiKey)
-	assert.Equal(t, entities.ApiKey{ID: 42, Name: "我的研究腳本", SecretHash: hashOf(issuedApiKey.ApiKey), IsActive: false}, storedApiKey)
+	assert.Equal(t, dto.IssuedApiKeyDto{Name: "我的研究腳本", ApiKey: zeroRandomSecret, Status: "inactive"}, issuedApiKey)
+	assert.Equal(t, entities.ApiKey{ID: 42, Name: "我的研究腳本", SecretHash: hashOf(zeroRandomSecret), IsActive: false}, storedApiKey)
 }
 
 func TestIssueApiKey_SameNameTwiceYieldsDifferentKeys(t *testing.T) {
-	apiKeyApplication, apiKeyRepository := createApiKeyApplication(t)
-	apiKeyRepository.EXPECT().Create(mock.Anything).Return(nil).Times(2)
+	fixture := createFixture(t)
+	fixture.randomProxy.EXPECT().GenerateBytes(32).Return(make([]byte, 32)).Once()
+	fixture.randomProxy.EXPECT().GenerateBytes(32).Return([]byte{1}).Once()
+	fixture.apiKeyRepository.EXPECT().Create(mock.Anything).Return(nil).Times(2)
+	apiKeyApplication := fixture.apiKeyApplication
 
 	firstApiKey, firstErr := apiKeyApplication.IssueApiKey(dto.IssueApiKeyDto{Name: "研究"})
 	secondApiKey, secondErr := apiKeyApplication.IssueApiKey(dto.IssueApiKeyDto{Name: "研究"})
@@ -129,7 +157,7 @@ func TestRevokeApiKey_PersistsRevocationForActiveAndInactiveKeys(t *testing.T) {
 	for _, isActive := range []bool{true, false} {
 		apiKeyApplication, apiKeyRepository := createApiKeyApplication(t)
 		apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 9, IsActive: isActive}, nil)
-		apiKeyRepository.EXPECT().MarkRevoked(uint(9), mock.AnythingOfType("time.Time")).Return(true, nil)
+		apiKeyRepository.EXPECT().MarkRevoked(uint(9), fixedNow).Return(true, nil)
 
 		err := apiKeyApplication.RevokeApiKey(presentedApiKey)
 
@@ -158,7 +186,7 @@ func TestRevokeApiKey_Rejections(t *testing.T) {
 			apiKeyApplication, apiKeyRepository := createApiKeyApplication(t)
 			apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(testCase.storedApiKey, testCase.findError)
 			if testCase.updateError != nil || testCase.isNotMarked {
-				apiKeyRepository.EXPECT().MarkRevoked(uint(9), mock.AnythingOfType("time.Time")).Return(false, testCase.updateError)
+				apiKeyRepository.EXPECT().MarkRevoked(uint(9), fixedNow).Return(false, testCase.updateError)
 			}
 
 			err := apiKeyApplication.RevokeApiKey(presentedApiKey)

@@ -1,7 +1,6 @@
 package vo
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -10,8 +9,8 @@ import (
 )
 
 const (
-	apiKeySecretPrefix      = "snh_"
-	apiKeySecretRandomBytes = 32
+	ApiKeySecretRandomByteLength = 32
+	apiKeySecretPrefix           = "snh_"
 )
 
 var ErrApiKeyMissing = errors.New("需要提供 API key")
@@ -21,10 +20,7 @@ type ApiKeySecretVo struct {
 	Hash      string
 }
 
-func GenerateApiKeySecretVo() ApiKeySecretVo {
-	randomBytes := make([]byte, apiKeySecretRandomBytes)
-	// crypto/rand.Read never returns an error since Go 1.24; it crashes the process instead
-	_, _ = rand.Read(randomBytes)
+func NewIssuedApiKeySecretVo(randomBytes []byte) ApiKeySecretVo {
 	secret, _ := NewApiKeySecretVo(apiKeySecretPrefix + base64.RawURLEncoding.EncodeToString(randomBytes))
 	return secret
 }

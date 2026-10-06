@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"time"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/domains"
@@ -12,10 +11,12 @@ import (
 
 type ApiKeyService struct {
 	apiKeyRepository interfaces.IApiKeyRepository
+	clockProxy       interfaces.IClockProxy
+	randomProxy      interfaces.IRandomProxy
 }
 
-func NewApiKeyService(apiKeyRepository interfaces.IApiKeyRepository) *ApiKeyService {
-	return &ApiKeyService{apiKeyRepository: apiKeyRepository}
+func NewApiKeyService(apiKeyRepository interfaces.IApiKeyRepository, clockProxy interfaces.IClockProxy, randomProxy interfaces.IRandomProxy) *ApiKeyService {
+	return &ApiKeyService{apiKeyRepository: apiKeyRepository, clockProxy: clockProxy, randomProxy: randomProxy}
 }
 
 func (apiKeyService *ApiKeyService) IssueApiKey(issueApiKeyDto dto.IssueApiKeyDto) (dto.IssuedApiKeyDto, error) {
@@ -23,7 +24,7 @@ func (apiKeyService *ApiKeyService) IssueApiKey(issueApiKeyDto dto.IssueApiKeyDt
 	if err != nil {
 		return dto.IssuedApiKeyDto{}, err
 	}
-	secret := vo.GenerateApiKeySecretVo()
+	secret := vo.NewIssuedApiKeySecretVo(apiKeyService.randomProxy.GenerateBytes(vo.ApiKeySecretRandomByteLength))
 	apiKey := domains.NewIssuedApiKeyDomain(name, secret).ToEntity()
 	if err := apiKeyService.apiKeyRepository.Create(&apiKey); err != nil {
 		return dto.IssuedApiKeyDto{}, fmt.Errorf("%w: %v", ErrApiKeyStorageUnavailable, err)
@@ -44,7 +45,7 @@ func (apiKeyService *ApiKeyService) RevokeApiKey(presentedApiKey string) error {
 	if err != nil {
 		return err
 	}
-	if err := apiKeyDomain.Revoke(time.Now()); err != nil {
+	if err := apiKeyDomain.Revoke(apiKeyService.clockProxy.Now()); err != nil {
 		return err
 	}
 	revokedApiKey := apiKeyDomain.ToEntity()
