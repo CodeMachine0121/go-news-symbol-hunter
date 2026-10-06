@@ -34,7 +34,7 @@
 
 | Name | Kind | Responsibility (purpose) | Collaborators | Satisfies (PRD scenario) |
 | :--- | :--- | :--- | :--- | :--- |
-| `ApiKey` | Entity（`models/entities/`） | 持久化欄位：`ID`、`Name`、`SecretHash`（unique index）、`IsActive`（預設 false）、`RevokedAt *time.Time`、`CreatedAt`；`ToDomain()` | — | US-01~05 |
+| `ApiKey` | Entity（`models/entities/`） | 持久化欄位：`ID`、`Name`、`SecretHash`（unique index）、`IsActive`（預設 false）、`RevokedAt *time.Time`、`CreatedAt` | — | US-01~05 |
 | `ApiKeyDomain` | Domain Model（`models/domains/`） | 判斷 API key 可否使用：`Authorize()`（已撤銷 → 無效、停用 → 尚未啟用）、`Revoke(now)`（已撤銷 → 無效）、`ToStatusDto()`、`ToAuthorizedDto()`、`ToEntity()` | `ApiKey` | US-03、US-04、US-05 |
 | `ApiKeyNameVo` | VO | 名稱正規化與驗證：去前後空白、必填、≤100 字（以字元數計） | — | US-01 名稱相關 scenarios |
 | `ApiKeySecretVo` | VO | 完整 API key：`GenerateApiKeySecretVo()` 產生（`snh_` + 32 bytes `crypto/rand` base64url）、`NewApiKeySecretVo(presented)`（空字串 → 需要提供）、`Hash()`（SHA-256 hex） | — | US-01、US-02、未提供 API key scenarios |
@@ -102,6 +102,9 @@ flowchart TD
 - **Known debt / deferred:** 申請無頻率限制；administrator 只能直接改資料庫。
 
 ### 技術決策
+
+- **entity → Domain Model 以建構子 `NewApiKeyDomain(entity)` 轉換，而非 `entity.ToDomain()`：** Domain Model 需 `ToEntity()` 而 import entity 套件，Go 不允許兩個套件互相 import；建構子是規則允許的建立方式。後續切片比照辦理。
+- **`GenerateApiKeySecretVo()` 不回傳錯誤：** Go 1.24 起 `crypto/rand.Read` 失敗會直接中止程式而非回傳錯誤。
 
 - **雜湊採 SHA-256 而非 bcrypt：** API key 為 256-bit 隨機值，不需慢雜湊抗暴力破解；SHA-256 可直接以雜湊值做唯一索引查找。
 - **撤銷只更新 `revoked_at` 欄位：** 不整筆覆寫，避免把 administrator 同時修改的 `is_active` 蓋回舊值。
