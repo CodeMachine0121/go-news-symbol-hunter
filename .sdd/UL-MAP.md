@@ -3,7 +3,7 @@
 **Project:** go-symbol-news-hunter
 **Bounded Context:** 標的資訊面分析（Symbol News Analysis）——依標的與市場類別爬取新聞，交由 AI 分析並產出標準化評等
 **Maintainer:** James Hsueh
-**Last Updated:** 2026-10-06
+**Last Updated:** 2026-10-07
 
 > 尚無程式碼，本版詞彙全部來自需求討論。使用者親口定義的詞標 `Confirmed`；討論中提出、方向已同意但細節待 `/clarify` 拍板的標 `Archeology`。
 
@@ -22,7 +22,8 @@
 | 新聞來源 | `NewsProvider`（介面 `INewsProxy`，實作 `{Provider}NewsProxy`） | — | 可爬取新聞的外部平台。依市場類別選用，由程式決定，不交給 AI 選擇 | Confirmed |
 | 新聞 | `News` | news | 由新聞來源取回、正規化後的單則新聞：標題、連結、發布時間、新聞來源名稱、摘要（來源有提供時） | Confirmed |
 | 搜尋字 | `SearchKeyword` | — | 向新聞來源搜尋時使用的字：台股為公司簡稱、美股為標的代號、加密貨幣為幣種名稱（專門來源另以名稱或代號篩選） | Confirmed |
-| 標的辨識 | `ResolvedSymbol` | — | 依市場類別把標的轉為搜尋字的結果；台股查證交所上市公司清單、加密貨幣查幣種清單（同代號取市值排名最前）、美股不查 | Confirmed |
+| 標的辨識 | `ResolvedSymbol` | — | 依市場類別把標的轉為搜尋字的結果；台股依序查證交所上市公司清單、櫃買中心上櫃股票資料，加密貨幣查幣種清單（同代號取市值排名最前），美股不查 | Confirmed |
+| 上櫃股票 | — | 上櫃 | 在櫃買中心掛牌交易的股票，屬市場類別台股；公司簡稱與收盤價取自櫃買中心「上櫃股票每日收盤行情」 | Confirmed |
 | 新聞搜尋時間窗 | — | — | 只保留搜尋當下往回 7 天內發布的新聞 | Confirmed |
 | 失敗的新聞來源 | `FailedNewsProviders` | failedNewsProviders | 本次搜尋未取得資料的新聞來源名稱清單 | Confirmed |
 | 信心指數 | `Confidence` / `confidence` | confidence | AI 對評等的把握程度，0–100，超出範圍 clamp | Confirmed |
@@ -30,7 +31,7 @@
 | 關鍵事件 | `KeyEvent` / `key_events` | key_events | 支撐評等的 3–5 則重點事件，每則附來源 URL 與發布時間 | Confirmed |
 | 風險因子 | `RiskFactor` / `risk_factors` | risk_factors | 與主結論方向相反的訊號 | Confirmed |
 | 分析時價格 | `PriceAtAnalysis`（`Price`、`PriceCurrency`、`PricedAt`、`PriceSource`） | priceAtAnalysis | 分析完成時依市場類別取得的價格；精確小數；必須大於 0，取不到時為「未取得」（null），不影響分析完成。專案成功指標「評等可回測驗證」的基準點 | Confirmed |
-| 價格來源 | `PriceSource` | priceSource | 加密貨幣 Binance（對 USDT）、美股 Yahoo 財經、台股證交所（最近交易日收盤） | Confirmed |
+| 價格來源 | `PriceSource` | priceSource | 加密貨幣 Binance（對 USDT）、美股 Yahoo 財經、台股上市為證交所、上櫃為櫃買中心（皆為最近交易日收盤） | Confirmed |
 | 價格時間 | `PricedAt` | pricedAt | 報價所屬的時間：Binance 為取得時間、Yahoo 財經為來源報價時間、證交所為收盤日期（台北時間） | Confirmed |
 | 分析佐證 | `Evidence` / `evidence` | — | 當次餵給 AI 的新聞清單快照（JSON），存於分析結果，供稽核 AI 為何如此評等 | Confirmed |
 | 分析事件狀態 | `AnalysisEventStatus` / `status` | status | 分析事件的執行狀態（見 §4） | Confirmed |
@@ -86,7 +87,7 @@
 | Category | Code Value / Key | Domain Label | Description |
 | :--- | :--- | :--- | :--- |
 | 市場類別 | `crypto` | 加密貨幣 | Confirmed |
-| 市場類別 | `twStock` | 台股 | Confirmed |
+| 市場類別 | `twStock` | 台股（上市 + 上櫃；興櫃不支援） | Confirmed |
 | 市場類別 | `usStock` | 美股 | Confirmed |
 | 評等 | `strongBullish` / `bullish` / `neutral` / `bearish` / `strongBearish` | 強烈看多 / 看多 / 中性 / 看空 / 強烈看空 | Confirmed；非法值正規化為 `neutral` |
 | 分析事件狀態 | `running` / `succeeded` / `failed` | 分析中 / 已完成 / 失敗 | Confirmed；服務重啟時殘留 `running` 改為 `failed` |
