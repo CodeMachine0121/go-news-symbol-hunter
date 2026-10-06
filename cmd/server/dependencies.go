@@ -81,7 +81,7 @@ func openDatabase(serverConfig ServerConfig) (*gorm.DB, error) {
 	return database, nil
 }
 
-func buildNewsProviderCatalog(httpBodyReader *httpfetch.HttpBodyReader, externalSourceUrls ExternalSourceUrls) dto.NewsProviderCatalogDto {
+func buildNewsProviderCatalog(httpBodyReader *httpfetch.HttpBodyReader, externalSourceUrls ExternalSourceUrls, yahooFinanceProxy *yahoofinance.YahooFinanceProxy) dto.NewsProviderCatalogDto {
 	rssNewsReader := news.NewRssNewsReader(httpBodyReader, utilities.NewRssFeedParser())
 	traditionalChineseGoogleNewsProxy := news.NewGoogleNewsProxy(rssNewsReader, externalSourceUrls.GoogleNewsSearch, news.GoogleNewsTraditionalChineseLocale)
 	englishGoogleNewsProxy := news.NewGoogleNewsProxy(rssNewsReader, externalSourceUrls.GoogleNewsSearch, news.GoogleNewsEnglishLocale)
@@ -91,7 +91,7 @@ func buildNewsProviderCatalog(httpBodyReader *httpfetch.HttpBodyReader, external
 			{NewsProxy: traditionalChineseGoogleNewsProxy},
 		},
 		UsStock: []dto.NewsProviderDto{
-			{NewsProxy: news.NewYahooFinanceNewsProxy(rssNewsReader, externalSourceUrls.YahooFinanceHeadline)},
+			{NewsProxy: yahooFinanceProxy},
 			{NewsProxy: englishGoogleNewsProxy},
 		},
 		Crypto: []dto.NewsProviderDto{
@@ -102,27 +102,42 @@ func buildNewsProviderCatalog(httpBodyReader *httpfetch.HttpBodyReader, external
 	}
 }
 
-func buildPriceProviderCatalog(httpBodyReader *httpfetch.HttpBodyReader, clockProxy interfaces.IClockProxy, externalSourceUrls ExternalSourceUrls) dto.PriceProviderCatalogDto {
+type ExternalSourceProxies struct {
+	twseOpenDataProxy *twse.TwseOpenDataProxy
+	yahooFinanceProxy *yahoofinance.YahooFinanceProxy
+	binancePriceProxy *binance.BinancePriceProxy
+}
+
+func buildExternalSourceProxies(httpBodyReader *httpfetch.HttpBodyReader, clockProxy interfaces.IClockProxy, externalSourceUrls ExternalSourceUrls) ExternalSourceProxies {
+	return ExternalSourceProxies{
+		twseOpenDataProxy: twse.NewTwseOpenDataProxy(httpBodyReader, clockProxy, twse.TwseOpenDataUrls{ListedCompanies: externalSourceUrls.TwseListedCompanies, DailyClosing: externalSourceUrls.TwseDailyClosing}),
+		yahooFinanceProxy: yahoofinance.NewYahooFinanceProxy(httpBodyReader, news.NewRssNewsReader(httpBodyReader, utilities.NewRssFeedParser()), yahoofinance.YahooFinanceUrls{HeadlineFeed: externalSourceUrls.YahooFinanceHeadline, Chart: externalSourceUrls.YahooFinanceChart}),
+		binancePriceProxy: binance.NewBinancePriceProxy(httpBodyReader, clockProxy, externalSourceUrls.BinanceTickerPrice),
+	}
+}
+
+func buildPriceProviderCatalog(externalSourceProxies ExternalSourceProxies) dto.PriceProviderCatalogDto {
 	return dto.PriceProviderCatalogDto{
-		TwStock: twse.NewTwsePriceProxy(httpBodyReader, clockProxy, externalSourceUrls.TwseDailyClosing),
-		UsStock: yahoofinance.NewYahooFinancePriceProxy(httpBodyReader, externalSourceUrls.YahooFinanceChart),
-		Crypto:  binance.NewBinancePriceProxy(httpBodyReader, clockProxy, externalSourceUrls.BinanceTickerPrice),
+		TwStock: externalSourceProxies.twseOpenDataProxy,
+		UsStock: externalSourceProxies.yahooFinanceProxy,
+		Crypto:  externalSourceProxies.binancePriceProxy,
 	}
 }
 
 func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers {
 	clockProxy := system.NewSystemClockProxy()
 	httpBodyReader := httpfetch.NewHttpBodyReader(newExternalHttpClient())
+	externalSourceProxies := buildExternalSourceProxies(httpBodyReader, clockProxy, productionExternalSourceUrls)
 	apiKeyService := service.NewApiKeyService(persistence.NewApiKeyRepository(database), clockProxy, system.NewCryptoRandomProxy())
 	symbolResolutionService := service.NewSymbolResolutionService(
-		twse.NewTwseListedCompanyProxy(httpBodyReader, clockProxy, productionExternalSourceUrls.TwseListedCompanies),
+		externalSourceProxies.twseOpenDataProxy,
 		coingecko.NewCoinGeckoCryptocurrencyProxy(httpBodyReader, clockProxy, productionExternalSourceUrls.CoinGeckoSearch),
 	)
-	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, buildNewsProviderCatalog(httpBodyReader, productionExternalSourceUrls))
+	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, buildNewsProviderCatalog(httpBodyReader, productionExternalSourceUrls, externalSourceProxies.yahooFinanceProxy))
 	symbolAnalysisService := service.NewSymbolAnalysisService(
 		symbolResolutionService,
 		newsSearchService,
-		service.NewPriceSnapshotService(buildPriceProviderCatalog(httpBodyReader, clockProxy, productionExternalSourceUrls)),
+		service.NewPriceSnapshotService(buildPriceProviderCatalog(externalSourceProxies)),
 		claude.NewClaudeAnalystProxy(anthropic.NewClient(), serverConfig.AiAnalysisModel, serverConfig.AiAnalysisEffort),
 		persistence.NewAnalysisEventRepository(database),
 		persistence.NewAnalysisResultRepository(database),

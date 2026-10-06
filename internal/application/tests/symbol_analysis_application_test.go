@@ -849,3 +849,21 @@ func TestCapturePrice_UnknownMarketHasNoPrice(t *testing.T) {
 
 	assert.Nil(t, priceSnapshotService.CapturePrice(context.Background(), dto.CapturePriceDto{Symbol: "0700", Category: "hk"}))
 }
+
+func TestCapturePrice_HasItsOwnBudgetEvenNearTheAnalysisDeadline(t *testing.T) {
+	priceProxy := mocks.NewMockIPriceProxy(t)
+	priceProxy.EXPECT().FetchPrice(mock.Anything, "BTC").RunAndReturn(func(ctx context.Context, _ string) (vo.PriceQuoteVo, error) {
+		deadline, _ := ctx.Deadline()
+		assert.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
+		return vo.NewPriceQuoteVo(decimal.NewFromInt(1), "USDT", analysisStartedAt, "Binance")
+	})
+	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{Crypto: priceProxy})
+	almostExpiredContext, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	time.Sleep(5 * time.Millisecond)
+
+	priceQuote := priceSnapshotService.CapturePrice(almostExpiredContext, dto.CapturePriceDto{Symbol: "BTC", Category: "crypto"})
+
+	require.NotNil(t, priceQuote)
+	assert.Equal(t, "Binance", priceQuote.Source)
+}

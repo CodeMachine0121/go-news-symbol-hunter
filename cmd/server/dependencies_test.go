@@ -64,7 +64,8 @@ func TestBuildNewsProvidersByCategory_AssignsProvidersAndLocalesPerMarket(t *tes
 		_, _ = writer.Write([]byte(`<rss><channel></channel></rss>`))
 	}))
 	defer server.Close()
-	newsProviderCatalog := buildNewsProviderCatalog(httpfetch.NewHttpBodyReader(server.Client()), ExternalSourceUrls{GoogleNewsSearch: server.URL})
+	httpBodyReader := httpfetch.NewHttpBodyReader(server.Client())
+	newsProviderCatalog := buildNewsProviderCatalog(httpBodyReader, ExternalSourceUrls{GoogleNewsSearch: server.URL}, buildExternalSourceProxies(httpBodyReader, system.NewSystemClockProxy(), ExternalSourceUrls{}).yahooFinanceProxy)
 	newsProvidersByCategory := map[string][]dto.NewsProviderDto{"twStock": newsProviderCatalog.TwStock, "usStock": newsProviderCatalog.UsStock, "crypto": newsProviderCatalog.Crypto}
 
 	googleLocaleOf := func(category string) string {
@@ -124,9 +125,9 @@ func TestBuildPriceProviderCatalog_AssignsAPriceSourcePerMarket(t *testing.T) {
 		writer.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
-	priceProviderCatalog := buildPriceProviderCatalog(httpfetch.NewHttpBodyReader(server.Client()), system.NewSystemClockProxy(), ExternalSourceUrls{
+	priceProviderCatalog := buildPriceProviderCatalog(buildExternalSourceProxies(httpfetch.NewHttpBodyReader(server.Client()), system.NewSystemClockProxy(), ExternalSourceUrls{
 		TwseDailyClosing: server.URL + "/twse", YahooFinanceChart: server.URL + "/yahoo", BinanceTickerPrice: server.URL + "/binance",
-	})
+	}))
 
 	_, twStockError := priceProviderCatalog.TwStock.FetchPrice(context.Background(), "2330")
 	twStockPath := <-requestedPaths

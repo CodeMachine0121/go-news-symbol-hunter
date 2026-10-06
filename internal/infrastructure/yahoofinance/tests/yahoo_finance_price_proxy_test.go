@@ -16,6 +16,10 @@ import (
 )
 
 func fetchFrom(t *testing.T, statusCode int, body string) (vo.PriceQuoteVo, string, error) {
+	return fetchSymbolFrom(t, "AAPL", statusCode, body)
+}
+
+func fetchSymbolFrom(t *testing.T, symbol string, statusCode int, body string) (vo.PriceQuoteVo, string, error) {
 	receivedPath := ""
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		receivedPath = request.URL.Path + "?" + request.URL.RawQuery
@@ -24,7 +28,7 @@ func fetchFrom(t *testing.T, statusCode int, body string) (vo.PriceQuoteVo, stri
 	}))
 	defer server.Close()
 
-	priceQuote, err := yahoofinance.NewYahooFinancePriceProxy(httpfetch.NewHttpBodyReader(server.Client()), server.URL+"/v8/finance/chart/").FetchPrice(context.Background(), "AAPL")
+	priceQuote, err := yahoofinance.NewYahooFinanceProxy(httpfetch.NewHttpBodyReader(server.Client()), nil, yahoofinance.YahooFinanceUrls{Chart: server.URL + "/v8/finance/chart/"}).FetchPrice(context.Background(), symbol)
 	return priceQuote, receivedPath, err
 }
 
@@ -55,6 +59,7 @@ func TestYahooFinancePriceProxy_FailsWithoutAUsablePrice(t *testing.T) {
 		{name: "no quote time", statusCode: http.StatusOK, body: `{"chart":{"result":[{"meta":{"currency":"USD","regularMarketPrice":1}}]}}`},
 		{name: "malformed", statusCode: http.StatusOK, body: `{`},
 		{name: "zero price", statusCode: http.StatusOK, body: `{"chart":{"result":[{"meta":{"currency":"USD","regularMarketPrice":0,"regularMarketTime":1791299622}}]}}`},
+		{name: "missing currency", statusCode: http.StatusOK, body: `{"chart":{"result":[{"meta":{"currency":null,"regularMarketPrice":1,"regularMarketTime":1791299622}}]}}`},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, _, err := fetchFrom(t, testCase.statusCode, testCase.body)
@@ -62,4 +67,11 @@ func TestYahooFinancePriceProxy_FailsWithoutAUsablePrice(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
+}
+
+func TestYahooFinanceProxy_WritesShareClassesWithADash(t *testing.T) {
+	_, receivedPath, err := fetchSymbolFrom(t, "BRK.B", http.StatusOK, `{"chart":{"result":[{"meta":{"currency":"USD","regularMarketPrice":500,"regularMarketTime":1791326022}}]}}`)
+
+	require.NoError(t, err)
+	assert.Equal(t, "/v8/finance/chart/BRK-B?range=1d&interval=1d", receivedPath)
 }

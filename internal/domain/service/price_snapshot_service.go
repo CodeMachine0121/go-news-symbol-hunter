@@ -12,25 +12,25 @@ import (
 const PriceCaptureTimeout = 10 * time.Second
 
 type PriceSnapshotService struct {
-	priceProviderCatalog dto.PriceProviderCatalogDto
+	priceProxiesByCategory map[string]interfaces.IPriceProxy
 }
 
 func NewPriceSnapshotService(priceProviderCatalog dto.PriceProviderCatalogDto) *PriceSnapshotService {
-	return &PriceSnapshotService{priceProviderCatalog: priceProviderCatalog}
+	return &PriceSnapshotService{priceProxiesByCategory: map[string]interfaces.IPriceProxy{
+		vo.MarketCategoryTwStock: priceProviderCatalog.TwStock,
+		vo.MarketCategoryUsStock: priceProviderCatalog.UsStock,
+		vo.MarketCategoryCrypto:  priceProviderCatalog.Crypto,
+	}}
 }
 
 // never fails: an analysis is still worth keeping without its price
 func (priceSnapshotService *PriceSnapshotService) CapturePrice(ctx context.Context, capturePriceDto dto.CapturePriceDto) *vo.PriceQuoteVo {
-	priceProxiesByCategory := map[string]interfaces.IPriceProxy{
-		vo.MarketCategoryTwStock: priceSnapshotService.priceProviderCatalog.TwStock,
-		vo.MarketCategoryUsStock: priceSnapshotService.priceProviderCatalog.UsStock,
-		vo.MarketCategoryCrypto:  priceSnapshotService.priceProviderCatalog.Crypto,
-	}
-	priceProxy, supported := priceProxiesByCategory[capturePriceDto.Category]
+	priceProxy, supported := priceSnapshotService.priceProxiesByCategory[capturePriceDto.Category]
 	if !supported {
 		return nil
 	}
-	captureContext, cancelCapture := context.WithTimeout(ctx, PriceCaptureTimeout)
+	// its own budget, independent of how much of the analysis deadline is left
+	captureContext, cancelCapture := context.WithTimeout(context.WithoutCancel(ctx), PriceCaptureTimeout)
 	defer cancelCapture()
 	priceQuote, err := priceProxy.FetchPrice(captureContext, capturePriceDto.Symbol)
 	if err != nil {

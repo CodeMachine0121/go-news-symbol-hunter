@@ -24,38 +24,52 @@ func NewRefreshingCache[T any](clockProxy interfaces.IClockProxy, freshFor time.
 	return &RefreshingCache[T]{clockProxy: clockProxy, freshFor: freshFor, download: download}
 }
 
-// a failed download is not cached, so the next caller retries
+// a failed refresh keeps serving the last good value; with none yet, the error is returned and nothing is cached
 func (refreshingCache *RefreshingCache[T]) Get(ctx context.Context) (T, error) {
-	now := refreshingCache.clockProxy.Now()
-	if cachedValue, isFresh := refreshingCache.freshValue(now); isFresh {
+	cachedValue, hasValue, isFresh := refreshingCache.snapshot(refreshingCache.clockProxy.Now())
+	if isFresh {
 		return cachedValue, nil
 	}
-	// one download serves every concurrent caller; it outlives a single caller's cancellation
-	downloadedValue, err, _ := refreshingCache.refreshGroup.Do("refresh", func() (any, error) {
-		return refreshingCache.download(context.WithoutCancel(ctx))
+	// one download serves every concurrent caller and outlives any single caller's cancellation
+	refreshResult := refreshingCache.refreshGroup.DoChan("refresh", func() (any, error) {
+		downloadedValue, err := refreshingCache.download(context.WithoutCancel(ctx))
+		if err != nil {
+			return nil, err
+		}
+		refreshingCache.store(downloadedValue, refreshingCache.clockProxy.Now())
+		return downloadedValue, nil
 	})
-	if err != nil {
-		var noValue T
-		return noValue, err
+	select {
+	case result := <-refreshResult:
+		if result.Err != nil && hasValue {
+			return cachedValue, nil
+		}
+		if result.Err != nil {
+			return cachedValue, result.Err
+		}
+		// comma-ok because singleflight boxes the value in an interface, which is nil when T is a nil interface
+		refreshedValue, _ := result.Val.(T)
+		return refreshedValue, nil
+	case <-ctx.Done():
+		if hasValue {
+			return cachedValue, nil
+		}
+		return cachedValue, ctx.Err()
 	}
-	// comma-ok because singleflight boxes the value in an interface, which is nil when T is a nil interface
-	value, _ := downloadedValue.(T)
-	refreshingCache.store(value, now)
-	return value, nil
 }
 
 // scopes the read lock so it is released before any network call
-func (refreshingCache *RefreshingCache[T]) freshValue(now time.Time) (T, bool) {
+func (refreshingCache *RefreshingCache[T]) snapshot(now time.Time) (T, bool, bool) {
 	refreshingCache.cacheMutex.RLock()
 	defer refreshingCache.cacheMutex.RUnlock()
-	return refreshingCache.cachedValue, refreshingCache.hasValue && now.Before(refreshingCache.expiresAt)
+	return refreshingCache.cachedValue, refreshingCache.hasValue, refreshingCache.hasValue && now.Before(refreshingCache.expiresAt)
 }
 
 // scopes the write lock to the assignment
-func (refreshingCache *RefreshingCache[T]) store(value T, now time.Time) {
+func (refreshingCache *RefreshingCache[T]) store(value T, downloadedAt time.Time) {
 	refreshingCache.cacheMutex.Lock()
 	defer refreshingCache.cacheMutex.Unlock()
 	refreshingCache.cachedValue = value
 	refreshingCache.hasValue = true
-	refreshingCache.expiresAt = now.Add(refreshingCache.freshFor)
+	refreshingCache.expiresAt = downloadedAt.Add(refreshingCache.freshFor)
 }
