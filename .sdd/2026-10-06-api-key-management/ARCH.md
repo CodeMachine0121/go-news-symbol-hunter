@@ -35,12 +35,14 @@
 | Name | Kind | Responsibility (purpose) | Collaborators | Satisfies (PRD scenario) |
 | :--- | :--- | :--- | :--- | :--- |
 | `ApiKey` | Entity（`models/entities/`） | 持久化欄位：`ID`、`Name`、`SecretHash`（unique index）、`IsActive`（預設 false）、`RevokedAt *time.Time`、`CreatedAt` | — | US-01~05 |
-| `ApiKeyDomain` | Domain Model（`models/domains/`） | 判斷 API key 可否使用：`Authorize()`（已撤銷 → 無效、停用 → 尚未啟用）、`Revoke(now)`（已撤銷 → 無效）、`ToStatusDto()`、`ToAuthorizedDto()`、`ToEntity()` | `ApiKey` | US-03、US-04、US-05 |
-| `ApiKeyNameVo` | VO | 名稱正規化與驗證：去前後空白、必填、≤100 字（以字元數計） | — | US-01 名稱相關 scenarios |
-| `ApiKeySecretVo` | VO | 完整 API key：`GenerateApiKeySecretVo()` 產生（`snh_` + 32 bytes `crypto/rand` base64url）、`NewApiKeySecretVo(presented)`（空字串 → 需要提供）、`Hash()`（SHA-256 hex） | — | US-01、US-02、未提供 API key scenarios |
+| `ApiKeyDomain` | Domain Model（`models/domains/`） | 判斷 API key 可否使用：`Authorize()`（已撤銷 → 無效、停用 → 尚未啟用）、`Revoke(revokedAt)`（已撤銷 → 無效）、`DescribeStatus()`（已撤銷 → 無效，否則名稱與狀態）、`ToIssuedDto(secret)`、`ToAuthorizedDto()`、`ToEntity()` | `ApiKey` | US-03、US-04、US-05 |
+| `ApiKeyNameVo` | VO | 名稱正規化與驗證：去前後空白、必填、≤`ApiKeyNameMaximumLength`（100）字（以字元數計）、不可含控制字元 | — | US-01 名稱相關 scenarios |
+| `ApiKeySecretVo` | VO | 完整 API key 與其 SHA-256 hex（建構時算好的 `Hash` 欄位）：`NewIssuedApiKeySecretVo(randomBytes)`（`snh_` + base64url）、`NewApiKeySecretVo(presented)`（去空白；空字串 → 需要提供） |
+| `IClockProxy` / `SystemClockProxy` | Interface / Proxy | 提供現在時間（撤銷時間），測試可固定 | — | US-04 |
+| `IRandomProxy` / `CryptoRandomProxy` | Interface / Proxy | 以 `crypto/rand` 產生 `vo.ApiKeySecretRandomByteLength`（32）bytes 亂數，測試可固定 | — | US-01、NFR 隨機性 | — | US-01、US-02、未提供 API key scenarios |
 | `IssueApiKeyDto` / `IssuedApiKeyDto` / `ApiKeyStatusDto` / `AuthorizedApiKeyDto` | DTO | 申請輸入；申請結果（含完整 API key，唯一一次）；狀態（只有名稱與狀態）；驗證通過的 API key 識別 | — | US-01、US-02、US-03、US-05 |
 | `IApiKeyRepository` | Interface | `Create`、`FindBySecretHash`（找不到回 `nil, nil`）、`MarkRevoked`（僅在尚未撤銷時寫入，回傳是否寫入） | — | 全部 |
-| `ApiKeyService` | Domain Service | `IssueApiKey`、`GetApiKeyStatus`、`RevokeApiKey`、`AuthorizeApiKey`；查找 + 交給 `ApiKeyDomain` 判斷 + 轉 DTO；定義哨兵錯誤 | `IApiKeyRepository`、`ApiKeyDomain`、VO | 全部 |
+| `ApiKeyService` | Domain Service | `IssueApiKey`、`GetApiKeyStatus`、`RevokeApiKey`、`AuthorizeApiKey`；查找 + 交給 `ApiKeyDomain` 判斷 + 轉 DTO；定義哨兵錯誤 | `IApiKeyRepository`、`IClockProxy`、`IRandomProxy`、`ApiKeyDomain`、VO | 全部 |
 | `ApiKeyApplication` | Application | 用例入口，轉呼叫 `ApiKeyService` | `ApiKeyService` | 全部 |
 | `ApiKeyController` | Controller | `POST /api-keys`、`GET /api-keys/me`、`DELETE /api-keys/me`；`RequireActiveApiKey()` 回傳可掛在任何路由前的關卡（通過後把 API key ID 放進 request context）；錯誤 → HTTP 狀態對映 | `ApiKeyApplication` | 全部 |
 | `ApiKeyRepository` | Repository | GORM 實作 `IApiKeyRepository` | `*gorm.DB` | 全部 |
@@ -57,6 +59,7 @@
 | :--- | :--- | :--- | :--- |
 | `ErrApiKeyNameRequired` | 400 | `api_key_name_required` | API key 名稱為必填 |
 | `ErrApiKeyNameTooLong` | 400 | `api_key_name_too_long` | API key 名稱不可超過 100 個字 |
+| `ErrApiKeyNameInvalidCharacters` | 400 | `api_key_name_invalid_characters` | API key 名稱不可包含控制字元 |
 | `ErrApiKeyMissing` | 401 | `api_key_missing` | 需要提供 API key |
 | `ErrApiKeyInvalid`（不存在 / 已撤銷） | 401 | `api_key_invalid` | API key 無效 |
 | `ErrApiKeyInactive` | 403 | `api_key_inactive` | API key 尚未啟用 |
@@ -98,18 +101,20 @@ flowchart TD
   - 到期 / 上限：`ApiKeyDomain.Authorize()` 加判斷 + 新哨兵錯誤 + controller 對映一列。
 - **How to add it:** 不需改 `RequireActiveApiKey` 或其他呼叫端。
 - **Patterns applied & why:** Rich Domain Model（`ApiKeyDomain`）集中「可否使用」的判斷；VO 處理輸入正規化；Repository 介面隔離 GORM。
-- **Do not hardcode:** 資料庫連線字串（`DATABASE_URL`）、服務 port（`SERVER_PORT`）。
+- **Do not hardcode:** 資料庫連線字串（`DATABASE_URL`，必填，缺少時啟動即失敗；範例見 `.env.example`）、服務 port（`SERVER_PORT`，預設 8080）。
 - **Known debt / deferred:** 申請無頻率限制；administrator 只能直接改資料庫。
 
 ### 技術決策
 
 - **entity → Domain Model 以建構子 `NewApiKeyDomain(entity)` 轉換，而非 `entity.ToDomain()`：** Domain Model 需 `ToEntity()` 而 import entity 套件，Go 不允許兩個套件互相 import；建構子是規則允許的建立方式。後續切片比照辦理。
-- **`GenerateApiKeySecretVo()` 不回傳錯誤：** Go 1.24 起 `crypto/rand.Read` 失敗會直接中止程式而非回傳錯誤。
+- **時間與亂數走 `IClockProxy` / `IRandomProxy`：** 依測試規範 mock 在最外層邊界；`CryptoRandomProxy` 不回傳錯誤，因 Go 1.24 起 `crypto/rand.Read` 失敗會直接中止程式。
 
 - **雜湊採 SHA-256 而非 bcrypt：** API key 為 256-bit 隨機值，不需慢雜湊抗暴力破解；SHA-256 可直接以雜湊值做唯一索引查找。
 - **撤銷只更新 `revoked_at` 欄位，且僅在 `revoked_at` 為空時寫入：** 不整筆覆寫，避免把 administrator 同時修改的 `is_active` 蓋回舊值；同時送出的兩次撤銷只有一次成功，另一次回「API key 無效」。
 - **出示的 API key 會先去除前後空白再比對**；只有空白視為未提供。
 - **驗證效能：** 每次驗證只做一次 SHA-256 與一次唯一索引查找，不另設效能測試。
+- **撤銷以明確的 `id` 欄位條件更新：** 避免 id 為 0 時 GORM 省略主鍵條件、擴及全表。
+- **測試資料庫隔離：** repository 測試只在 `TEST_POSTGRES_DSN` 解析出的資料庫名稱以 `_test` 結尾時執行（會 drop table）；組裝根測試改用不連線的 GORM 實例，不與 repository 測試共用資料庫，因此 `openDatabase` 的成功路徑（含 `AutoMigrate`）只由實際啟動驗證。
 - **測試：** Domain Model / VO 單元測試；Application 測試注入真實 `ApiKeyService`、mock `IApiKeyRepository`；Controller 以 `httptest` + 真實 application/service + mock repository 驗證狀態碼與訊息；Repository 以真實 PostgreSQL 測試（未設 `TEST_POSTGRES_DSN` 時 skip）。
 
 ---
@@ -125,7 +130,7 @@ flowchart TD
 | US-01 名稱可重複 | `ApiKey` 名稱無唯一限制；每次產生新 `ApiKeySecretVo` |
 | US-02 申請當下看得到完整 API key | `IssuedApiKeyDto` |
 | US-02 之後查詢看不到完整 API key | `ApiKeyStatusDto`（無 API key 欄位）+ 只存 `SecretHash` |
-| US-03 停用中 / 已啟用 | `ApiKeyDomain.ToStatusDto` |
+| US-03 停用中 / 已啟用 | `ApiKeyDomain.DescribeStatus` |
 | US-03 已撤銷 / 不存在 / 未提供 | `ApiKeyService.GetApiKeyStatus` + `ApiKeySecretVo` + controller 401 |
 | US-04 撤銷已啟用 / 尚未啟用 | `ApiKeyDomain.Revoke` + `IApiKeyRepository.MarkRevoked` |
 | US-04 再次撤銷 / 不存在 | `ApiKeyDomain.Revoke` / `ApiKeyService.RevokeApiKey` → `ErrApiKeyInvalid` |

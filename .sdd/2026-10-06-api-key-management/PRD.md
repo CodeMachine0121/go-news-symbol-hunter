@@ -68,6 +68,11 @@ Scenario: 名稱只有空白被拒
   When 使用者申請 API key
   Then 申請被拒，告知「API key 名稱為必填」
 
+Scenario: 名稱含控制字元被拒
+  Given 使用者提供的 API key 名稱中含有控制字元（例如空字元或定位字元）
+  When 使用者申請 API key
+  Then 申請被拒，告知「API key 名稱不可包含控制字元」
+
 Scenario: 名稱可與其他 API key 重複
   Given 已有一把名稱為「研究」的 API key
   When 使用者以名稱「研究」申請 API key
@@ -194,7 +199,7 @@ Scenario: 未提供 API key 被拒
 - **Core Business Rules:**
   - API key 狀態：停用中 ⇄ 已啟用（由 administrator 切換）；任一狀態皆可 → 已撤銷（由持有者觸發，不可逆）。
   - 已撤銷優先於啟用狀態：已撤銷的 API key 無論是否啟用，一律視為無效。
-  - API key 名稱：必填，去除前後空白後長度 1–100 字，可重複。
+  - API key 名稱：必填，去除前後空白後長度 1–100 字，不可包含控制字元，可重複。
   - 「無效」涵蓋「不存在」與「已撤銷」兩種情況，對外不區分，避免洩漏 API key 是否曾經存在。
 - **Edge Cases:**
   - 申請過程中資料無法保存 → 申請失敗，使用者不會取得任何 API key。
