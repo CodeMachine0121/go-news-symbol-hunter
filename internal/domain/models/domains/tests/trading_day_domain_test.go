@@ -31,6 +31,7 @@ func TestTradingDayDomain_DueSession(t *testing.T) {
 		{name: "Wednesday 09:00 sharp runs nothing", now: taipeiTime(7, 9, 0)},
 		{name: "Wednesday 07:59 runs nothing", now: taipeiTime(7, 7, 59)},
 		{name: "Wednesday 13:30 sharp runs nothing", now: taipeiTime(7, 13, 30)},
+		{name: "Wednesday 14:00 after a missed intraday window runs nothing", now: taipeiTime(7, 14, 0)},
 		{name: "Saturday 08:30 runs nothing", now: taipeiTime(10, 8, 30)},
 		{name: "a UTC clock is read in Taipei time", now: time.Date(2026, 10, 7, 0, 30, 0, 0, time.UTC), expectedSession: "preMarket", expectedIsDue: true, expectedNewsSince: taipeiTime(6, 13, 30)},
 	}

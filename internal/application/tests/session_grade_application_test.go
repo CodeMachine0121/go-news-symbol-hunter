@@ -2,6 +2,7 @@ package application_test
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -167,6 +168,52 @@ func TestRunDueTradingSession_PreMarketPurgesOlderDaysThenGradesTrackedTwStocks(
 	assert.Equal(t, []entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "bullish", CombinedScore: 1, Confidence: 60, UpdatedAt: wednesdayAt(8, 0)}}, *storedCombinedGrades)
 	finishedAt := wednesdayAt(8, 0)
 	assert.Equal(t, entities.SessionRun{ID: 7, TradingDay: "2026-10-07", Session: "preMarket", Status: "succeeded", SucceededSymbolCount: 1, StartedAt: wednesdayAt(8, 0), FinishedAt: &finishedAt}, *finishedSessionRun)
+}
+
+func TestRunDueTradingSession_MondayPreMarketPurgesFridayGrades(t *testing.T) {
+	fixture := createSessionGradeFixture(t, time.Date(2026, 10, 5, 8, 0, 0, 0, taipei))
+	fixture.givenSessionRunStarts("2026-10-05", "preMarket")
+	fixture.sessionGradeRepository.EXPECT().DeleteExceptTradingDay(mock.Anything, "2026-10-05").Return(nil).Once()
+	fixture.combinedGradeRepository.EXPECT().DeleteExceptTradingDay(mock.Anything, "2026-10-05").Return(nil).Once()
+	fixture.givenTrackedSymbols()
+	finishedSessionRun := fixture.expectFinishedSessionRun()
+
+	fixture.sessionGradeApplication.RunDueTradingSession(context.Background())
+
+	assert.Equal(t, "succeeded", finishedSessionRun.Status)
+}
+
+func TestRunDueTradingSession_GivesEachSymbolTenMinutesAndAnalyzesOneAtATime(t *testing.T) {
+	fixture := createSessionGradeFixture(t, wednesdayAt(12, 30))
+	fixture.givenSessionRunStarts("2026-10-07", "intraday")
+	fixture.givenTrackedSymbols("2330", "2317")
+	fixture.givenCompany("2330", "台積電")
+	fixture.givenCompany("2317", "鴻海")
+	runningAnalyses := atomic.Int32{}
+	overlapped := atomic.Bool{}
+	deadlines := make(chan time.Duration, 2)
+	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, _ vo.AnalystRequestVo, _ []vo.AnalystExchangeVo) (vo.AnalystTurnVo, error) {
+		if runningAnalyses.Add(1) > 1 {
+			overlapped.Store(true)
+		}
+		time.Sleep(10 * time.Millisecond)
+		runningAnalyses.Add(-1)
+		deadline, hasDeadline := ctx.Deadline()
+		if hasDeadline {
+			deadlines <- time.Until(deadline)
+		}
+		return vo.AnalystTurnVo{IsRefused: true}, nil
+	}).Times(2)
+	fixture.expectFinishedSessionRun()
+
+	fixture.sessionGradeApplication.RunDueTradingSession(context.Background())
+
+	assert.False(t, overlapped.Load())
+	require.Len(t, deadlines, 2)
+	for range 2 {
+		remaining := <-deadlines
+		assert.True(t, remaining > 9*time.Minute && remaining <= 10*time.Minute, "remaining %v", remaining)
+	}
 }
 
 func TestRunDueTradingSession_IntradayKeepsOlderDaysAndReadsOnlyIntradayNews(t *testing.T) {
@@ -408,6 +455,20 @@ func TestGetTrackedSymbolGrades_ReturnsCombinedGradesWithTheirSessionGrades(t *t
 			{Session: "intraday", Grade: "bearish", Confidence: 40, Reason: "外資賣超", KeyEvents: []dto.AnalysisKeyEventDto{}, RiskFactors: []string{}, Evidence: []dto.AnalysisEvidenceDto{}, CreatedAt: wednesdayAt(12, 31)},
 		},
 	}}, trackedSymbolGrades)
+}
+
+func TestGetTrackedSymbolGrades_StillShowsFridayOnSaturday(t *testing.T) {
+	fixture := createSessionGradeFixture(t, time.Date(2026, 10, 10, 10, 0, 0, 0, taipei))
+	fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "", "").Return([]entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-09", Grade: "bullish"}}, nil)
+	fixture.sessionGradeRepository.EXPECT().FindByTradingDay(mock.Anything, "2330", "twStock", "2026-10-09").Return([]entities.SessionGrade{{Session: "afterMarket", Grade: "bullish"}}, nil)
+
+	fixture.sessionGradeApplication.RunDueTradingSession(context.Background())
+	trackedSymbolGrades, err := fixture.sessionGradeApplication.GetTrackedSymbolGrades(context.Background(), dto.GetTrackedSymbolGradesDto{})
+
+	require.NoError(t, err)
+	require.Len(t, trackedSymbolGrades, 1)
+	assert.Equal(t, "2026-10-09", trackedSymbolGrades[0].TradingDay)
+	assert.Equal(t, "afterMarket", trackedSymbolGrades[0].SessionGrades[0].Session)
 }
 
 func TestGetTrackedSymbolGrades_FiltersByANormalizedSymbol(t *testing.T) {
