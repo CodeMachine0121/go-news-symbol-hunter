@@ -114,3 +114,20 @@ Oracle: Acceptance Criteria（56 clauses：AC × 37、BR × 14、NFR × 5）
 | O-4 空白標的被拒 | PRD Edge Cases 補規則 |
 
 修正後：56/56 clauses ✅（100%），0 orphans。
+
+---
+
+## Code review 後修正紀錄（2026-10-07，PR #7）
+
+| Review 意見 | 處理 | 新增條款 / 測試 |
+| :--- | :--- | :--- |
+| 盤前錯過時，查詢整天回傳前一天結果 | 保留「只有盤前會刪除」（PRD 既定），改為查詢只列每檔最新一天 | 新 AC「同一標的有兩天的結果時只查得到最新一天」→ `SGA` `TestGetTrackedSymbolGrades_ShowsOnlyTheNewestDayOfSymbolsStillTracked` ✅ |
+| 依序執行跨出時段，後面的標的混入下一時段新聞 | 時段新聞範圍加上終點（時段收盤）；依序分析維持（PRD Performance） | BR-2 改寫 → `TDD:17`（終點）、`news_collection_domain_test.go`（終點不含）、`SGA` 盤前測試（09:10 新聞不採用）✅ |
+| 失敗標的的原因與 AI 用量遺失 | 執行紀錄記下失敗標的、原因與 AI 用量合計 | 新 BR → `SGA` `OneFailingSymbol…`、`CountsEveryStep…`、`REPO` ✅ |
+| 每分鐘一次 duplicate-key INSERT 錯誤 | 改為 insert-or-skip（不再報錯） | AC-13 → `REPO` `RecordsEachTradingSessionOnce`、`ReportsStorageFailuresApartFromExistingRuns` ✅ |
+| 查詢 N+1 | 一次讀回所有列出交易日的時段評等 | `SGA` `ShowsOnlyTheNewestDay…`（`FindByTradingDays` 只呼叫一次）✅ |
+| 暫停追蹤的標的仍出現在查詢 | 查詢只列仍追蹤中的標的 | 新 AC「暫停追蹤的標的不出現在查詢結果」→ 同上測試 ✅ |
+| `ToSessionGradeEntity` 讀別人的欄位（Feature Envy） | 欄位對映移到 `AnalysisConclusionDomain.ToSessionGradeEntity`，consultation 只補自己的用量與模型 | 行為不變，既有測試覆蓋 ✅ |
+| 權重打錯字被靜默改成預設 | 有設定但無法解讀 → 拒絕啟動；0 / 負數仍用預設（PRD 既定） | 新 BR → `cmd/server/config_test.go` ✅ |
+
+修正後：59/59 clauses ✅（100%）。

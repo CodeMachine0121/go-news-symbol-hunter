@@ -48,13 +48,13 @@
 | 追蹤標的 | `TrackedSymbol` / table `tracked_symbols` | trackedSymbol | administrator 登記、由系統每個交易日自動分析的標的；「標的 + 市場類別」唯一；有追蹤中 / 暫停開關（`IsTracking`）。目前只自動分析台股 | Confirmed |
 | 交易時段 | `TradingSession` / `session` | session | 台股一個交易日內的三個時段：盤前、盤中、盤後（見 §4），各有執行時段與新聞範圍 | Confirmed |
 | 交易日 | `TradingDay` / `trading_day` | tradingDay | 週一到週五（台北時間）的日期；不判斷國定假日。「前一個交易日」= 往前最近的週一到週五 | Confirmed |
-| 時段新聞範圍 | `SessionNewsWindow` | — | 時段評等只採用的新聞發布時間範圍（起點含）：盤前 = 前一個交易日 13:30 起；盤中 = 當天 09:00 起；盤後 = 當天 13:30 起 | Confirmed |
+| 時段新聞範圍 | `NewsPublishedWindowVo`（`TradingDayDomain.NewsPublishedWindow`） | — | 時段評等只採用的新聞發布時間範圍（起點含、終點不含）：盤前 = 前一個交易日 13:30 起至當天 09:00；盤中 = 當天 09:00 至 13:30；盤後 = 當天 13:30 至 24:00 | Confirmed |
 | 時段評等 | `SessionGrade` / table `session_grades` | sessionGrades | 追蹤標的在某交易日某時段的分析結論（評等、信心指數、分析理由、關鍵事件、風險因子、AI 用量）；每標的每交易日每時段最多一筆；只保留當天 | Confirmed |
 | 綜合評等 | `CombinedGrade` / table `combined_grades` | combinedGrade | 追蹤標的當天已有時段評等的加權平均；每標的每交易日一筆，每次新時段評等產生時重算覆蓋；只保留當天 | Confirmed |
 | 評等分數 | `GradeScore` | — | 評等換成的數字：強烈看多 +2、看多 +1、中性 0、看空 −1、強烈看空 −2 | Confirmed |
 | 時段權重 | `SessionWeight` | — | 計算綜合評等時各時段的權重；預設盤後 0.5、盤前 0.3、盤中 0.2，可由設定調整，不是正數時用預設值 | Confirmed |
 | 綜合分數 | `CombinedScore` | combinedScore | Σ(評等分數 × 時段權重) ÷ Σ(已有時段權重)；≥1.5 強烈看多、≥0.5 看多、>−0.5 中性、>−1.5 看空、其餘強烈看空 | Confirmed |
-| 時段執行紀錄 | `SessionRun` / table `session_runs` | — | 某交易日某時段的一次自動執行：狀態、開始 / 結束時間、成功 / 失敗檔數、失敗原因；同交易日同時段只有一筆；永久保留 | Confirmed |
+| 時段執行紀錄 | `SessionRun` / table `session_runs` | — | 某交易日某時段的一次自動執行：狀態、開始 / 結束時間、成功 / 失敗檔數、失敗標的與各自原因（`FailedSymbols`）、AI 用量合計、失敗原因；同交易日同時段只有一筆；永久保留 | Confirmed |
 
 ---
 
@@ -79,7 +79,7 @@
 | 執行時段分析 | `RunTradingSession` | 系統定期檢查，進入某時段的執行時段且該交易日該時段尚未執行 | 建立時段執行紀錄 → （盤前）刪除前一天結果 → 依序分析追蹤中的台股追蹤標的 → 保存時段評等並重算綜合評等 | 不建立分析事件；不受重用與同時分析上限限制；單一標的失敗不影響其他 |
 | 刪除前一天結果 | `PurgeStaleGrades` | 盤前開始執行時 | 刪除所有不是今天交易日的時段評等與綜合評等 | 只有盤前會刪除 |
 | 重新計算綜合評等 | `RecalculateCombinedGrade` | 某追蹤標的產生新的時段評等後 | 以當天已有的時段評等加權平均，覆蓋該標的當天的綜合評等 | |
-| 查詢追蹤標的評等 | `GetTrackedSymbolGrades` | 使用者以已啟用 API key 查詢（可指定標的 + 市場類別） | 回傳綜合評等與當天各時段評等；沒有則回傳空結果 | 標的與市場類別需一起提供 |
+| 查詢追蹤標的評等 | `GetTrackedSymbolGrades` | 使用者以已啟用 API key 查詢（可指定標的 + 市場類別） | 回傳仍追蹤中標的的最新一天綜合評等與該天各時段評等；沒有則回傳空結果 | 標的與市場類別需一起提供 |
 | 中斷時段執行 | `FailInterruptedSessionRuns` | 服務啟動時 | 仍為執行中的時段執行紀錄改為失敗 | 原因「服務重新啟動，執行中斷」；當天該時段不再重跑 |
 
 ---

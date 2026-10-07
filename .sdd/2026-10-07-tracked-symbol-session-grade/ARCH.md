@@ -18,11 +18,11 @@
 | Area | Action | What / Why |
 | :--- | :--- | :--- |
 | `SymbolAnalysisService.AnalyzeSymbol` | **Modify** | AI 迴圈抽到 `AnalystConsultationService`；本方法只剩「讀事件 → 諮詢 → 取價 / 存結果 → 更新事件」。行為不變，既有測試即安全網 |
-| `NewsSearchService` / `SearchSymbolNewsDto` / `NewsCollectionDomain.Curate` | **Modify** | 新增可選的 `PublishedSince`；`Curate` 以 `max(now−7 天, PublishedSince)` 過濾，**先過濾再取 30 則** |
-| `AnalystRequestVo` / `ClaudeAnalystProxy` | **Modify** | 新增可選 `PublishedSince`；有值時在提示中告知 AI 只會拿到這之後的新聞 |
+| `NewsSearchService` / `SearchSymbolNewsDto` / `NewsCollectionDomain.Curate` | **Modify** | 新增可選的 `NewsPublishedWindowVo{Since, Before}`；`Curate` 以 `max(now−7 天, Since)` 為起點、`Before` 為終點（不含）過濾，**先過濾再取 30 則** |
+| `AnalystRequestVo` / `ClaudeAnalystProxy` | **Modify** | 新增可選 `NewsPublishedWindow`；有值時在提示中告知 AI 只會拿到這段期間的新聞 |
 | `internal/domain/models/entities/` | **Add** | `TrackedSymbol`、`SessionGrade`、`CombinedGrade`、`SessionRun` |
-| `internal/domain/models/domains/` | **Add** | `AnalystConsultationDomain`、`TradingDayDomain`、`CombinedGradeDomain`、`SessionRunDomain`、`TrackedSymbolGradeDomain`（entity → 查詢 DTO 的轉換；entities 套件不能 import dto，否則循環引用） |
-| `internal/domain/models/vo/` | **Add** | `SessionWeightsVo`、`TradingSessionWindowVo`（一個時段的執行時段與新聞起點） |
+| `internal/domain/models/domains/` | **Add** | `AnalystConsultationDomain`、`TradingDayDomain`、`CombinedGradeDomain`、`SessionRunDomain`、`TrackedSymbolGradesDomain`（查詢規則：只列仍追蹤中的標的、每檔只列最新一天，並把時段評等掛回對應的綜合評等；也負責 entity → DTO 轉換，因 entities 套件不能 import dto） |
+| `internal/domain/models/vo/` | **Add** | `SessionWeightsVo`、`TradingSessionWindowVo`（一個時段的執行時段與新聞起點）、`NewsPublishedWindowVo`、`SymbolGradingOutcomeVo`（單檔評等結果：失敗原因 + AI 用量，交給執行紀錄累計） |
 | `internal/domain/service/` | **Add** | `AnalystConsultationService`、`SessionGradeService`、`session_grade_errors.go` |
 | `internal/domain/interface/` | **Add** | `ITrackedSymbolRepository`、`ISessionGradeRepository`、`ICombinedGradeRepository`、`ISessionRunRepository`、`IBackgroundJob` |
 | `internal/infrastructure/persistence/` | **Add** | 四個對應 repository |
@@ -57,13 +57,15 @@
 
 ```go
 ITrackedSymbolRepository  FindTracking(ctx, category string) ([]entities.TrackedSymbol, error)
+                          FindAllTracking(ctx) ([]entities.TrackedSymbol, error)          // 查詢時篩掉暫停 / 移除的標的
 ISessionGradeRepository   Save(ctx, *entities.SessionGrade) error                       // upsert on (symbol, category, trading_day, session)
                           FindByTradingDay(ctx, symbol, category, tradingDay string) ([]entities.SessionGrade, error)
+                          FindByTradingDays(ctx, tradingDays []string) ([]entities.SessionGrade, error) // 查詢一次讀回
                           DeleteExceptTradingDay(ctx, tradingDay string) error
 ICombinedGradeRepository  Save(ctx, *entities.CombinedGrade) error                      // upsert on (symbol, category, trading_day)
                           FindAll(ctx, symbol, category string) ([]entities.CombinedGrade, error) // 空字串＝不篩選；trading_day 新到舊
                           DeleteExceptTradingDay(ctx, tradingDay string) error
-ISessionRunRepository     Create(ctx, *entities.SessionRun) error                        // 重複 → ErrSessionRunAlreadyExists
+ISessionRunRepository     Create(ctx, *entities.SessionRun) error                        // ON CONFLICT DO NOTHING；未新增 → ErrSessionRunAlreadyExists
                           Update(ctx, *entities.SessionRun) error
                           FailAllRunning(ctx, failureReason string, finishedAt time.Time) error
 ```
@@ -145,4 +147,5 @@ flowchart TD
 ## 8. Risks & Open Decisions
 
 - **Risks / trade-offs:** 依序分析，追蹤標的多時一個時段可能超過執行時段才結束——job 的 ticker 在執行中會丟掉 tick，不會重疊；下一個時段照常判斷。時區用固定 UTC+8（台灣無夏令時間），避免依賴系統 tzdata。
-- **Open decisions (for implementation):** 無。查詢對每筆綜合評等各讀一次時段評等（追蹤標的數量小，換取不必在 service 內做分組）。查詢回應形狀：`[]TrackedSymbolGradeDto{symbol, category, tradingDay, grade, combinedScore, confidence, updatedAt, sessionGrades[]{session, grade, confidence, reason, keyEvents, riskFactors, createdAt}}`。
+- **Open decisions (for implementation):** 無。
+- **Code review 後調整：** 時段新聞範圍加上終點（時段收盤），避免依序執行跨出時段時混入下一時段新聞；執行紀錄記下失敗標的、原因與 AI 用量；同時段只執行一次改用 insert-or-skip，不再每分鐘產生 duplicate-key 錯誤；查詢改為一次讀回時段評等，並只列仍追蹤中標的的最新一天；背景作業設定無法解讀時拒絕啟動。依序分析維持不變（AI 成本可預期、不與使用者分析搶用量）。查詢回應形狀：`[]TrackedSymbolGradeDto{symbol, category, tradingDay, grade, combinedScore, confidence, updatedAt, sessionGrades[]{session, grade, confidence, reason, keyEvents, riskFactors, createdAt}}`。
