@@ -28,7 +28,7 @@ func (analystConsultationService *AnalystConsultationService) ModelName() string
 }
 
 func (analystConsultationService *AnalystConsultationService) Consult(ctx context.Context, consultAnalystDto dto.ConsultAnalystDto) domains.AnalystConsultationDomain {
-	analystRequest := vo.AnalystRequestVo{Symbol: consultAnalystDto.Symbol, Category: consultAnalystDto.Category, SearchKeyword: consultAnalystDto.SearchKeyword, PublishedSince: consultAnalystDto.PublishedSince}
+	analystRequest := vo.AnalystRequestVo{Symbol: consultAnalystDto.Symbol, Category: consultAnalystDto.Category, SearchKeyword: consultAnalystDto.SearchKeyword, NewsPublishedWindow: consultAnalystDto.NewsPublishedWindow}
 	analysisEvidence := domains.NewAnalysisEvidenceDomain()
 	exchanges := []vo.AnalystExchangeVo{}
 	usage := vo.AnalystUsageVo{}
@@ -67,7 +67,7 @@ func (analystConsultationService *AnalystConsultationService) Consult(ctx contex
 		var waitGroup sync.WaitGroup
 		for index, newsSearch := range analystTurn.NewsSearches {
 			waitGroup.Go(func() {
-				searchedNews[index], searchErrors[index] = analystConsultationService.newsSearchService.SearchSymbolNews(ctx, dto.SearchSymbolNewsDto{Symbol: newsSearch.Symbol, Category: newsSearch.Category, PublishedSince: consultAnalystDto.PublishedSince})
+				searchedNews[index], searchErrors[index] = analystConsultationService.newsSearchService.SearchSymbolNews(ctx, dto.SearchSymbolNewsDto{Symbol: newsSearch.Symbol, Category: newsSearch.Category, NewsPublishedWindow: consultAnalystDto.NewsPublishedWindow})
 			})
 		}
 		waitGroup.Wait()

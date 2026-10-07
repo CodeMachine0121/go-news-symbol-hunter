@@ -1,11 +1,11 @@
 package dto
 
-import "time"
+import "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 
 type ConsultAnalystDto struct {
 	Symbol        string
 	Category      string
 	SearchKeyword string
-	// zero means the analyst may read every news item the news search keeps
-	PublishedSince time.Time
+	// a zero window lets the analyst read every news item the news search keeps
+	NewsPublishedWindow vo.NewsPublishedWindowVo
 }

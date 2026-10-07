@@ -143,7 +143,10 @@ func TestRunDueTradingSession_PreMarketPurgesOlderDaysThenGradesTrackedTwStocks(
 	fixture.combinedGradeRepository.EXPECT().DeleteExceptTradingDay(mock.Anything, "2026-10-07").Return(nil).Once()
 	fixture.givenTrackedSymbols("2330")
 	fixture.givenCompany("2330", "台積電")
-	fixture.givenNews("台積電", vo.NewsVo{Title: "台積電法說會", Link: "https://news/2330/1", PublishedAt: time.Date(2026, 10, 6, 20, 0, 0, 0, taipei), ProviderName: "鉅亨網"})
+	fixture.givenNews("台積電",
+		vo.NewsVo{Title: "台積電法說會", Link: "https://news/2330/1", PublishedAt: time.Date(2026, 10, 6, 20, 0, 0, 0, taipei), ProviderName: "鉅亨網"},
+		vo.NewsVo{Title: "開盤後新聞", Link: "https://news/2330/2", PublishedAt: wednesdayAt(9, 10), ProviderName: "鉅亨網"},
+	)
 	fixture.givenAnalystConcludes("2330", "bullish", 60)
 	storedSessionGrades := fixture.storeSessionGrades()
 	storedCombinedGrades := fixture.storeCombinedGrades()
@@ -151,8 +154,9 @@ func TestRunDueTradingSession_PreMarketPurgesOlderDaysThenGradesTrackedTwStocks(
 
 	fixture.sessionGradeApplication.RunDueTradingSession(context.Background())
 
-	publishedSince := fixture.analystProxy.Calls[0].Arguments.Get(1).(vo.AnalystRequestVo).PublishedSince
-	assert.True(t, time.Date(2026, 10, 6, 13, 30, 0, 0, taipei).Equal(publishedSince), "news since %v", publishedSince)
+	newsPublishedWindow := fixture.analystProxy.Calls[0].Arguments.Get(1).(vo.AnalystRequestVo).NewsPublishedWindow
+	assert.True(t, time.Date(2026, 10, 6, 13, 30, 0, 0, taipei).Equal(newsPublishedWindow.Since), "news since %v", newsPublishedWindow.Since)
+	assert.True(t, wednesdayAt(9, 0).Equal(newsPublishedWindow.Before), "news before %v", newsPublishedWindow.Before)
 	newsPublishedAt := time.Date(2026, 10, 6, 20, 0, 0, 0, taipei)
 	assert.Equal(t, []entities.SessionGrade{{
 		Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Session: "preMarket",

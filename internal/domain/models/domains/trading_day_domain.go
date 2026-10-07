@@ -54,7 +54,9 @@ func (tradingDayDomain TradingDayDomain) DueSession() (string, bool) {
 	return "", false
 }
 
-func (tradingDayDomain TradingDayDomain) NewsPublishedSince(session string) time.Time {
+// news is read from the session's start point until the session closes, so a run that overruns its window
+// never mixes in news belonging to the next session
+func (tradingDayDomain TradingDayDomain) NewsPublishedWindow(session string) vo.NewsPublishedWindowVo {
 	for _, tradingSessionWindow := range taiwanStockTradingSessionWindows {
 		if tradingSessionWindow.Session != session {
 			continue
@@ -66,7 +68,7 @@ func (tradingDayDomain TradingDayDomain) NewsPublishedSince(session string) time
 				newsDay = newsDay.AddDate(0, 0, -1)
 			}
 		}
-		return newsDay.Add(tradingSessionWindow.NewsSince)
+		return vo.NewsPublishedWindowVo{Since: newsDay.Add(tradingSessionWindow.NewsSince), Before: tradingDayDomain.midnight.Add(tradingSessionWindow.ClosesAt)}
 	}
-	return time.Time{}
+	return vo.NewsPublishedWindowVo{}
 }

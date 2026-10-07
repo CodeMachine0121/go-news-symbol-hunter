@@ -63,8 +63,12 @@ func (claudeAnalystProxy *ClaudeAnalystProxy) ModelName() string {
 
 func (claudeAnalystProxy *ClaudeAnalystProxy) Respond(ctx context.Context, request vo.AnalystRequestVo, exchanges []vo.AnalystExchangeVo) (vo.AnalystTurnVo, error) {
 	instruction := fmt.Sprintf("Analyze symbol %s in market category %s (search keyword: %s).", request.Symbol, request.Category, request.SearchKeyword)
-	if !request.PublishedSince.IsZero() {
-		instruction += fmt.Sprintf(" News searches only return news published since %s; judge the symbol on that news alone.", request.PublishedSince.Format(time.RFC3339))
+	newsPublishedWindow := request.NewsPublishedWindow
+	switch {
+	case !newsPublishedWindow.Since.IsZero() && !newsPublishedWindow.Before.IsZero():
+		instruction += fmt.Sprintf(" News searches only return news published from %s up to %s; judge the symbol on that news alone.", newsPublishedWindow.Since.Format(time.RFC3339), newsPublishedWindow.Before.Format(time.RFC3339))
+	case !newsPublishedWindow.Since.IsZero():
+		instruction += fmt.Sprintf(" News searches only return news published since %s; judge the symbol on that news alone.", newsPublishedWindow.Since.Format(time.RFC3339))
 	}
 	messages := []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(instruction))}
 	for _, exchange := range exchanges {

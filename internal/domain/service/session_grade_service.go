@@ -92,10 +92,10 @@ func (sessionGradeService *SessionGradeService) gradeTrackedSymbol(ctx context.C
 	}
 	symbol := resolvedSymbol.Symbol
 	analystConsultation := sessionGradeService.analystConsultationService.Consult(analysisContext, dto.ConsultAnalystDto{
-		Symbol:         symbol.Value,
-		Category:       symbol.Category.Value,
-		SearchKeyword:  resolvedSymbol.SearchKeyword,
-		PublishedSince: tradingDay.NewsPublishedSince(session),
+		Symbol:              symbol.Value,
+		Category:            symbol.Category.Value,
+		SearchKeyword:       resolvedSymbol.SearchKeyword,
+		NewsPublishedWindow: tradingDay.NewsPublishedWindow(session),
 	})
 	sessionGrade, isConcluded := analystConsultation.ToSessionGradeEntity(symbol, tradingDay.Value(), session, sessionGradeService.clockProxy.Now())
 	if !isConcluded {
