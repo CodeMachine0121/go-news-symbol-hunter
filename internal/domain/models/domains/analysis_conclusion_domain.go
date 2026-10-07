@@ -109,3 +109,19 @@ func (analysisConclusionDomain AnalysisConclusionDomain) ToResultEntity(analysis
 	}
 	return analysisResult
 }
+
+func (analysisConclusionDomain AnalysisConclusionDomain) ToSessionGradeEntity(symbol vo.SymbolVo, tradingDay string, session string, createdAt time.Time) entities.SessionGrade {
+	return entities.SessionGrade{
+		Symbol:      symbol.Value,
+		Category:    symbol.Category.Value,
+		TradingDay:  tradingDay,
+		Session:     session,
+		Grade:       analysisConclusionDomain.grade,
+		Confidence:  analysisConclusionDomain.confidence,
+		Reason:      analysisConclusionDomain.reason,
+		KeyEvents:   analysisConclusionDomain.keyEvents,
+		RiskFactors: analysisConclusionDomain.riskFactors,
+		Evidence:    analysisConclusionDomain.evidence,
+		CreatedAt:   createdAt,
+	}
+}

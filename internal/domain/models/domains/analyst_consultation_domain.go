@@ -46,21 +46,9 @@ func (analystConsultationDomain AnalystConsultationDomain) ToSessionGradeEntity(
 	if analystConsultationDomain.conclusion == nil {
 		return entities.SessionGrade{}, false
 	}
-	conclusion := analystConsultationDomain.conclusion
-	return entities.SessionGrade{
-		Symbol:       symbol.Value,
-		Category:     symbol.Category.Value,
-		TradingDay:   tradingDay,
-		Session:      session,
-		Grade:        conclusion.grade,
-		Confidence:   conclusion.confidence,
-		Reason:       conclusion.reason,
-		KeyEvents:    conclusion.keyEvents,
-		RiskFactors:  conclusion.riskFactors,
-		Evidence:     conclusion.evidence,
-		Model:        analystConsultationDomain.answeringModel,
-		InputTokens:  analystConsultationDomain.usage.InputTokens,
-		OutputTokens: analystConsultationDomain.usage.OutputTokens,
-		CreatedAt:    createdAt,
-	}, true
+	sessionGrade := analystConsultationDomain.conclusion.ToSessionGradeEntity(symbol, tradingDay, session, createdAt)
+	sessionGrade.Model = analystConsultationDomain.answeringModel
+	sessionGrade.InputTokens = analystConsultationDomain.usage.InputTokens
+	sessionGrade.OutputTokens = analystConsultationDomain.usage.OutputTokens
+	return sessionGrade, true
 }
