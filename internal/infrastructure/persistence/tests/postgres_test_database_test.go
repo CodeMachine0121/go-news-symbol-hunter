@@ -26,7 +26,7 @@ func openTestDatabase(t *testing.T) *gorm.DB {
 	require.True(t, strings.HasSuffix(connectionConfig.Database, testDatabaseSuffix), "TEST_POSTGRES_DSN must name a database ending with _test")
 	database, err := gorm.Open(postgres.Open(databaseUrl), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent), TranslateError: true})
 	require.NoError(t, err)
-	require.NoError(t, database.Migrator().DropTable(&entities.ApiKey{}, &entities.AnalysisEvent{}, &entities.AnalysisResult{}))
-	require.NoError(t, database.AutoMigrate(&entities.ApiKey{}, &entities.AnalysisEvent{}, &entities.AnalysisResult{}))
+	require.NoError(t, database.Migrator().DropTable(&entities.ApiKey{}, &entities.AnalysisEvent{}, &entities.AnalysisResult{}, &entities.TrackedSymbol{}, &entities.SessionGrade{}, &entities.CombinedGrade{}, &entities.SessionRun{}))
+	require.NoError(t, database.AutoMigrate(&entities.ApiKey{}, &entities.AnalysisEvent{}, &entities.AnalysisResult{}, &entities.TrackedSymbol{}, &entities.SessionGrade{}, &entities.CombinedGrade{}, &entities.SessionRun{}))
 	return database
 }
