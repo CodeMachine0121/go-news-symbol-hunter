@@ -145,9 +145,8 @@ func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers 
 	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, buildNewsProviderCatalog(httpBodyReader, productionExternalSourceUrls, externalSourceProxies.yahooFinanceProxy))
 	symbolAnalysisService := service.NewSymbolAnalysisService(
 		symbolResolutionService,
-		newsSearchService,
+		service.NewAnalystConsultationService(claude.NewClaudeAnalystProxy(anthropic.NewClient(), serverConfig.AiAnalysisModel, serverConfig.AiAnalysisEffort), newsSearchService),
 		service.NewPriceSnapshotService(buildPriceProviderCatalog(externalSourceProxies)),
-		claude.NewClaudeAnalystProxy(anthropic.NewClient(), serverConfig.AiAnalysisModel, serverConfig.AiAnalysisEffort),
 		persistence.NewAnalysisEventRepository(database),
 		persistence.NewAnalysisResultRepository(database),
 		clockProxy,

@@ -2,10 +2,8 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/domains"
@@ -14,30 +12,25 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 )
 
-const (
-	MaximumAnalystRounds = 5
-	maximumStartAttempts = 3
-)
+const maximumStartAttempts = 3
 
 type SymbolAnalysisService struct {
-	symbolResolutionService  *SymbolResolutionService
-	newsSearchService        *NewsSearchService
-	priceSnapshotService     *PriceSnapshotService
-	analystProxy             interfaces.IAnalystProxy
-	analysisEventRepository  interfaces.IAnalysisEventRepository
-	analysisResultRepository interfaces.IAnalysisResultRepository
-	clockProxy               interfaces.IClockProxy
+	symbolResolutionService    *SymbolResolutionService
+	analystConsultationService *AnalystConsultationService
+	priceSnapshotService       *PriceSnapshotService
+	analysisEventRepository    interfaces.IAnalysisEventRepository
+	analysisResultRepository   interfaces.IAnalysisResultRepository
+	clockProxy                 interfaces.IClockProxy
 }
 
-func NewSymbolAnalysisService(symbolResolutionService *SymbolResolutionService, newsSearchService *NewsSearchService, priceSnapshotService *PriceSnapshotService, analystProxy interfaces.IAnalystProxy, analysisEventRepository interfaces.IAnalysisEventRepository, analysisResultRepository interfaces.IAnalysisResultRepository, clockProxy interfaces.IClockProxy) *SymbolAnalysisService {
+func NewSymbolAnalysisService(symbolResolutionService *SymbolResolutionService, analystConsultationService *AnalystConsultationService, priceSnapshotService *PriceSnapshotService, analysisEventRepository interfaces.IAnalysisEventRepository, analysisResultRepository interfaces.IAnalysisResultRepository, clockProxy interfaces.IClockProxy) *SymbolAnalysisService {
 	return &SymbolAnalysisService{
-		symbolResolutionService:  symbolResolutionService,
-		newsSearchService:        newsSearchService,
-		priceSnapshotService:     priceSnapshotService,
-		analystProxy:             analystProxy,
-		analysisEventRepository:  analysisEventRepository,
-		analysisResultRepository: analysisResultRepository,
-		clockProxy:               clockProxy,
+		symbolResolutionService:    symbolResolutionService,
+		analystConsultationService: analystConsultationService,
+		priceSnapshotService:       priceSnapshotService,
+		analysisEventRepository:    analysisEventRepository,
+		analysisResultRepository:   analysisResultRepository,
+		clockProxy:                 clockProxy,
 	}
 }
 
@@ -71,7 +64,7 @@ func (symbolAnalysisService *SymbolAnalysisService) StartSymbolAnalysis(ctx cont
 		if !startSymbolAnalysisDto.AllowsNewAnalysis {
 			return dto.StartedSymbolAnalysisDto{}, ErrAnalysisCapacityReached
 		}
-		analysisEvent := domains.NewStartedAnalysisEventDomain(startSymbolAnalysisDto.ApiKeyID, symbol, symbolAnalysisService.analystProxy.ModelName(), now).ToEntity()
+		analysisEvent := domains.NewStartedAnalysisEventDomain(startSymbolAnalysisDto.ApiKeyID, symbol, symbolAnalysisService.analystConsultationService.ModelName(), now).ToEntity()
 		createError := symbolAnalysisService.analysisEventRepository.Create(ctx, &analysisEvent)
 		if errors.Is(createError, ErrAnalysisAlreadyRunning) {
 			continue
@@ -95,76 +88,21 @@ func (symbolAnalysisService *SymbolAnalysisService) AnalyzeSymbol(ctx context.Co
 	analysisEvent := domains.NewAnalysisEventDomain(*storedAnalysisEvent)
 	analysisContext, cancelAnalysis := context.WithTimeout(ctx, domains.AnalysisTimeout)
 	defer cancelAnalysis()
-	analystRequest := vo.AnalystRequestVo{Symbol: storedAnalysisEvent.Symbol, Category: storedAnalysisEvent.Category, SearchKeyword: analyzeSymbolDto.SearchKeyword}
-	analysisEvidence := domains.NewAnalysisEvidenceDomain()
-	exchanges := []vo.AnalystExchangeVo{}
-	usage := vo.AnalystUsageVo{}
-	failureReason := FailureReasonAnalystExceededRounds
-	isSucceeded := false
-	for round := range MaximumAnalystRounds {
-		analystTurn, respondError := symbolAnalysisService.analystProxy.Respond(analysisContext, analystRequest, exchanges)
-		usage = vo.AnalystUsageVo{InputTokens: usage.InputTokens + analystTurn.Usage.InputTokens, OutputTokens: usage.OutputTokens + analystTurn.Usage.OutputTokens}
-		if errors.Is(respondError, context.DeadlineExceeded) {
-			failureReason = FailureReasonTimedOut
-			break
+	analystConsultation := symbolAnalysisService.analystConsultationService.Consult(analysisContext, dto.ConsultAnalystDto{Symbol: storedAnalysisEvent.Symbol, Category: storedAnalysisEvent.Category, SearchKeyword: analyzeSymbolDto.SearchKeyword})
+	analysisEvent.RecordAnsweringModel(analystConsultation.AnsweringModel())
+	failureReason := analystConsultation.FailureReason()
+	if conclusion, isConcluded := analystConsultation.Conclusion(); isConcluded {
+		priceQuote := symbolAnalysisService.priceSnapshotService.CapturePrice(analysisContext, dto.CapturePriceDto{Symbol: storedAnalysisEvent.Symbol, Category: storedAnalysisEvent.Category})
+		analysisResult := conclusion.ToResultEntity(*storedAnalysisEvent, symbolAnalysisService.clockProxy.Now(), priceQuote)
+		failureReason = ""
+		if saveError := symbolAnalysisService.analysisResultRepository.Create(context.WithoutCancel(ctx), &analysisResult); saveError != nil {
+			failureReason = FailureReasonResultNotSaved
 		}
-		if respondError != nil {
-			failureReason = FailureReasonAnalystUnavailable
-			break
-		}
-		analysisEvent.RecordAnsweringModel(analystTurn.ModelName)
-		if analystTurn.IsRefused {
-			failureReason = FailureReasonAnalystRefused
-			break
-		}
-		if analystTurn.Conclusion == nil && len(analystTurn.NewsSearches) == 0 {
-			failureReason = FailureReasonAnalystIncomplete
-			break
-		}
-		if analystTurn.Conclusion != nil {
-			conclusion, conclusionError := domains.NewAnalysisConclusionDomain(*analystTurn.Conclusion, analysisEvidence)
-			if conclusionError != nil {
-				failureReason = FailureReasonAnalystIncomplete
-				break
-			}
-			priceQuote := symbolAnalysisService.priceSnapshotService.CapturePrice(analysisContext, dto.CapturePriceDto{Symbol: storedAnalysisEvent.Symbol, Category: storedAnalysisEvent.Category})
-			analysisResult := conclusion.ToResultEntity(*storedAnalysisEvent, symbolAnalysisService.clockProxy.Now(), priceQuote)
-			if saveError := symbolAnalysisService.analysisResultRepository.Create(context.WithoutCancel(ctx), &analysisResult); saveError != nil {
-				failureReason = FailureReasonResultNotSaved
-				break
-			}
-			isSucceeded = true
-			break
-		}
-		// the analyst could never read search results requested in the final round
-		if round == MaximumAnalystRounds-1 {
-			break
-		}
-		searchedNews := make([]dto.SymbolNewsDto, len(analystTurn.NewsSearches))
-		searchErrors := make([]error, len(analystTurn.NewsSearches))
-		var waitGroup sync.WaitGroup
-		for index, newsSearch := range analystTurn.NewsSearches {
-			waitGroup.Go(func() {
-				searchedNews[index], searchErrors[index] = symbolAnalysisService.newsSearchService.SearchSymbolNews(analysisContext, dto.SearchSymbolNewsDto{Symbol: newsSearch.Symbol, Category: newsSearch.Category})
-			})
-		}
-		waitGroup.Wait()
-		toolResults := make([]vo.AnalystToolResultVo, 0, len(analystTurn.NewsSearches))
-		for index, newsSearch := range analystTurn.NewsSearches {
-			if searchErrors[index] != nil {
-				toolResults = append(toolResults, vo.AnalystToolResultVo{ToolCallID: newsSearch.ToolCallID, Content: searchErrors[index].Error(), IsError: true})
-				continue
-			}
-			analysisEvidence.Record(searchedNews[index].News)
-			searchResult, _ := json.Marshal(searchedNews[index])
-			toolResults = append(toolResults, vo.AnalystToolResultVo{ToolCallID: newsSearch.ToolCallID, Content: string(searchResult)})
-		}
-		exchanges = append(exchanges, vo.AnalystExchangeVo{Reply: analystTurn.Reply, ToolResults: toolResults})
 	}
-	if isSucceeded {
-		analysisEvent.Succeed(symbolAnalysisService.clockProxy.Now(), usage)
+	if failureReason == "" {
+		analysisEvent.Succeed(symbolAnalysisService.clockProxy.Now(), analystConsultation.Usage())
 	} else {
-		analysisEvent.Fail(failureReason, symbolAnalysisService.clockProxy.Now(), usage)
+		analysisEvent.Fail(failureReason, symbolAnalysisService.clockProxy.Now(), analystConsultation.Usage())
 	}
 	finishedAnalysisEvent := analysisEvent.ToEntity()
 	// recorded even when the analysis ran out of time

@@ -142,9 +142,9 @@ func TestStartSymbolAnalysis_AcceptsAnOtcStock(t *testing.T) {
 	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{twseDirectory, tpexDirectory}})
 	symbolAnalysisService := service.NewSymbolAnalysisService(
 		symbolResolutionService,
-		service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{}),
+		service.NewAnalystConsultationService(analystProxy, service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})),
 		service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{}),
-		analystProxy, analysisEventRepository, mocks.NewMockIAnalysisResultRepository(t), clockProxy,
+		analysisEventRepository, mocks.NewMockIAnalysisResultRepository(t), clockProxy,
 	)
 
 	startedSymbolAnalysis, err := symbolAnalysisService.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: "6182", Category: "twStock", AllowsNewAnalysis: true})
