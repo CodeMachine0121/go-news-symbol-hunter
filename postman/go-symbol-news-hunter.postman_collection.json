@@ -374,7 +374,7 @@
                 "tracked-symbol-grades"
               ]
             },
-            "description": "列出所有追蹤標的的綜合評等與當天各時段評等（盤前 / 盤中 / 盤後）。\n\n追蹤標的由 administrator 以 SQL 登記，例如：`INSERT INTO tracked_symbols (symbol, category, is_tracking, created_at) VALUES ('2330', 'twStock', true, now());`\n\n背景 job 於台北時間交易日的 08:00–09:00、12:30–13:30、20:00–24:00 自動分析；結果只保留當天，下一個交易日盤前刪除。"
+            "description": "列出所有追蹤中標的的綜合評等與該天各時段評等（盤前 / 盤中 / 盤後）。暫停或移除追蹤的標的不會出現；同一標的若存有兩天的結果，只列最新一天。\n\n追蹤標的由 administrator 以 SQL 登記，例如：`INSERT INTO tracked_symbols (symbol, category, is_tracking, created_at) VALUES ('2330', 'twStock', true, now());`\n\n背景 job 於台北時間交易日的 08:00–09:00、12:30–13:30、20:00–24:00 自動分析；結果只保留當天，下一個交易日盤前刪除。"
           }
         },
         {
