@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/domains"
@@ -145,15 +146,24 @@ func (sessionGradeService *SessionGradeService) GetTrackedSymbolGrades(ctx conte
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSessionGradeStorageUnavailable, err)
 	}
-	trackedSymbolGrades := make([]dto.TrackedSymbolGradeDto, 0, len(combinedGrades))
-	for _, combinedGrade := range combinedGrades {
-		sessionGrades, findError := sessionGradeService.sessionGradeRepository.FindByTradingDay(ctx, combinedGrade.Symbol, combinedGrade.Category, combinedGrade.TradingDay)
-		if findError != nil {
-			return nil, fmt.Errorf("%w: %v", ErrSessionGradeStorageUnavailable, findError)
-		}
-		trackedSymbolGrades = append(trackedSymbolGrades, domains.NewTrackedSymbolGradeDomain(combinedGrade, sessionGrades).ToDto())
+	if len(combinedGrades) == 0 {
+		return []dto.TrackedSymbolGradeDto{}, nil
 	}
-	return trackedSymbolGrades, nil
+	trackingSymbols, err := sessionGradeService.trackedSymbolRepository.FindAllTracking(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrSessionGradeStorageUnavailable, err)
+	}
+	tradingDays := []string{}
+	for _, combinedGrade := range combinedGrades {
+		if !slices.Contains(tradingDays, combinedGrade.TradingDay) {
+			tradingDays = append(tradingDays, combinedGrade.TradingDay)
+		}
+	}
+	sessionGrades, err := sessionGradeService.sessionGradeRepository.FindByTradingDays(ctx, tradingDays)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrSessionGradeStorageUnavailable, err)
+	}
+	return domains.NewTrackedSymbolGradesDomain(trackingSymbols, combinedGrades, sessionGrades).ToDtos(), nil
 }
 
 func (sessionGradeService *SessionGradeService) FailInterruptedSessionRuns(ctx context.Context) error {

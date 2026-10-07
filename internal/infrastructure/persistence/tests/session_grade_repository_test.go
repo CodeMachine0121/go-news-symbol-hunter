@@ -166,3 +166,46 @@ func TestSessionRunRepository_ReportsStorageFailuresApartFromExistingRuns(t *tes
 	assert.Error(t, createError)
 	assert.NotErrorIs(t, createError, service.ErrSessionRunAlreadyExists)
 }
+
+func TestTrackedSymbolRepository_FindAllTrackingCoversEveryCategory(t *testing.T) {
+	database := openTestDatabase(t)
+	require.NoError(t, database.Create(&entities.TrackedSymbol{Symbol: "2330", Category: "twStock", IsTracking: true}).Error)
+	require.NoError(t, database.Create(&entities.TrackedSymbol{Symbol: "AAPL", Category: "usStock", IsTracking: true}).Error)
+	paused := entities.TrackedSymbol{Symbol: "2317", Category: "twStock", IsTracking: true}
+	require.NoError(t, database.Create(&paused).Error)
+	require.NoError(t, database.Model(&paused).Update("is_tracking", false).Error)
+
+	trackedSymbols, err := persistence.NewTrackedSymbolRepository(database).FindAllTracking(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, trackedSymbols, 2)
+	assert.Equal(t, []string{"2330", "AAPL"}, []string{trackedSymbols[0].Symbol, trackedSymbols[1].Symbol})
+}
+
+func TestSessionGradeRepository_FindByTradingDaysReadsEverySymbolOfThoseDays(t *testing.T) {
+	sessionGradeRepository := persistence.NewSessionGradeRepository(openTestDatabase(t))
+	ctx := context.Background()
+	for _, sessionGrade := range []entities.SessionGrade{
+		{Symbol: "2330", TradingDay: "2026-10-07", Session: "preMarket"},
+		{Symbol: "2317", TradingDay: "2026-10-07", Session: "preMarket"},
+		{Symbol: "2330", TradingDay: "2026-10-06", Session: "afterMarket"},
+		{Symbol: "2330", TradingDay: "2026-10-05", Session: "afterMarket"},
+	} {
+		sessionGrade.Category = "twStock"
+		sessionGrade.Grade = "neutral"
+		sessionGrade.Reason = "r"
+		sessionGrade.KeyEvents = []entities.AnalysisKeyEvent{}
+		sessionGrade.RiskFactors = []string{}
+		sessionGrade.Evidence = []entities.AnalysisEvidence{}
+		sessionGrade.CreatedAt = gradedAt
+		require.NoError(t, sessionGradeRepository.Save(ctx, &sessionGrade))
+	}
+
+	sessionGrades, err := sessionGradeRepository.FindByTradingDays(ctx, []string{"2026-10-07", "2026-10-06"})
+
+	require.NoError(t, err)
+	assert.Len(t, sessionGrades, 3)
+	for _, sessionGrade := range sessionGrades {
+		assert.NotEqual(t, "2026-10-05", sessionGrade.TradingDay)
+	}
+}

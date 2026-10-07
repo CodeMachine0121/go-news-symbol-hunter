@@ -131,6 +131,65 @@ func (_c *MockISessionGradeRepository_FindByTradingDay_Call) RunAndReturn(run fu
 	return _c
 }
 
+// FindByTradingDays provides a mock function with given fields: ctx, tradingDays
+func (_m *MockISessionGradeRepository) FindByTradingDays(ctx context.Context, tradingDays []string) ([]entities.SessionGrade, error) {
+	ret := _m.Called(ctx, tradingDays)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindByTradingDays")
+	}
+
+	var r0 []entities.SessionGrade
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []string) ([]entities.SessionGrade, error)); ok {
+		return rf(ctx, tradingDays)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []string) []entities.SessionGrade); ok {
+		r0 = rf(ctx, tradingDays)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]entities.SessionGrade)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []string) error); ok {
+		r1 = rf(ctx, tradingDays)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockISessionGradeRepository_FindByTradingDays_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindByTradingDays'
+type MockISessionGradeRepository_FindByTradingDays_Call struct {
+	*mock.Call
+}
+
+// FindByTradingDays is a helper method to define mock.On call
+//   - ctx context.Context
+//   - tradingDays []string
+func (_e *MockISessionGradeRepository_Expecter) FindByTradingDays(ctx interface{}, tradingDays interface{}) *MockISessionGradeRepository_FindByTradingDays_Call {
+	return &MockISessionGradeRepository_FindByTradingDays_Call{Call: _e.mock.On("FindByTradingDays", ctx, tradingDays)}
+}
+
+func (_c *MockISessionGradeRepository_FindByTradingDays_Call) Run(run func(ctx context.Context, tradingDays []string)) *MockISessionGradeRepository_FindByTradingDays_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]string))
+	})
+	return _c
+}
+
+func (_c *MockISessionGradeRepository_FindByTradingDays_Call) Return(_a0 []entities.SessionGrade, _a1 error) *MockISessionGradeRepository_FindByTradingDays_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockISessionGradeRepository_FindByTradingDays_Call) RunAndReturn(run func(context.Context, []string) ([]entities.SessionGrade, error)) *MockISessionGradeRepository_FindByTradingDays_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Save provides a mock function with given fields: ctx, sessionGrade
 func (_m *MockISessionGradeRepository) Save(ctx context.Context, sessionGrade *entities.SessionGrade) error {
 	ret := _m.Called(ctx, sessionGrade)

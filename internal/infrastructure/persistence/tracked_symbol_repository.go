@@ -25,3 +25,12 @@ func (trackedSymbolRepository *TrackedSymbolRepository) FindTracking(ctx context
 		Find(&trackedSymbols).Error
 	return trackedSymbols, err
 }
+
+func (trackedSymbolRepository *TrackedSymbolRepository) FindAllTracking(ctx context.Context) ([]entities.TrackedSymbol, error) {
+	trackedSymbols := []entities.TrackedSymbol{}
+	err := trackedSymbolRepository.database.WithContext(ctx).
+		Where(clause.Eq{Column: clause.Column{Name: "is_tracking"}, Value: true}).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "id"}}).
+		Find(&trackedSymbols).Error
+	return trackedSymbols, err
+}

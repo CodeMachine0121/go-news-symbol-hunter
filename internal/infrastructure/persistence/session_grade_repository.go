@@ -34,6 +34,19 @@ func (sessionGradeRepository *SessionGradeRepository) FindByTradingDay(ctx conte
 	return sessionGrades, err
 }
 
+func (sessionGradeRepository *SessionGradeRepository) FindByTradingDays(ctx context.Context, tradingDays []string) ([]entities.SessionGrade, error) {
+	sessionGrades := []entities.SessionGrade{}
+	tradingDayValues := make([]any, 0, len(tradingDays))
+	for _, tradingDay := range tradingDays {
+		tradingDayValues = append(tradingDayValues, tradingDay)
+	}
+	err := sessionGradeRepository.database.WithContext(ctx).
+		Where(clause.IN{Column: clause.Column{Name: "trading_day"}, Values: tradingDayValues}).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "created_at"}}).
+		Find(&sessionGrades).Error
+	return sessionGrades, err
+}
+
 func (sessionGradeRepository *SessionGradeRepository) DeleteExceptTradingDay(ctx context.Context, tradingDay string) error {
 	return sessionGradeRepository.database.WithContext(ctx).
 		Where(clause.Neq{Column: clause.Column{Name: "trading_day"}, Value: tradingDay}).

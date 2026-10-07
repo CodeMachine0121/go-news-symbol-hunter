@@ -92,6 +92,14 @@ func (fixture sessionGradeFixture) givenTrackedSymbols(symbols ...string) {
 	fixture.trackedSymbolRepository.EXPECT().FindTracking(mock.Anything, "twStock").Return(trackedSymbols, nil).Once()
 }
 
+func (fixture sessionGradeFixture) givenTrackingSymbols(symbols ...string) {
+	trackedSymbols := []entities.TrackedSymbol{}
+	for _, symbol := range symbols {
+		trackedSymbols = append(trackedSymbols, entities.TrackedSymbol{Symbol: symbol, Category: "twStock", IsTracking: true})
+	}
+	fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return(trackedSymbols, nil).Once()
+}
+
 func (fixture sessionGradeFixture) givenCompany(symbol string, companyShortName string) {
 	fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, symbol).Return(companyShortName, true, nil)
 }
@@ -449,9 +457,11 @@ func TestFailInterruptedSessionRuns_ReportsStorageFailures(t *testing.T) {
 func TestGetTrackedSymbolGrades_ReturnsCombinedGradesWithTheirSessionGrades(t *testing.T) {
 	fixture := createSessionGradeFixture(t, wednesdayAt(14, 0))
 	fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "", "").Return([]entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "neutral", CombinedScore: 0.2, Confidence: 52, UpdatedAt: wednesdayAt(12, 31)}}, nil)
-	fixture.sessionGradeRepository.EXPECT().FindByTradingDay(mock.Anything, "2330", "twStock", "2026-10-07").Return([]entities.SessionGrade{
-		{Session: "preMarket", Grade: "bullish", Confidence: 60, Reason: "法說會", KeyEvents: []entities.AnalysisKeyEvent{{Title: "法說會", Link: "https://news/1", PublishedAt: wednesdayAt(7, 0)}}, RiskFactors: []string{"匯率"}, Evidence: []entities.AnalysisEvidence{{Title: "法說會", Link: "https://news/1", PublishedAt: wednesdayAt(7, 0), ProviderName: "鉅亨網"}}, CreatedAt: wednesdayAt(8, 1)},
-		{Session: "intraday", Grade: "bearish", Confidence: 40, Reason: "外資賣超", CreatedAt: wednesdayAt(12, 31)},
+	fixture.givenTrackingSymbols("2330")
+	fixture.sessionGradeRepository.EXPECT().FindByTradingDays(mock.Anything, []string{"2026-10-07"}).Return([]entities.SessionGrade{
+		{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Session: "preMarket", Grade: "bullish", Confidence: 60, Reason: "法說會", KeyEvents: []entities.AnalysisKeyEvent{{Title: "法說會", Link: "https://news/1", PublishedAt: wednesdayAt(7, 0)}}, RiskFactors: []string{"匯率"}, Evidence: []entities.AnalysisEvidence{{Title: "法說會", Link: "https://news/1", PublishedAt: wednesdayAt(7, 0), ProviderName: "鉅亨網"}}, CreatedAt: wednesdayAt(8, 1)},
+		{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Session: "intraday", Grade: "bearish", Confidence: 40, Reason: "外資賣超", CreatedAt: wednesdayAt(12, 31)},
+		{Symbol: "2317", Category: "twStock", TradingDay: "2026-10-07", Session: "preMarket", Grade: "bullish"},
 	}, nil)
 
 	trackedSymbolGrades, err := fixture.sessionGradeApplication.GetTrackedSymbolGrades(context.Background(), dto.GetTrackedSymbolGradesDto{})
@@ -469,7 +479,8 @@ func TestGetTrackedSymbolGrades_ReturnsCombinedGradesWithTheirSessionGrades(t *t
 func TestGetTrackedSymbolGrades_StillShowsFridayOnSaturday(t *testing.T) {
 	fixture := createSessionGradeFixture(t, time.Date(2026, 10, 10, 10, 0, 0, 0, taipei))
 	fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "", "").Return([]entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-09", Grade: "bullish"}}, nil)
-	fixture.sessionGradeRepository.EXPECT().FindByTradingDay(mock.Anything, "2330", "twStock", "2026-10-09").Return([]entities.SessionGrade{{Session: "afterMarket", Grade: "bullish"}}, nil)
+	fixture.givenTrackingSymbols("2330")
+	fixture.sessionGradeRepository.EXPECT().FindByTradingDays(mock.Anything, []string{"2026-10-09"}).Return([]entities.SessionGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-09", Session: "afterMarket", Grade: "bullish"}}, nil)
 
 	fixture.sessionGradeApplication.RunDueTradingSession(context.Background())
 	trackedSymbolGrades, err := fixture.sessionGradeApplication.GetTrackedSymbolGrades(context.Background(), dto.GetTrackedSymbolGradesDto{})
@@ -478,6 +489,23 @@ func TestGetTrackedSymbolGrades_StillShowsFridayOnSaturday(t *testing.T) {
 	require.Len(t, trackedSymbolGrades, 1)
 	assert.Equal(t, "2026-10-09", trackedSymbolGrades[0].TradingDay)
 	assert.Equal(t, "afterMarket", trackedSymbolGrades[0].SessionGrades[0].Session)
+}
+
+func TestGetTrackedSymbolGrades_ShowsOnlyTheNewestDayOfSymbolsStillTracked(t *testing.T) {
+	fixture := createSessionGradeFixture(t, wednesdayAt(14, 0))
+	fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "", "").Return([]entities.CombinedGrade{
+		{Symbol: "2317", Category: "twStock", TradingDay: "2026-10-07", Grade: "bullish"},
+		{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "neutral"},
+		{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-06", Grade: "bearish"},
+	}, nil)
+	// 2317 was paused, and the administrator typed 2330 with stray spaces
+	fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return([]entities.TrackedSymbol{{Symbol: " 2330 ", Category: "twStock", IsTracking: true}}, nil)
+	fixture.sessionGradeRepository.EXPECT().FindByTradingDays(mock.Anything, []string{"2026-10-07", "2026-10-06"}).Return([]entities.SessionGrade{}, nil).Once()
+
+	trackedSymbolGrades, err := fixture.sessionGradeApplication.GetTrackedSymbolGrades(context.Background(), dto.GetTrackedSymbolGradesDto{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []dto.TrackedSymbolGradeDto{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "neutral", SessionGrades: []dto.SessionGradeDto{}}}, trackedSymbolGrades)
 }
 
 func TestGetTrackedSymbolGrades_FiltersByANormalizedSymbol(t *testing.T) {
@@ -522,7 +550,12 @@ func TestGetTrackedSymbolGrades_ReportsStorageFailures(t *testing.T) {
 		}},
 		{name: "session grades unavailable", given: func(fixture sessionGradeFixture) {
 			fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "", "").Return([]entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07"}}, nil)
-			fixture.sessionGradeRepository.EXPECT().FindByTradingDay(mock.Anything, "2330", "twStock", "2026-10-07").Return(nil, errDatabaseDown)
+			fixture.givenTrackingSymbols("2330")
+			fixture.sessionGradeRepository.EXPECT().FindByTradingDays(mock.Anything, []string{"2026-10-07"}).Return(nil, errDatabaseDown)
+		}},
+		{name: "tracked symbols unavailable", given: func(fixture sessionGradeFixture) {
+			fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "", "").Return([]entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07"}}, nil)
+			fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return(nil, errDatabaseDown)
 		}},
 	}
 	for _, testCase := range testCases {

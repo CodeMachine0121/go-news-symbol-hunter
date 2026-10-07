@@ -23,6 +23,7 @@ type trackedSymbolGradeRouterFixture struct {
 	apiKeyRepository        *mocks.MockIApiKeyRepository
 	sessionGradeRepository  *mocks.MockISessionGradeRepository
 	combinedGradeRepository *mocks.MockICombinedGradeRepository
+	trackedSymbolRepository *mocks.MockITrackedSymbolRepository
 }
 
 func createTrackedSymbolGradeRouter(t *testing.T) trackedSymbolGradeRouterFixture {
@@ -33,12 +34,13 @@ func createTrackedSymbolGradeRouter(t *testing.T) trackedSymbolGradeRouterFixtur
 		apiKeyRepository:        mocks.NewMockIApiKeyRepository(t),
 		sessionGradeRepository:  mocks.NewMockISessionGradeRepository(t),
 		combinedGradeRepository: mocks.NewMockICombinedGradeRepository(t),
+		trackedSymbolRepository: mocks.NewMockITrackedSymbolRepository(t),
 	}
 	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{}})
 	sessionGradeService := service.NewSessionGradeService(
 		symbolResolutionService,
 		service.NewAnalystConsultationService(mocks.NewMockIAnalystProxy(t), service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})),
-		mocks.NewMockITrackedSymbolRepository(t),
+		fixture.trackedSymbolRepository,
 		fixture.sessionGradeRepository,
 		fixture.combinedGradeRepository,
 		mocks.NewMockISessionRunRepository(t),
@@ -57,7 +59,8 @@ func TestGetTrackedSymbolGrades_ReturnsTheGradesAsJson(t *testing.T) {
 	fixture.apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 12, IsActive: true}, nil)
 	updatedAt := time.Date(2026, 10, 7, 4, 31, 0, 0, time.UTC)
 	fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "2330", "twStock").Return([]entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "bullish", CombinedScore: 1, Confidence: 60, UpdatedAt: updatedAt}}, nil)
-	fixture.sessionGradeRepository.EXPECT().FindByTradingDay(mock.Anything, "2330", "twStock", "2026-10-07").Return([]entities.SessionGrade{{Session: "preMarket", Grade: "bullish", Confidence: 60, Reason: "法說會", CreatedAt: updatedAt}}, nil)
+	fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return([]entities.TrackedSymbol{{Symbol: "2330", Category: "twStock", IsTracking: true}}, nil)
+	fixture.sessionGradeRepository.EXPECT().FindByTradingDays(mock.Anything, []string{"2026-10-07"}).Return([]entities.SessionGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Session: "preMarket", Grade: "bullish", Confidence: 60, Reason: "法說會", CreatedAt: updatedAt}}, nil)
 
 	recorder := send(fixture.router, http.MethodGet, "/tracked-symbol-grades?symbol=2330&category=twStock", presentedApiKey, "")
 
