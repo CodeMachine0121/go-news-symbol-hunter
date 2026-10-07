@@ -153,3 +153,16 @@ func TestSessionRunRepository_FailAllRunningLeavesFinishedRunsAlone(t *testing.T
 	assert.Equal(t, "failed", sessionRuns[1].Status)
 	assert.Equal(t, "服務重新啟動，執行中斷", sessionRuns[1].FailureReason)
 }
+
+func TestSessionRunRepository_ReportsStorageFailuresApartFromExistingRuns(t *testing.T) {
+	database := openTestDatabase(t)
+	sessionRunRepository := persistence.NewSessionRunRepository(database)
+	connection, err := database.DB()
+	require.NoError(t, err)
+	require.NoError(t, connection.Close())
+
+	createError := sessionRunRepository.Create(context.Background(), &entities.SessionRun{TradingDay: "2026-10-07", Session: "preMarket", Status: "running", FailedSymbols: []entities.SessionRunFailedSymbol{}, StartedAt: gradedAt})
+
+	assert.Error(t, createError)
+	assert.NotErrorIs(t, createError, service.ErrSessionRunAlreadyExists)
+}

@@ -2,7 +2,6 @@ package persistence
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/domains"
@@ -21,11 +20,15 @@ func NewSessionRunRepository(database *gorm.DB) *SessionRunRepository {
 }
 
 func (sessionRunRepository *SessionRunRepository) Create(ctx context.Context, sessionRun *entities.SessionRun) error {
-	err := sessionRunRepository.database.WithContext(ctx).Create(sessionRun).Error
-	if errors.Is(err, gorm.ErrDuplicatedKey) {
+	// checked every minute inside a window, so an existing run is skipped quietly instead of failing the insert
+	result := sessionRunRepository.database.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(sessionRun)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
 		return service.ErrSessionRunAlreadyExists
 	}
-	return err
+	return nil
 }
 
 func (sessionRunRepository *SessionRunRepository) Update(ctx context.Context, sessionRun *entities.SessionRun) error {
