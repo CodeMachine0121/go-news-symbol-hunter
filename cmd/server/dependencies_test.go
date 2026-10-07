@@ -9,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/job"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -187,4 +188,21 @@ func TestBuildSymbolDirectoryCatalog_AsksTwseBeforeTpex(t *testing.T) {
 	assert.Error(t, tpexError)
 	assert.Equal(t, "/twse", twsePath)
 	assert.Equal(t, "/tpex", tpexPath)
+}
+
+func TestOpenDatabase_CreatesEveryTableAndPreparesTheRouter(t *testing.T) {
+	databaseUrl := os.Getenv("TEST_POSTGRES_DSN")
+	if databaseUrl == "" {
+		t.Skip("TEST_POSTGRES_DSN is not set")
+	}
+
+	database, err := openDatabase(ServerConfig{DatabaseUrl: databaseUrl})
+	require.NoError(t, err)
+	router, err := prepareRouter(context.Background(), buildControllers(database, ServerConfig{}))
+
+	require.NoError(t, err)
+	assert.NotNil(t, router)
+	for _, table := range []string{"tracked_symbols", "session_grades", "combined_grades", "session_runs"} {
+		assert.True(t, database.Migrator().HasTable(table), table)
+	}
 }
