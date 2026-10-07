@@ -21,8 +21,8 @@
 | `NewsSearchService` / `SearchSymbolNewsDto` / `NewsCollectionDomain.Curate` | **Modify** | 新增可選的 `PublishedSince`；`Curate` 以 `max(now−7 天, PublishedSince)` 過濾，**先過濾再取 30 則** |
 | `AnalystRequestVo` / `ClaudeAnalystProxy` | **Modify** | 新增可選 `PublishedSince`；有值時在提示中告知 AI 只會拿到這之後的新聞 |
 | `internal/domain/models/entities/` | **Add** | `TrackedSymbol`、`SessionGrade`、`CombinedGrade`、`SessionRun` |
-| `internal/domain/models/domains/` | **Add** | `AnalystConsultationDomain`、`TradingDayDomain`、`CombinedGradeDomain`、`SessionRunDomain` |
-| `internal/domain/models/vo/` | **Add** | `SessionWeightsVo` |
+| `internal/domain/models/domains/` | **Add** | `AnalystConsultationDomain`、`TradingDayDomain`、`CombinedGradeDomain`、`SessionRunDomain`、`TrackedSymbolGradeDomain`（entity → 查詢 DTO 的轉換；entities 套件不能 import dto，否則循環引用） |
+| `internal/domain/models/vo/` | **Add** | `SessionWeightsVo`、`TradingSessionWindowVo`（一個時段的執行時段與新聞起點） |
 | `internal/domain/service/` | **Add** | `AnalystConsultationService`、`SessionGradeService`、`session_grade_errors.go` |
 | `internal/domain/interface/` | **Add** | `ITrackedSymbolRepository`、`ISessionGradeRepository`、`ICombinedGradeRepository`、`ISessionRunRepository`、`IBackgroundJob` |
 | `internal/infrastructure/persistence/` | **Add** | 四個對應 repository |
@@ -59,7 +59,6 @@
 ITrackedSymbolRepository  FindTracking(ctx, category string) ([]entities.TrackedSymbol, error)
 ISessionGradeRepository   Save(ctx, *entities.SessionGrade) error                       // upsert on (symbol, category, trading_day, session)
                           FindByTradingDay(ctx, symbol, category, tradingDay string) ([]entities.SessionGrade, error)
-                          FindByTradingDays(ctx, tradingDays []string) ([]entities.SessionGrade, error)
                           DeleteExceptTradingDay(ctx, tradingDay string) error
 ICombinedGradeRepository  Save(ctx, *entities.CombinedGrade) error                      // upsert on (symbol, category, trading_day)
                           FindAll(ctx, symbol, category string) ([]entities.CombinedGrade, error) // 空字串＝不篩選；trading_day 新到舊
@@ -75,7 +74,7 @@ ISessionRunRepository     Create(ctx, *entities.SessionRun) error               
 
 | Component | Current role | Change needed |
 | :--- | :--- | :--- |
-| `SymbolAnalysisService` | 發起 / 執行 / 查詢分析 | 建構子改收 `*AnalystConsultationService`（取代 `newsSearchService`，`analystProxy` 仍用於 `ModelName()`）；`AnalyzeSymbol` 改呼叫 `Consult`，成功後取價、存結果（失敗 → 「分析結果保存失敗」） |
+| `SymbolAnalysisService` | 發起 / 執行 / 查詢分析 | 建構子改收 `*AnalystConsultationService`（取代 `newsSearchService` 與 `analystProxy`；`ModelName()` 改由 `AnalystConsultationService.ModelName()` 提供）；`AnalyzeSymbol` 改呼叫 `Consult`，成功後取價、存結果（失敗 → 「分析結果保存失敗」） |
 | `NewsCollectionDomain.Curate(now, publishedSince)` | 7 天內、去重、30 則 | 下限改為 `max(now−7 天, publishedSince)`，起點含 |
 | `SearchSymbolNewsDto` | `Symbol`、`Category` | 加 `PublishedSince time.Time` |
 | `AnalystRequestVo` / `ClaudeAnalystProxy.Respond` | 標的、市場類別、搜尋字 | 加 `PublishedSince`；非零值時提示加一句「只會取得 {RFC3339} 之後發布的新聞」 |
@@ -146,4 +145,4 @@ flowchart TD
 ## 8. Risks & Open Decisions
 
 - **Risks / trade-offs:** 依序分析，追蹤標的多時一個時段可能超過執行時段才結束——job 的 ticker 在執行中會丟掉 tick，不會重疊；下一個時段照常判斷。時區用固定 UTC+8（台灣無夏令時間），避免依賴系統 tzdata。
-- **Open decisions (for implementation):** 無。查詢回應形狀：`[]TrackedSymbolGradeDto{symbol, category, tradingDay, grade, combinedScore, confidence, updatedAt, sessionGrades[]{session, grade, confidence, reason, keyEvents, riskFactors, createdAt}}`。
+- **Open decisions (for implementation):** 無。查詢對每筆綜合評等各讀一次時段評等（追蹤標的數量小，換取不必在 service 內做分組）。查詢回應形狀：`[]TrackedSymbolGradeDto{symbol, category, tradingDay, grade, combinedScore, confidence, updatedAt, sessionGrades[]{session, grade, confidence, reason, keyEvents, riskFactors, createdAt}}`。
