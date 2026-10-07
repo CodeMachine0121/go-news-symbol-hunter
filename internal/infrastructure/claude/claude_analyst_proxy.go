@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"github.com/anthropics/anthropic-sdk-go"
@@ -61,8 +62,15 @@ func (claudeAnalystProxy *ClaudeAnalystProxy) ModelName() string {
 }
 
 func (claudeAnalystProxy *ClaudeAnalystProxy) Respond(ctx context.Context, request vo.AnalystRequestVo, exchanges []vo.AnalystExchangeVo) (vo.AnalystTurnVo, error) {
-	messages := []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(fmt.Sprintf(
-		"Analyze symbol %s in market category %s (search keyword: %s).", request.Symbol, request.Category, request.SearchKeyword)))}
+	instruction := fmt.Sprintf("Analyze symbol %s in market category %s (search keyword: %s).", request.Symbol, request.Category, request.SearchKeyword)
+	newsPublishedWindow := request.NewsPublishedWindow
+	switch {
+	case !newsPublishedWindow.Since.IsZero() && !newsPublishedWindow.Before.IsZero():
+		instruction += fmt.Sprintf(" News searches only return news published from %s up to %s; judge the symbol on that news alone.", newsPublishedWindow.Since.Format(time.RFC3339), newsPublishedWindow.Before.Format(time.RFC3339))
+	case !newsPublishedWindow.Since.IsZero():
+		instruction += fmt.Sprintf(" News searches only return news published since %s; judge the symbol on that news alone.", newsPublishedWindow.Since.Format(time.RFC3339))
+	}
+	messages := []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(instruction))}
 	for _, exchange := range exchanges {
 		var reply anthropic.BetaMessage
 		if err := json.Unmarshal([]byte(exchange.Reply), &reply); err != nil {

@@ -30,7 +30,7 @@
 | 時間範圍 | `TimeHorizon` / `time_horizon` | time_horizon | 評等適用的持有期間（候選 `short`/`mid`） | Confirmed |
 | 關鍵事件 | `KeyEvent` / `key_events` | key_events | 支撐評等的 3–5 則重點事件，每則附來源 URL 與發布時間 | Confirmed |
 | 風險因子 | `RiskFactor` / `risk_factors` | risk_factors | 與主結論方向相反的訊號 | Confirmed |
-| 分析時價格 | `PriceAtAnalysis`（`Price`、`PriceCurrency`、`PricedAt`、`PriceSource`） | priceAtAnalysis | 分析完成時依市場類別取得的價格；精確小數；必須大於 0，取不到時為「未取得」（null），不影響分析完成。專案成功指標「評等可回測驗證」的基準點 | Confirmed |
+| 分析時價格 | `PriceAtAnalysis`（`Price`、`PriceCurrency`、`PricedAt`、`PriceSource`） | priceAtAnalysis | 分析完成時依市場類別取得的價格；精確小數；必須大於 0，取不到時為「未取得」（null），不影響分析完成。專案成功指標「評等可回測驗證」的基準點（只適用使用者發起的分析） | Confirmed |
 | 價格來源 | `PriceSource` | priceSource | 加密貨幣 Binance（對 USDT）、美股 Yahoo 財經、台股上市為證交所、上櫃為櫃買中心（皆為最近交易日收盤） | Confirmed |
 | 價格時間 | `PricedAt` | pricedAt | 報價所屬的時間：Binance 為取得時間、Yahoo 財經為來源報價時間、證交所為收盤日期（台北時間） | Confirmed |
 | 分析佐證 | `Evidence` / `evidence` | — | 當次餵給 AI 的新聞清單快照（JSON），存於分析結果，供稽核 AI 為何如此評等 | Confirmed |
@@ -45,6 +45,16 @@
 | 重用時間窗 | `AnalysisReuseWindow` | — | 6 小時。同標的 + 市場類別有分析中的分析事件、或 6 小時內完成的分析事件時，直接回傳該分析事件、不重跑 AI | Confirmed |
 | AI 用量 | `InputTokens` / `OutputTokens` | — | 一次分析所有 AI 呼叫的輸入、輸出量合計，記在分析事件 | Confirmed |
 | 失敗原因 | `FailureReason` / `failure_reason` | failureReason | 分析事件失敗的原因文字（見 §4） | Confirmed |
+| 追蹤標的 | `TrackedSymbol` / table `tracked_symbols` | trackedSymbol | administrator 登記、由系統每個交易日自動分析的標的；「標的 + 市場類別」唯一；有追蹤中 / 暫停開關（`IsTracking`）。目前只自動分析台股 | Confirmed |
+| 交易時段 | `TradingSession` / `session` | session | 台股一個交易日內的三個時段：盤前、盤中、盤後（見 §4），各有執行時段與新聞範圍 | Confirmed |
+| 交易日 | `TradingDay` / `trading_day` | tradingDay | 週一到週五（台北時間）的日期；不判斷國定假日。「前一個交易日」= 往前最近的週一到週五 | Confirmed |
+| 時段新聞範圍 | `NewsPublishedWindowVo`（`TradingDayDomain.NewsPublishedWindow`） | — | 時段評等只採用的新聞發布時間範圍（起點含、終點不含）：盤前 = 前一個交易日 13:30 起至當天 09:00；盤中 = 當天 09:00 至 13:30；盤後 = 當天 13:30 至 24:00 | Confirmed |
+| 時段評等 | `SessionGrade` / table `session_grades` | sessionGrades | 追蹤標的在某交易日某時段的分析結論（評等、信心指數、分析理由、關鍵事件、風險因子、AI 用量）；每標的每交易日每時段最多一筆；只保留當天 | Confirmed |
+| 綜合評等 | `CombinedGrade` / table `combined_grades` | combinedGrade | 追蹤標的當天已有時段評等的加權平均；每標的每交易日一筆，每次新時段評等產生時重算覆蓋；只保留當天 | Confirmed |
+| 評等分數 | `GradeScore` | — | 評等換成的數字：強烈看多 +2、看多 +1、中性 0、看空 −1、強烈看空 −2 | Confirmed |
+| 時段權重 | `SessionWeight` | — | 計算綜合評等時各時段的權重；預設盤後 0.5、盤前 0.3、盤中 0.2，可由設定調整，不是正數時用預設值 | Confirmed |
+| 綜合分數 | `CombinedScore` | combinedScore | Σ(評等分數 × 時段權重) ÷ Σ(已有時段權重)；≥1.5 強烈看多、≥0.5 看多、>−0.5 中性、>−1.5 看空、其餘強烈看空 | Confirmed |
+| 時段執行紀錄 | `SessionRun` / table `session_runs` | — | 某交易日某時段的一次自動執行：狀態、開始 / 結束時間、成功 / 失敗檔數、失敗標的與各自原因（`FailedSymbols`）、AI 用量合計、失敗原因；同交易日同時段只有一筆；永久保留 | Confirmed |
 
 ---
 
@@ -66,6 +76,11 @@
 | 啟用 API key | —（直接改資料庫） | Administrator 手動操作 | API key 的啟用狀態改為 `true` | 不提供 API |
 | 重用分析結果 | 待定 | 分析標的時，重用時間窗內已有同標的分析結果 | 直接回傳既有分析結果，不建立新的 AI 分析 | 控制 AI 成本 |
 | 標準化分析輸出 | 待定 | AI 回傳後 | AI 原始 JSON 經 Domain Model 建構子正規化（非法 enum → 安全預設值、數值 clamp）後成為分析結果 | 不信任 AI 原始值 |
+| 執行時段分析 | `RunTradingSession` | 系統定期檢查，進入某時段的執行時段且該交易日該時段尚未執行 | 建立時段執行紀錄 → （盤前）刪除前一天結果 → 依序分析追蹤中的台股追蹤標的 → 保存時段評等並重算綜合評等 | 不建立分析事件；不受重用與同時分析上限限制；單一標的失敗不影響其他 |
+| 刪除前一天結果 | `PurgeStaleGrades` | 盤前開始執行時 | 刪除所有不是今天交易日的時段評等與綜合評等 | 只有盤前會刪除 |
+| 重新計算綜合評等 | `RecalculateCombinedGrade` | 某追蹤標的產生新的時段評等後 | 以當天已有的時段評等加權平均，覆蓋該標的當天的綜合評等 | |
+| 查詢追蹤標的評等 | `GetTrackedSymbolGrades` | 使用者以已啟用 API key 查詢（可指定標的 + 市場類別） | 回傳仍追蹤中標的的最新一天綜合評等與該天各時段評等；沒有則回傳空結果 | 標的與市場類別需一起提供 |
+| 中斷時段執行 | `FailInterruptedSessionRuns` | 服務啟動時 | 仍為執行中的時段執行紀錄改為失敗 | 原因「服務重新啟動，執行中斷」；當天該時段不再重跑 |
 
 ---
 
@@ -94,6 +109,8 @@
 | 失敗原因 | — | AI 服務暫時無法使用 / AI 未在限制內完成分析 / AI 未提供完整分析 / AI 拒絕分析此標的 / 分析結果保存失敗 / 服務重新啟動，分析中斷 / 分析逾時 | Confirmed |
 | API key 狀態 | `inactive` / `active` | 停用中 / 已啟用 | Confirmed；已撤銷不作為對外狀態，一律回「無效」 |
 | 時間範圍 | `short` / `mid` | 短期（兩週內）/ 中期（三個月內） | Confirmed；非法值正規化為 `short` |
+| 交易時段 | `preMarket` / `intraday` / `afterMarket` | 盤前 / 盤中 / 盤後 | Confirmed；執行時段（台北時間，起點含、終點不含）：08:00–09:00 / 12:30–13:30 / 20:00–24:00 |
+| 時段執行紀錄狀態 | `running` / `succeeded` / `failed` | 執行中 / 已完成 / 失敗 | Confirmed；服務重啟時殘留 `running` 改為 `failed`（「服務重新啟動，執行中斷」） |
 
 ---
 

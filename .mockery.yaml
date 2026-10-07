@@ -19,3 +19,8 @@ packages:
       IAnalysisEventRepository: {}
       IAnalysisResultRepository: {}
       IPriceProxy: {}
+      ITrackedSymbolRepository: {}
+      ISessionGradeRepository: {}
+      ICombinedGradeRepository: {}
+      ISessionRunRepository: {}
+      IBackgroundJob: {}

@@ -70,7 +70,7 @@ func createSymbolAnalysisFixtureWithCapacity(t *testing.T, maximumConcurrentAnal
 		UsStock: []dto.NewsProviderDto{{NewsProxy: fixture.usStockNewsProxy}},
 	})
 	fixture.symbolAnalysisApplication = application.NewSymbolAnalysisApplication(service.NewSymbolAnalysisService(
-		symbolResolutionService, newsSearchService, priceSnapshotService, fixture.analystProxy, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,
+		symbolResolutionService, service.NewAnalystConsultationService(fixture.analystProxy, newsSearchService), priceSnapshotService, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,
 	), maximumConcurrentAnalyses)
 	return fixture
 }

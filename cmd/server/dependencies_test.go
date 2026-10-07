@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/service"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/system"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/job"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -45,6 +48,8 @@ func TestRegisteredRoutes_ServeHealthAndGuardProtectedRoutes(t *testing.T) {
 	router.ServeHTTP(startAnalysisRecorder, httptest.NewRequest(http.MethodPost, "/analysis-events", nil))
 	getAnalysisRecorder := httptest.NewRecorder()
 	router.ServeHTTP(getAnalysisRecorder, httptest.NewRequest(http.MethodGet, "/analysis-events/1", nil))
+	trackedSymbolGradesRecorder := httptest.NewRecorder()
+	router.ServeHTTP(trackedSymbolGradesRecorder, httptest.NewRequest(http.MethodGet, "/tracked-symbol-grades", nil))
 
 	assert.Equal(t, http.StatusOK, healthRecorder.Code)
 	assert.Equal(t, http.StatusBadRequest, issueRecorder.Code)
@@ -53,6 +58,7 @@ func TestRegisteredRoutes_ServeHealthAndGuardProtectedRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, newsRecorder.Code)
 	assert.Equal(t, http.StatusUnauthorized, startAnalysisRecorder.Code)
 	assert.Equal(t, http.StatusUnauthorized, getAnalysisRecorder.Code)
+	assert.Equal(t, http.StatusUnauthorized, trackedSymbolGradesRecorder.Code)
 }
 
 func TestBuildNewsProvidersByCategory_AssignsProvidersAndLocalesPerMarket(t *testing.T) {
@@ -107,15 +113,27 @@ func TestNewExternalHttpClient_GivesUpAfterTenSeconds(t *testing.T) {
 	assert.Equal(t, 10*time.Second, newExternalHttpClient().Timeout)
 }
 
-func TestPrepareRouter_FailsInterruptedAnalysesBeforeServing(t *testing.T) {
+func TestPrepareRouter_FailsInterruptedRunsBeforeServing(t *testing.T) {
 	// never connects, so the startup sweep is the only step that can fail
 	database, err := gorm.Open(postgres.New(postgres.Config{DSN: "host=127.0.0.1 port=1 dbname=unused_test connect_timeout=1"}), &gorm.Config{DisableAutomaticPing: true})
 	require.NoError(t, err)
 
 	router, err := prepareRouter(context.Background(), buildControllers(database, ServerConfig{AiAnalysisModel: "claude-opus-5-5", AiAnalysisEffort: "high"}))
 
-	assert.ErrorContains(t, err, "fail interrupted analysis events")
+	assert.ErrorContains(t, err, "fail interrupted runs")
+	assert.ErrorIs(t, err, service.ErrAnalysisStorageUnavailable)
+	assert.ErrorIs(t, err, service.ErrSessionGradeStorageUnavailable)
 	assert.Nil(t, router)
+}
+
+func TestBuildBackgroundJobs_SchedulesTheTradingSessionJob(t *testing.T) {
+	database, err := gorm.Open(postgres.New(postgres.Config{DSN: "host=127.0.0.1 port=1 dbname=unused_test"}), &gorm.Config{DisableAutomaticPing: true})
+	require.NoError(t, err)
+
+	backgroundJobs := buildBackgroundJobs(buildControllers(database, ServerConfig{}), ServerConfig{TradingSessionJobInterval: time.Minute})
+
+	require.Len(t, backgroundJobs, 1)
+	assert.IsType(t, &job.TradingSessionJob{}, backgroundJobs[0])
 }
 
 func TestBuildPriceProviderCatalog_AssignsAPriceSourcePerMarket(t *testing.T) {
@@ -170,4 +188,21 @@ func TestBuildSymbolDirectoryCatalog_AsksTwseBeforeTpex(t *testing.T) {
 	assert.Error(t, tpexError)
 	assert.Equal(t, "/twse", twsePath)
 	assert.Equal(t, "/tpex", tpexPath)
+}
+
+func TestOpenDatabase_CreatesEveryTableAndPreparesTheRouter(t *testing.T) {
+	databaseUrl := os.Getenv("TEST_POSTGRES_DSN")
+	if databaseUrl == "" {
+		t.Skip("TEST_POSTGRES_DSN is not set")
+	}
+
+	database, err := openDatabase(ServerConfig{DatabaseUrl: databaseUrl})
+	require.NoError(t, err)
+	router, err := prepareRouter(context.Background(), buildControllers(database, ServerConfig{}))
+
+	require.NoError(t, err)
+	assert.NotNil(t, router)
+	for _, table := range []string{"tracked_symbols", "session_grades", "combined_grades", "session_runs"} {
+		assert.True(t, database.Migrator().HasTable(table), table)
+	}
 }

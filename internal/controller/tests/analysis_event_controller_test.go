@@ -52,7 +52,7 @@ func createAnalysisRouter(t *testing.T) analysisRouterFixture {
 	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: []interfaces.IPriceProxy{unavailablePriceProxy}, UsStock: []interfaces.IPriceProxy{unavailablePriceProxy}, Crypto: []interfaces.IPriceProxy{unavailablePriceProxy}})
 	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(fixture.apiKeyRepository, clockProxy, mocks.NewMockIRandomProxy(t))))
 	analysisEventController := controller.NewAnalysisEventController(application.NewSymbolAnalysisApplication(service.NewSymbolAnalysisService(
-		symbolResolutionService, newsSearchService, priceSnapshotService, fixture.analystProxy, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,
+		symbolResolutionService, service.NewAnalystConsultationService(fixture.analystProxy, newsSearchService), priceSnapshotService, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,
 	), 1))
 	fixture.router = gin.New()
 	protectedRoutes := fixture.router.Group("/", apiKeyController.RequireActiveApiKey())
