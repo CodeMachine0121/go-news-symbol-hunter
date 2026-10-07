@@ -62,7 +62,7 @@ func (tradingDayDomain TradingDayDomain) NewsPublishedSince(session string) time
 		newsDay := tradingDayDomain.midnight
 		if tradingSessionWindow.IsNewsSinceOnPreviousTradingDay {
 			newsDay = newsDay.AddDate(0, 0, -1)
-			for newsDay.Weekday() == time.Saturday || newsDay.Weekday() == time.Sunday {
+			for !NewTradingDayDomain(newsDay).IsTradingDay() {
 				newsDay = newsDay.AddDate(0, 0, -1)
 			}
 		}
