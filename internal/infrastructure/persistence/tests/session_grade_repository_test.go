@@ -116,27 +116,34 @@ func TestCombinedGradeRepository_DeleteExceptTradingDayKeepsOnlyThatDay(t *testi
 }
 
 func TestSessionRunRepository_RecordsEachTradingSessionOnce(t *testing.T) {
-	sessionRunRepository := persistence.NewSessionRunRepository(openTestDatabase(t))
+	database := openTestDatabase(t)
+	sessionRunRepository := persistence.NewSessionRunRepository(database)
 	ctx := context.Background()
-	sessionRun := entities.SessionRun{TradingDay: "2026-10-07", Session: "preMarket", Status: "running", StartedAt: gradedAt}
+	sessionRun := entities.SessionRun{TradingDay: "2026-10-07", Session: "preMarket", Status: "running", FailedSymbols: []entities.SessionRunFailedSymbol{}, StartedAt: gradedAt}
 	require.NoError(t, sessionRunRepository.Create(ctx, &sessionRun))
 
-	duplicateError := sessionRunRepository.Create(ctx, &entities.SessionRun{TradingDay: "2026-10-07", Session: "preMarket", Status: "running", StartedAt: gradedAt})
-	otherSessionError := sessionRunRepository.Create(ctx, &entities.SessionRun{TradingDay: "2026-10-07", Session: "intraday", Status: "running", StartedAt: gradedAt})
+	duplicateError := sessionRunRepository.Create(ctx, &entities.SessionRun{TradingDay: "2026-10-07", Session: "preMarket", Status: "running", FailedSymbols: []entities.SessionRunFailedSymbol{}, StartedAt: gradedAt})
+	otherSessionError := sessionRunRepository.Create(ctx, &entities.SessionRun{TradingDay: "2026-10-07", Session: "intraday", Status: "running", FailedSymbols: []entities.SessionRunFailedSymbol{}, StartedAt: gradedAt})
 
 	assert.ErrorIs(t, duplicateError, service.ErrSessionRunAlreadyExists)
 	assert.NoError(t, otherSessionError)
 	sessionRun.Status = "succeeded"
-	sessionRun.SucceededSymbolCount = 2
+	sessionRun.FailedSymbolCount = 1
+	sessionRun.FailedSymbols = []entities.SessionRunFailedSymbol{{Symbol: "2330", Category: "twStock", FailureReason: "AI 服務暫時無法使用"}}
+	sessionRun.InputTokens = 307
 	assert.NoError(t, sessionRunRepository.Update(ctx, &sessionRun))
+	storedSessionRun := entities.SessionRun{}
+	require.NoError(t, database.First(&storedSessionRun, sessionRun.ID).Error)
+	assert.Equal(t, sessionRun.FailedSymbols, storedSessionRun.FailedSymbols)
+	assert.Equal(t, int64(307), storedSessionRun.InputTokens)
 }
 
 func TestSessionRunRepository_FailAllRunningLeavesFinishedRunsAlone(t *testing.T) {
 	database := openTestDatabase(t)
 	sessionRunRepository := persistence.NewSessionRunRepository(database)
 	ctx := context.Background()
-	require.NoError(t, sessionRunRepository.Create(ctx, &entities.SessionRun{TradingDay: "2026-10-07", Session: "preMarket", Status: "running", StartedAt: gradedAt}))
-	require.NoError(t, sessionRunRepository.Create(ctx, &entities.SessionRun{TradingDay: "2026-10-06", Session: "afterMarket", Status: "succeeded", StartedAt: gradedAt}))
+	require.NoError(t, sessionRunRepository.Create(ctx, &entities.SessionRun{TradingDay: "2026-10-07", Session: "preMarket", Status: "running", FailedSymbols: []entities.SessionRunFailedSymbol{}, StartedAt: gradedAt}))
+	require.NoError(t, sessionRunRepository.Create(ctx, &entities.SessionRun{TradingDay: "2026-10-06", Session: "afterMarket", Status: "succeeded", FailedSymbols: []entities.SessionRunFailedSymbol{}, StartedAt: gradedAt}))
 
 	require.NoError(t, sessionRunRepository.FailAllRunning(ctx, "服務重新啟動，執行中斷", gradedAt.Add(time.Hour)))
 
