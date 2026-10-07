@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 )
 
 const (
@@ -21,15 +22,22 @@ func NewSessionRunDomain(sessionRun entities.SessionRun) SessionRunDomain {
 }
 
 func NewStartedSessionRunDomain(tradingDay string, session string, startedAt time.Time) SessionRunDomain {
-	return SessionRunDomain{sessionRun: entities.SessionRun{TradingDay: tradingDay, Session: session, Status: SessionRunStatusRunning, StartedAt: startedAt}}
+	return SessionRunDomain{sessionRun: entities.SessionRun{TradingDay: tradingDay, Session: session, Status: SessionRunStatusRunning, FailedSymbols: []entities.SessionRunFailedSymbol{}, StartedAt: startedAt}}
 }
 
-func (sessionRunDomain *SessionRunDomain) RecordSymbolOutcome(isSucceeded bool) {
-	if isSucceeded {
+func (sessionRunDomain *SessionRunDomain) RecordSymbolOutcome(symbolGradingOutcome vo.SymbolGradingOutcomeVo) {
+	sessionRunDomain.sessionRun.InputTokens += symbolGradingOutcome.Usage.InputTokens
+	sessionRunDomain.sessionRun.OutputTokens += symbolGradingOutcome.Usage.OutputTokens
+	if symbolGradingOutcome.FailureReason == "" {
 		sessionRunDomain.sessionRun.SucceededSymbolCount++
 		return
 	}
 	sessionRunDomain.sessionRun.FailedSymbolCount++
+	sessionRunDomain.sessionRun.FailedSymbols = append(sessionRunDomain.sessionRun.FailedSymbols, entities.SessionRunFailedSymbol{
+		Symbol:        symbolGradingOutcome.Symbol,
+		Category:      symbolGradingOutcome.Category,
+		FailureReason: symbolGradingOutcome.FailureReason,
+	})
 }
 
 func (sessionRunDomain *SessionRunDomain) Succeed(finishedAt time.Time) {

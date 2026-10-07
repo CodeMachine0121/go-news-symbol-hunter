@@ -8,6 +8,7 @@ import (
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 )
 
@@ -66,7 +67,7 @@ func (sessionGradeService *SessionGradeService) RunDueTradingSession(ctx context
 			failureReason = FailureReasonTrackedSymbolsUnavailable
 		}
 		for _, trackedSymbol := range trackedSymbols {
-			sessionRun.RecordSymbolOutcome(sessionGradeService.gradeTrackedSymbol(ctx, dto.ResolveSymbolDto{Symbol: trackedSymbol.Symbol, Category: trackedSymbol.Category}, tradingDay, session))
+			sessionRun.RecordSymbolOutcome(sessionGradeService.gradeTrackedSymbol(ctx, trackedSymbol, tradingDay, session))
 		}
 	}
 	if failureReason == "" {
@@ -83,12 +84,14 @@ func (sessionGradeService *SessionGradeService) RunDueTradingSession(ctx context
 
 // kept separate so each symbol's analysis deadline is released before the next symbol starts,
 // instead of every deferred cancel piling up until the whole session finishes
-func (sessionGradeService *SessionGradeService) gradeTrackedSymbol(ctx context.Context, resolveSymbolDto dto.ResolveSymbolDto, tradingDay domains.TradingDayDomain, session string) bool {
+func (sessionGradeService *SessionGradeService) gradeTrackedSymbol(ctx context.Context, trackedSymbol entities.TrackedSymbol, tradingDay domains.TradingDayDomain, session string) vo.SymbolGradingOutcomeVo {
+	symbolGradingOutcome := vo.SymbolGradingOutcomeVo{Symbol: trackedSymbol.Symbol, Category: trackedSymbol.Category}
 	analysisContext, cancelAnalysis := context.WithTimeout(ctx, domains.AnalysisTimeout)
 	defer cancelAnalysis()
-	resolvedSymbol, err := sessionGradeService.symbolResolutionService.ResolveSymbol(analysisContext, resolveSymbolDto)
+	resolvedSymbol, err := sessionGradeService.symbolResolutionService.ResolveSymbol(analysisContext, dto.ResolveSymbolDto{Symbol: trackedSymbol.Symbol, Category: trackedSymbol.Category})
 	if err != nil {
-		return false
+		symbolGradingOutcome.FailureReason = err.Error()
+		return symbolGradingOutcome
 	}
 	symbol := resolvedSymbol.Symbol
 	analystConsultation := sessionGradeService.analystConsultationService.Consult(analysisContext, dto.ConsultAnalystDto{
@@ -97,20 +100,27 @@ func (sessionGradeService *SessionGradeService) gradeTrackedSymbol(ctx context.C
 		SearchKeyword:       resolvedSymbol.SearchKeyword,
 		NewsPublishedWindow: tradingDay.NewsPublishedWindow(session),
 	})
+	symbolGradingOutcome.Usage = analystConsultation.Usage()
 	sessionGrade, isConcluded := analystConsultation.ToSessionGradeEntity(symbol, tradingDay.Value(), session, sessionGradeService.clockProxy.Now())
 	if !isConcluded {
-		return false
+		symbolGradingOutcome.FailureReason = analystConsultation.FailureReason()
+		return symbolGradingOutcome
 	}
 	storageContext := context.WithoutCancel(ctx)
 	if err := sessionGradeService.sessionGradeRepository.Save(storageContext, &sessionGrade); err != nil {
-		return false
+		symbolGradingOutcome.FailureReason = FailureReasonSessionGradeNotSaved
+		return symbolGradingOutcome
 	}
 	sessionGrades, err := sessionGradeService.sessionGradeRepository.FindByTradingDay(storageContext, symbol.Value, symbol.Category.Value, tradingDay.Value())
 	if err != nil {
-		return false
+		symbolGradingOutcome.FailureReason = FailureReasonCombinedGradeNotSaved
+		return symbolGradingOutcome
 	}
 	combinedGrade := domains.NewCombinedGradeDomain(sessionGrades, sessionGradeService.sessionWeights).ToEntity(symbol, tradingDay.Value(), sessionGradeService.clockProxy.Now())
-	return sessionGradeService.combinedGradeRepository.Save(storageContext, &combinedGrade) == nil
+	if err := sessionGradeService.combinedGradeRepository.Save(storageContext, &combinedGrade); err != nil {
+		symbolGradingOutcome.FailureReason = FailureReasonCombinedGradeNotSaved
+	}
+	return symbolGradingOutcome
 }
 
 func (sessionGradeService *SessionGradeService) GetTrackedSymbolGrades(ctx context.Context, getTrackedSymbolGradesDto dto.GetTrackedSymbolGradesDto) ([]dto.TrackedSymbolGradeDto, error) {

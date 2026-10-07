@@ -171,7 +171,7 @@ func TestRunDueTradingSession_PreMarketPurgesOlderDaysThenGradesTrackedTwStocks(
 	}}, *storedSessionGrades)
 	assert.Equal(t, []entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "bullish", CombinedScore: 1, Confidence: 60, UpdatedAt: wednesdayAt(8, 0)}}, *storedCombinedGrades)
 	finishedAt := wednesdayAt(8, 0)
-	assert.Equal(t, entities.SessionRun{ID: 7, TradingDay: "2026-10-07", Session: "preMarket", Status: "succeeded", SucceededSymbolCount: 1, StartedAt: wednesdayAt(8, 0), FinishedAt: &finishedAt}, *finishedSessionRun)
+	assert.Equal(t, entities.SessionRun{ID: 7, TradingDay: "2026-10-07", Session: "preMarket", Status: "succeeded", SucceededSymbolCount: 1, FailedSymbols: []entities.SessionRunFailedSymbol{}, InputTokens: 300, OutputTokens: 30, StartedAt: wednesdayAt(8, 0), FinishedAt: &finishedAt}, *finishedSessionRun)
 }
 
 func TestRunDueTradingSession_MondayPreMarketPurgesFridayGrades(t *testing.T) {
@@ -317,7 +317,7 @@ func TestRunDueTradingSession_OneFailingSymbolDoesNotStopTheOthers(t *testing.T)
 	fixture.givenTrackedSymbols("2330", "2317")
 	fixture.givenCompany("2330", "台積電")
 	fixture.givenCompany("2317", "鴻海")
-	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.MatchedBy(func(request vo.AnalystRequestVo) bool { return request.Symbol == "2330" }), mock.Anything).Return(vo.AnalystTurnVo{}, errDatabaseDown).Once()
+	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.MatchedBy(func(request vo.AnalystRequestVo) bool { return request.Symbol == "2330" }), mock.Anything).Return(vo.AnalystTurnVo{Usage: vo.AnalystUsageVo{InputTokens: 7, OutputTokens: 1}}, errDatabaseDown).Once()
 	fixture.givenNews("鴻海", vo.NewsVo{Title: "鴻海", Link: "https://news/2317/1", PublishedAt: wednesdayAt(7, 0)})
 	fixture.givenAnalystConcludes("2317", "bullish", 70)
 	storedSessionGrades := fixture.storeSessionGrades()
@@ -331,30 +331,34 @@ func TestRunDueTradingSession_OneFailingSymbolDoesNotStopTheOthers(t *testing.T)
 	assert.Equal(t, "succeeded", finishedSessionRun.Status)
 	assert.Equal(t, 1, finishedSessionRun.SucceededSymbolCount)
 	assert.Equal(t, 1, finishedSessionRun.FailedSymbolCount)
+	assert.Equal(t, []entities.SessionRunFailedSymbol{{Symbol: "2330", Category: "twStock", FailureReason: "AI 服務暫時無法使用"}}, finishedSessionRun.FailedSymbols)
+	assert.Equal(t, int64(307), finishedSessionRun.InputTokens)
+	assert.Equal(t, int64(31), finishedSessionRun.OutputTokens)
 }
 
 func TestRunDueTradingSession_CountsEveryStepThatFailsForASymbol(t *testing.T) {
 	testCases := []struct {
-		name  string
-		given func(fixture sessionGradeFixture)
+		name                  string
+		given                 func(fixture sessionGradeFixture)
+		expectedFailureReason string
 	}{
 		{name: "symbol not found", given: func(fixture sessionGradeFixture) {
 			fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "2330").Return("", false, nil)
-		}},
+		}, expectedFailureReason: "找不到此標的"},
 		{name: "session grade not saved", given: func(fixture sessionGradeFixture) {
 			fixture.givenAnalysisOf2330()
 			fixture.sessionGradeRepository.EXPECT().Save(mock.Anything, mock.Anything).Return(errDatabaseDown)
-		}},
+		}, expectedFailureReason: "時段評等保存失敗"},
 		{name: "session grades not read back", given: func(fixture sessionGradeFixture) {
 			fixture.givenAnalysisOf2330()
 			fixture.sessionGradeRepository.EXPECT().Save(mock.Anything, mock.Anything).Return(nil)
 			fixture.sessionGradeRepository.EXPECT().FindByTradingDay(mock.Anything, "2330", "twStock", "2026-10-07").Return(nil, errDatabaseDown)
-		}},
+		}, expectedFailureReason: "綜合評等保存失敗"},
 		{name: "combined grade not saved", given: func(fixture sessionGradeFixture) {
 			fixture.givenAnalysisOf2330()
 			fixture.storeSessionGrades()
 			fixture.combinedGradeRepository.EXPECT().Save(mock.Anything, mock.Anything).Return(errDatabaseDown)
-		}},
+		}, expectedFailureReason: "綜合評等保存失敗"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -369,6 +373,7 @@ func TestRunDueTradingSession_CountsEveryStepThatFailsForASymbol(t *testing.T) {
 			assert.Equal(t, "succeeded", finishedSessionRun.Status)
 			assert.Equal(t, 0, finishedSessionRun.SucceededSymbolCount)
 			assert.Equal(t, 1, finishedSessionRun.FailedSymbolCount)
+			assert.Equal(t, []entities.SessionRunFailedSymbol{{Symbol: "2330", Category: "twStock", FailureReason: testCase.expectedFailureReason}}, finishedSessionRun.FailedSymbols)
 		})
 	}
 }
