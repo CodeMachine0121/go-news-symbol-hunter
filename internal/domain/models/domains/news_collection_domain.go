@@ -51,8 +51,11 @@ func (newsCollectionDomain NewsCollectionDomain) Merge(otherNewsCollection NewsC
 	return NewsCollectionDomain{news: slices.Concat(newsCollectionDomain.news, otherNewsCollection.news)}
 }
 
-func (newsCollectionDomain NewsCollectionDomain) Curate(now time.Time) NewsCollectionDomain {
+func (newsCollectionDomain NewsCollectionDomain) Curate(now time.Time, requestedPublishedSince time.Time) NewsCollectionDomain {
 	publishedSince := now.Add(-NewsSearchWindow)
+	if requestedPublishedSince.After(publishedSince) {
+		publishedSince = requestedPublishedSince
+	}
 	recentNews := slices.DeleteFunc(slices.Clone(newsCollectionDomain.news), func(news vo.NewsVo) bool {
 		return news.PublishedAt.Before(publishedSince)
 	})

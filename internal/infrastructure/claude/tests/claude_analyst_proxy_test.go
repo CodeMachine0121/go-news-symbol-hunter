@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/claude"
@@ -162,4 +163,20 @@ func TestClaudeAnalystProxy_ReportsTheAnsweringModelAndCachedInput(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-4-8", analystTurn.ModelName)
 	assert.Equal(t, vo.AnalystUsageVo{InputTokens: 60, OutputTokens: 5}, analystTurn.Usage)
+}
+
+func TestClaudeAnalystProxy_TellsTheAnalystWhenNewsIsLimitedToRecentNews(t *testing.T) {
+	claudeAnalystProxy, captured := startMessagesServer(t, http.StatusOK, searchReply)
+	request := vo.AnalystRequestVo{Symbol: "2330", Category: "twStock", SearchKeyword: "台積電", PublishedSince: time.Date(2026, 10, 7, 9, 0, 0, 0, time.FixedZone("Asia/Taipei", 8*60*60))}
+
+	_, err := claudeAnalystProxy.Respond(context.Background(), request, nil)
+
+	require.NoError(t, err)
+	var messages []struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	require.NoError(t, json.Unmarshal(captured.body["messages"], &messages))
+	assert.Equal(t, "Analyze symbol 2330 in market category twStock (search keyword: 台積電). News searches only return news published since 2026-10-07T09:00:00+08:00; judge the symbol on that news alone.", messages[0].Content[0].Text)
 }

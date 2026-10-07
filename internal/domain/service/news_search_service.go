@@ -81,7 +81,7 @@ func (newsSearchService *NewsSearchService) SearchSymbolNews(ctx context.Context
 	return dto.SymbolNewsDto{
 		Symbol:              symbol.Value,
 		Category:            symbol.Category.Value,
-		News:                mergedNewsCollection.Curate(newsSearchService.clockProxy.Now()).ToDtos(),
+		News:                mergedNewsCollection.Curate(newsSearchService.clockProxy.Now(), searchSymbolNewsDto.PublishedSince).ToDtos(),
 		FailedNewsProviders: failedNewsProviders,
 	}, nil
 }
