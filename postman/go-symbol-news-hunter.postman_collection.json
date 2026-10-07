@@ -2,7 +2,7 @@
   "info": {
     "name": "go-symbol-news-hunter API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "標的資訊面分析引擎的全部端點。\n\n**啟動**：建立資料庫後 `make start`（讀 `.env`，預設 port 8080，啟動時自動建表）。\n\n**執行順序**：\n1. `1. API Key` → Issue API key（自動存 `apiKey`）\n2. 以 SQL 啟用：`UPDATE api_keys SET is_active = true WHERE name = '<apiKeyName>';`\n3. `2. News Search`、`3. Analysis`（Start 後輪詢 Get 直到 `succeeded` / `failed`）\n4. `4. Error Cases`\n5. `5. Revoke` 最後跑（會讓 `apiKey` 永久失效）\n\n鑑權：collection 層級以 header `X-API-Key: {{apiKey}}` 送出；公開端點個別設為 No Auth。\n\n錯誤格式：`{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`。"
+    "description": "標的資訊面分析引擎的全部端點。\n\n**啟動**：建立資料庫後 `make start`（讀 `.env`，預設 port 8080，啟動時自動建表）。\n\n**執行順序**：\n1. `1. API Key` → Issue API key（自動存 `apiKey`）\n2. 以 SQL 啟用：`UPDATE api_keys SET is_active = true WHERE name = '<apiKeyName>';`\n3. `2. News Search`、`3. Analysis`（Start 後輪詢 Get 直到 `succeeded` / `failed`）、`4. Tracked Symbol Grades`\n4. `5. Error Cases`\n5. `6. Revoke` 最後跑（會讓 `apiKey` 永久失效）\n\n鑑權：collection 層級以 header `X-API-Key: {{apiKey}}` 送出；公開端點個別設為 No Auth。\n\n錯誤格式：`{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`。"
   },
   "auth": {
     "type": "apikey",
@@ -346,7 +346,80 @@
       ]
     },
     {
-      "name": "4. Error Cases",
+      "name": "4. Tracked Symbol Grades（需要已啟用的 API key）",
+      "item": [
+        {
+          "name": "Get tracked symbol grades - all",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('grades are an array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tracked-symbol-grades",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tracked-symbol-grades"
+              ]
+            },
+            "description": "列出所有追蹤標的的綜合評等與當天各時段評等（盤前 / 盤中 / 盤後）。\n\n追蹤標的由 administrator 以 SQL 登記，例如：`INSERT INTO tracked_symbols (symbol, category, is_tracking, created_at) VALUES ('2330', 'twStock', true, now());`\n\n背景 job 於台北時間交易日的 08:00–09:00、12:30–13:30、20:00–24:00 自動分析；結果只保留當天，下一個交易日盤前刪除。"
+          }
+        },
+        {
+          "name": "Get tracked symbol grades - one symbol",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('only the requested symbol', () => pm.response.json().forEach(grade => pm.expect(grade.symbol).to.eql(pm.collectionVariables.get('twStockSymbol'))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tracked-symbol-grades?symbol={{twStockSymbol}}&category=twStock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tracked-symbol-grades"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{twStockSymbol}}"
+                },
+                {
+                  "key": "category",
+                  "value": "twStock"
+                }
+              ]
+            },
+            "description": "只查一個標的；`symbol` 與 `category` 需一起提供。沒有評等時回傳空陣列。"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Error Cases",
       "item": [
         {
           "name": "Issue API key - missing name",
@@ -592,11 +665,46 @@
             },
             "description": "不存在的分析事件 → 404。"
           }
+        },
+        {
+          "name": "Get tracked symbol grades - symbol without category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('error code', () => pm.expect(pm.response.json().error.code).to.eql('symbol_and_category_required_together'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tracked-symbol-grades?symbol={{twStockSymbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tracked-symbol-grades"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{twStockSymbol}}"
+                }
+              ]
+            },
+            "description": "只給標的、沒給市場類別 → 400「標的與市場類別需一起提供」。"
+          }
         }
       ]
     },
     {
-      "name": "5. Revoke（會讓目前的 apiKey 永久失效，最後再跑）",
+      "name": "6. Revoke（會讓目前的 apiKey 永久失效，最後再跑）",
       "item": [
         {
           "name": "Revoke API key",
