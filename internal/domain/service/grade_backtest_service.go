@@ -70,7 +70,7 @@ func (gradeBacktestService *GradeBacktestService) GetGradeBacktest(ctx context.C
 				return err
 			}
 			hourlyCandles := []vo.PriceCandleVo{}
-			if len(minuteCandles) == 0 {
+			if analysisBacktest.NeedsHourlyFallback(minuteCandles) {
 				hourlyCandles, err = priceHistoryProxy.FetchCandles(priceFetchContext, priceWindows.HourlyFallback)
 				if err != nil {
 					return err

@@ -343,3 +343,18 @@ func TestGetGradeBacktest_OneSymbolWithoutPricesLeavesTheOthersJudged(t *testing
 	assert.Equal(t, "hit", gradeBacktest.Analyses[1].Outcome)
 	assert.Equal(t, 1.0, *gradeBacktest.Overall.HitRate)
 }
+
+func TestGetGradeBacktest_CryptoWithoutRecentMinutesIsUnevaluableWithoutAskingForHourlyCandles(t *testing.T) {
+	fixture := createGradeBacktestFixture(t)
+	fixture.givenAnalyses(completedAnalysis(1, "BTC", "crypto", "bullish"))
+	fixture.givenCandles("BTC", "1m", []vo.PriceCandleVo{})
+	fixture.givenCandles("BTC", "1d", tenTradingDaysEndingAt("105"))
+
+	gradeBacktest, err := fixture.gradeBacktestApplication.GetGradeBacktest(context.Background(), dto.GetGradeBacktestDto{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "unevaluable", gradeBacktest.Analyses[0].Outcome)
+	fixture.priceHistoryProxy.AssertNotCalled(t, "FetchCandles", mock.Anything, mock.MatchedBy(func(priceHistoryQuery vo.PriceHistoryQueryVo) bool {
+		return priceHistoryQuery.Interval == "1h"
+	}))
+}

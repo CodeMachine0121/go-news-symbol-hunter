@@ -13,13 +13,16 @@ const (
 	tradingDayLayout          = "2006-01-02"
 )
 
+// the Taiwan market closes at 13:30 Taipei
+const taiwanStockMarketClose = 13*time.Hour + 30*time.Minute
+
 // Taiwan has no daylight saving time, so a fixed offset avoids depending on the host's time zone database
 var taipeiTimeZone = time.FixedZone("Asia/Taipei", 8*60*60)
 
 var taiwanStockTradingSessionWindows = []vo.TradingSessionWindowVo{
-	{Session: TradingSessionPreMarket, OpensAt: 8 * time.Hour, ClosesAt: 9 * time.Hour, NewsSince: 13*time.Hour + 30*time.Minute, IsNewsSinceOnPreviousTradingDay: true},
-	{Session: TradingSessionIntraday, OpensAt: 12*time.Hour + 30*time.Minute, ClosesAt: 13*time.Hour + 30*time.Minute, NewsSince: 9 * time.Hour},
-	{Session: TradingSessionAfterMarket, OpensAt: 20 * time.Hour, ClosesAt: 24 * time.Hour, NewsSince: 13*time.Hour + 30*time.Minute},
+	{Session: TradingSessionPreMarket, OpensAt: 8 * time.Hour, ClosesAt: 9 * time.Hour, NewsSince: taiwanStockMarketClose, IsNewsSinceOnPreviousTradingDay: true},
+	{Session: TradingSessionIntraday, OpensAt: 12*time.Hour + 30*time.Minute, ClosesAt: taiwanStockMarketClose, NewsSince: 9 * time.Hour},
+	{Session: TradingSessionAfterMarket, OpensAt: 20 * time.Hour, ClosesAt: 24 * time.Hour, NewsSince: taiwanStockMarketClose},
 }
 
 type TradingDayDomain struct {

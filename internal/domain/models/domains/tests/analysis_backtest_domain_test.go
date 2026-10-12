@@ -217,7 +217,7 @@ func TestAnalysisBacktestDomain_PendingUntilTheHorizonHasPassed(t *testing.T) {
 	analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(vo.BacktestPricesVo{
 		MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")},
 		DailyCandles:  dailyCandlesEndingAt(utcDay(7), 8, "105"),
-	}, longAfterwards)
+	}, time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC))
 
 	assert.Equal(t, "pending", analysisBacktest.Outcome)
 	assert.Equal(t, decimalPointer("100"), analysisBacktest.EntryPrice)
@@ -296,9 +296,9 @@ func TestAnalysisBacktestDomain_PriceWindows(t *testing.T) {
 		timeHorizon        string
 		expectedDailyUntil time.Time
 	}{
-		// ten trading days span about fourteen calendar days, plus thirty for long holidays
-		{timeHorizon: "short", expectedDailyUntil: completedAt.AddDate(0, 0, 44)},
-		{timeHorizon: "mid", expectedDailyUntil: completedAt.AddDate(0, 0, 114)},
+		// ten trading days span about fourteen calendar days, plus thirty for long holidays, to the end of that UTC day
+		{timeHorizon: "short", expectedDailyUntil: time.Date(2026, 11, 20, 23, 59, 59, 0, time.UTC)},
+		{timeHorizon: "mid", expectedDailyUntil: time.Date(2027, 1, 29, 23, 59, 59, 0, time.UTC)},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.timeHorizon, func(t *testing.T) {
@@ -309,8 +309,9 @@ func TestAnalysisBacktestDomain_PriceWindows(t *testing.T) {
 			assert.Equal(t, vo.BacktestPriceWindowsVo{
 				Minute:         vo.PriceHistoryQueryVo{Symbol: "BTC", Category: "crypto", Interval: "1m", Since: completedAt.Add(-16 * time.Hour), Until: completedAt},
 				HourlyFallback: vo.PriceHistoryQueryVo{Symbol: "BTC", Category: "crypto", Interval: "1h", Since: completedAt.AddDate(0, 0, -40), Until: completedAt},
-				Daily:          vo.PriceHistoryQueryVo{Symbol: "BTC", Category: "crypto", Interval: "1d", Since: completedAt.AddDate(0, 0, -10), Until: testCase.expectedDailyUntil},
+				Daily:          vo.PriceHistoryQueryVo{Symbol: "BTC", Category: "crypto", Interval: "1d", Since: completedAt.AddDate(0, 0, -10), Until: priceWindows.Daily.Until},
 			}, priceWindows)
+			assert.True(t, testCase.expectedDailyUntil.Equal(priceWindows.Daily.Until), "daily until %v", priceWindows.Daily.Until)
 		})
 	}
 }
@@ -383,4 +384,62 @@ func TestAnalysisBacktestDomain_DaysWithoutADailyPriceAreNotTradingDays(t *testi
 
 	require.NotNil(t, analysisBacktest.CheckpointDate)
 	assert.Equal(t, "2026-10-18", *analysisBacktest.CheckpointDate)
+}
+
+func TestAnalysisBacktestDomain_UnevaluableOnceTheWholeDailyWindowHasPassed(t *testing.T) {
+	completedAt := taipeiAt(7, 10, 15)
+	// the price service stopped after seven trading days; the short window runs to the end of 2026-11-20 UTC
+	prices := vo.BacktestPricesVo{MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")}, DailyCandles: dailyCandlesEndingAt(utcDay(8), 7, "105")}
+	testCases := []struct {
+		evaluatedAt     time.Time
+		expectedOutcome string
+	}{
+		{evaluatedAt: time.Date(2026, 11, 20, 23, 59, 59, 0, time.UTC), expectedOutcome: "pending"},
+		{evaluatedAt: time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC), expectedOutcome: "unevaluable"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.expectedOutcome, func(t *testing.T) {
+			analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(prices, testCase.evaluatedAt)
+
+			assert.Equal(t, testCase.expectedOutcome, analysisBacktest.Outcome)
+			assert.Equal(t, decimalPointer("100"), analysisBacktest.EntryPrice)
+		})
+	}
+}
+
+func TestAnalysisBacktestDomain_OnlyAMarketThatClosesFallsBackToHourlyCandles(t *testing.T) {
+	completedAt := taipeiAt(8, 7, 30)
+	testCases := []struct {
+		name             string
+		category         string
+		minuteCandles    []vo.PriceCandleVo
+		expectedFallback bool
+	}{
+		{name: "taiwan with no recent minute", category: "twStock", expectedFallback: true},
+		{name: "taiwan whose minutes all opened after completion", category: "twStock", minuteCandles: []vo.PriceCandleVo{candleAt(taipeiAt(8, 9, 0), "1030")}, expectedFallback: true},
+		{name: "taiwan with a minute before completion", category: "twStock", minuteCandles: []vo.PriceCandleVo{candleAt(taipeiAt(8, 7, 29), "1010")}, expectedFallback: false},
+		{name: "crypto with a gap in its minutes", category: "crypto", expectedFallback: false},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			analysisResult := entities.AnalysisResult{Symbol: "X", Category: testCase.category, Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
+
+			needsHourlyFallback := domains.NewAnalysisBacktestDomain(analysisResult).NeedsHourlyFallback(testCase.minuteCandles)
+
+			assert.Equal(t, testCase.expectedFallback, needsHourlyFallback)
+		})
+	}
+}
+
+func TestAnalysisBacktestDomain_CryptoWithAMinuteGapIsUnevaluableRatherThanStale(t *testing.T) {
+	completedAt := taipeiAt(7, 10, 15)
+	analysisResult := entities.AnalysisResult{Symbol: "BTC", Category: "crypto", Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
+
+	analysisBacktest := domains.NewAnalysisBacktestDomain(analysisResult).Evaluate(vo.BacktestPricesVo{
+		HourlyCandles: []vo.PriceCandleVo{candleAt(taipeiAt(5, 10, 0), "86000")},
+		DailyCandles:  dailyCandlesEndingAt(utcDay(8), 10, "90000"),
+	}, longAfterwards)
+
+	assert.Equal(t, "unevaluable", analysisBacktest.Outcome)
+	assert.Nil(t, analysisBacktest.EntryPrice)
 }
