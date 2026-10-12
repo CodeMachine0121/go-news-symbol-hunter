@@ -58,7 +58,7 @@
 
 - `PriceWindows() vo.BacktestPriceWindowsVo`
   - 所需交易日 N：短期 10、中期 60（時間範圍非法值已在分析時正規化為短期）。
-  - `Daily`：`[完成時間 − 10 天, (完成時間 + N × 7 / 5 + 30 天) 那個 UTC 日的 23:59:59]`，涵蓋連假且最後一根是完整的一天；最長約 125 根，低於價格服務單次 1000 根上限。整段期間過完仍不足 N 根 → 無法評估。
+  - `Daily`：`[完成時間 − 10 天, (完成時間 + N × 7 / 5 + 30 天) 那個 UTC 日的 23:59:59]`，涵蓋連假且最後一根是完整的一天；最長約 125 根，低於價格服務單次 1000 根上限。整段期間過完、再多等一天讓最後一天的日 K 到齊，仍不足 N 根 → 無法評估。無法評估一律不帶起點價格。
 - `NeedsHourlyFallback(minuteCandles) bool`：只有台股、且分 K 中沒有完成前的那一根時才需要小時 K；service 依此決定要不要再問價格服務。
 - `Evaluate(vo.BacktestPricesVo, evaluatedAt time.Time) dto.AnalysisBacktestDto`（`evaluatedAt` 由 service 經 `IClockProxy` 取得）
   1. **起點價格**：`MinuteCandles` 中 `OpenTime ≤ 完成時間` 的最後一根收盤價；台股沒有則取 `HourlyCandles` 最後一根收盤價（16 小時內沒有成交，所以該小時不會含完成後的成交）；加密貨幣不退而求其次；都沒有 → **無法評估**。
@@ -110,7 +110,7 @@ flowchart TD
 
 - **Most likely next requirement:** 美股也要回測；其次是「固定 1 / 5 / 20 天」等其他檢查點。
 - **Where it lands:** 美股 → `PriceHistoryCatalogDto.UsStock`；其他檢查點 → `AnalysisBacktestDomain` 的「所需交易日」。
-- **How to add it:** 美股：新增 `YahooFinancePriceHistoryProxy` 實作 `IPriceHistoryProxy`，在組裝根填入 `UsStock`，規則與彙總完全不動。其他檢查點：讓 `AnalysisBacktestDomain` 回傳多個檢查點的結果，`GradeBacktestSummaryDomain` 依檢查點分組，取價邏輯不動（`Daily` 視窗加長即可）。
+- **How to add it:** 美股：新增 `YahooFinancePriceHistoryProxy` 實作 `IPriceHistoryProxy`，在組裝根填入 `UsStock`；另需在 `AnalysisBacktestDomain` 補上美股的收盤時間（紐約時區、含夏令時間），讓「當天是否已收盤」與「小時 K 退而求其次」把美股當會收盤的市場——目前這兩條只對台股成立，其他市場一律視為全天交易。彙總不動。其他檢查點：讓 `AnalysisBacktestDomain` 回傳多個檢查點的結果，`GradeBacktestSummaryDomain` 依檢查點分組，取價邏輯不動（`Daily` 視窗加長即可）。
 - **Patterns applied & why:** 依市場類別的 proxy catalog 沿用 `PriceProviderCatalogDto` 的做法；Domain Model 一進（K 線）一出（DTO），service 只負責取資料與併發。
 - **Do not hardcode:** go-trading 網址與帳密（設定）。
 - **Known debt / deferred:** 同一標的多筆分析會各自取價（最多 500 × 2–3 次呼叫，併發 8，每次日 K 查詢讓價格服務彙總約 125 天的分 K）；code review 已點出，慢到有感時再依標的合併日 K 查詢。登入憑證只在記憶體，服務重啟會重新登入一次。
