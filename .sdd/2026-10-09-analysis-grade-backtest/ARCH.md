@@ -38,7 +38,7 @@
 | Name | Kind | Responsibility (purpose) | Collaborators | Satisfies |
 | :--- | :--- | :--- | :--- | :--- |
 | `IPriceHistoryProxy.FetchCandles(ctx, vo.PriceHistoryQueryVo) ([]vo.PriceCandleVo, error)` | Interface | 取某標的某段期間、某刻度的 K 線（由早到晚）。查不到標的回空切片、不是錯誤；連不上 / 登入失敗回錯誤 | — | 全部 |
-| `GoTradingPriceHistoryProxy` | Proxy | 呼叫 `/k-candles/series`；把市場類別 + 標的轉成價格服務代號（台股原樣、加密貨幣加 `USDT`）；以帳號密碼 `POST /sessions` 登入，登入憑證留記憶體（mutex 保護），收到 401 重新登入重試一次 | `HttpBodyReader` 或 `http.Client` | US-04 價格服務無法連線 |
+| `GoTradingPriceHistoryProxy` | Proxy | 呼叫 `/k-candles/series`；把市場類別 + 標的轉成價格服務代號（台股原樣、加密貨幣加 `USDT`）；以帳號密碼 `POST /sessions` 登入，登入憑證留記憶體（mutex 保護，併發只登入一次），收到 401 重新登入重試一次；登入回覆沒有登入憑證即失敗、不重試 | `http.Client`（需帶標頭與 POST，`HttpBodyReader` 只支援 GET） | US-04 價格服務無法連線 |
 | `PriceHistoryCatalogDto` | DTO | `TwStock` / `UsStock` / `Crypto` 各一個 `IPriceHistoryProxy`；nil ＝該市場無法評估 | — | US-03 美股無法評估 |
 | `PriceHistoryQueryVo` | VO | `Symbol`、`Category`、`Interval`（`1m` / `1h` / `1d`）、`Since`、`Until` | — | — |
 | `PriceCandleVo` | VO | `OpenTime time.Time`、`Close decimal.Decimal` | — | — |
@@ -54,7 +54,7 @@
 
 ### `AnalysisBacktestDomain` 規則
 
-由 `analysisResult.ToAnalysisBacktestDomain()` 建立（entity 上的形狀轉換）。
+由 `domains.NewAnalysisBacktestDomain(analysisResult)` 建立（比照既有 Domain Model：`domains` 已 import `entities`，entity 上若帶 `ToXxxDomain()` 會造成循環 import）。
 
 - `PriceWindows() vo.BacktestPriceWindowsVo`
   - 所需交易日 N：短期 10、中期 60（時間範圍非法值已在分析時正規化為短期）。
@@ -82,8 +82,7 @@
 | Component | Current role | Change needed |
 | :--- | :--- | :--- |
 | `IAnalysisResultRepository` | `Create`、`FindByAnalysisEventID` | 加 `FindForBacktest(ctx, vo.GradeBacktestFilterVo, limit int) ([]entities.AnalysisResult, error)`：`created_at` 在期間內、有標的時加 `symbol` + `category` 條件、依 `created_at` 舊到新、`Limit(limit)`；重新產生 mock |
-| `entities.AnalysisResult` | 乾淨資料 | 加 `ToAnalysisBacktestDomain()`（形狀轉換，比照規則允許 entity 帶 `toXxx()`） |
-| `config.go` | 讀環境變數 | `GO_TRADING_BASE_URL`（預設 `http://localhost:8080`）、`GO_TRADING_EMAIL`、`GO_TRADING_PASSWORD`（空 → 每次回測都是價格服務無法使用，不擋啟動） |
+| `config.go` | 讀環境變數 | `GO_TRADING_BASE_URL`（無預設值，去掉結尾 `/`；本服務自己預設佔用 8080，不能拿來當 go-trading 的預設）、`GO_TRADING_EMAIL`、`GO_TRADING_PASSWORD`（任一為空 → 每次回測都是價格服務無法使用，不擋啟動） |
 | `dependencies.go` | DI、路由 | 組 `GoTradingPriceHistoryProxy`、`PriceHistoryCatalogDto{TwStock, Crypto: 同一個 proxy; UsStock: nil}`、service / application / controller；`protectedRoutes.GET("/grade-backtest", ...)` |
 | `.env.example`、`postman/`、`.sdd/PROJECT.md` | 文件 | 補新設定與路由 |
 
