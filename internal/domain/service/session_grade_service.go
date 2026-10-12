@@ -125,24 +125,11 @@ func (sessionGradeService *SessionGradeService) gradeTrackedSymbol(ctx context.C
 }
 
 func (sessionGradeService *SessionGradeService) GetTrackedSymbolGrades(ctx context.Context, getTrackedSymbolGradesDto dto.GetTrackedSymbolGradesDto) ([]dto.TrackedSymbolGradeDto, error) {
-	symbol := ""
-	category := ""
-	if getTrackedSymbolGradesDto.Symbol != "" || getTrackedSymbolGradesDto.Category != "" {
-		if getTrackedSymbolGradesDto.Symbol == "" || getTrackedSymbolGradesDto.Category == "" {
-			return nil, ErrSymbolAndCategoryRequiredTogether
-		}
-		marketCategory, err := vo.NewMarketCategoryVo(getTrackedSymbolGradesDto.Category)
-		if err != nil {
-			return nil, err
-		}
-		requestedSymbol, err := vo.NewSymbolVo(getTrackedSymbolGradesDto.Symbol, marketCategory)
-		if err != nil {
-			return nil, err
-		}
-		symbol = requestedSymbol.Value
-		category = marketCategory.Value
+	symbolFilter, err := vo.NewSymbolFilterVo(getTrackedSymbolGradesDto.Symbol, getTrackedSymbolGradesDto.Category)
+	if err != nil {
+		return nil, err
 	}
-	combinedGrades, err := sessionGradeService.combinedGradeRepository.FindAll(ctx, symbol, category)
+	combinedGrades, err := sessionGradeService.combinedGradeRepository.FindAll(ctx, symbolFilter.Symbol, symbolFilter.Category)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSessionGradeStorageUnavailable, err)
 	}

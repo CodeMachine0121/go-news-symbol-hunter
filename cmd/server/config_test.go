@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/gotrading"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,6 +24,9 @@ func TestLoadServerConfig(t *testing.T) {
 		preMarketWeight           string
 		intradayWeight            string
 		afterMarketWeight         string
+		goTradingBaseUrl          string
+		goTradingEmail            string
+		goTradingPassword         string
 		expectedConfig            ServerConfig
 		expectedError             error
 	}{
@@ -30,6 +34,7 @@ func TestLoadServerConfig(t *testing.T) {
 		{name: "reads the environment", serverPort: "9090", databaseUrl: "host=db", aiAnalysisModel: "claude-opus-5-5", aiAnalysisEffort: "high", maxConcurrency: "8", backgroundJobsEnabled: "false", tradingSessionJobInterval: "30", preMarketWeight: "0.4", intradayWeight: "0.1", afterMarketWeight: "0.6", expectedConfig: ServerConfig{ServerPort: "9090", DatabaseUrl: "host=db", AiAnalysisModel: "claude-opus-5-5", AiAnalysisEffort: "high", AiAnalysisMaximumConcurrency: 8, BackgroundJobsEnabled: false, TradingSessionJobInterval: 30 * time.Second, SessionWeights: vo.SessionWeightsVo{PreMarket: 0.4, Intraday: 0.1, AfterMarket: 0.6}}},
 		{name: "replaces unusable values with the defaults", databaseUrl: "host=db", aiAnalysisEffort: "extreme", maxConcurrency: "0", intradayWeight: "-1", afterMarketWeight: "0", expectedConfig: ServerConfig{ServerPort: "8080", DatabaseUrl: "host=db", AiAnalysisModel: "claude-sonnet-5-5", AiAnalysisEffort: "medium", AiAnalysisMaximumConcurrency: 4, BackgroundJobsEnabled: true, TradingSessionJobInterval: time.Minute, SessionWeights: defaultSessionWeights}},
 		{name: "keeps a zero interval so the job stays disabled", databaseUrl: "host=db", tradingSessionJobInterval: "0", expectedConfig: ServerConfig{ServerPort: "8080", DatabaseUrl: "host=db", AiAnalysisModel: "claude-sonnet-5-5", AiAnalysisEffort: "medium", AiAnalysisMaximumConcurrency: 4, BackgroundJobsEnabled: true, TradingSessionJobInterval: 0, SessionWeights: defaultSessionWeights}},
+		{name: "reads the price service account without a trailing slash", databaseUrl: "host=db", goTradingBaseUrl: "http://localhost:8081/", goTradingEmail: "owner@example.com", goTradingPassword: "secret", expectedConfig: ServerConfig{ServerPort: "8080", DatabaseUrl: "host=db", AiAnalysisModel: "claude-sonnet-5-5", AiAnalysisEffort: "medium", AiAnalysisMaximumConcurrency: 4, BackgroundJobsEnabled: true, TradingSessionJobInterval: time.Minute, SessionWeights: defaultSessionWeights, PriceServiceAccount: gotrading.GoTradingAccount{BaseUrl: "http://localhost:8081", Email: "owner@example.com", Password: "secret"}}},
 		{name: "fails fast without a database url", serverPort: "9090", expectedError: errDatabaseUrlMissing},
 		{name: "refuses an unreadable background job switch", databaseUrl: "host=db", backgroundJobsEnabled: "maybe", expectedError: errSettingUnreadable},
 		{name: "refuses an unreadable job interval", databaseUrl: "host=db", tradingSessionJobInterval: "soon", expectedError: errSettingUnreadable},
@@ -48,6 +53,9 @@ func TestLoadServerConfig(t *testing.T) {
 			t.Setenv("SESSION_WEIGHT_PRE_MARKET", testCase.preMarketWeight)
 			t.Setenv("SESSION_WEIGHT_INTRADAY", testCase.intradayWeight)
 			t.Setenv("SESSION_WEIGHT_AFTER_MARKET", testCase.afterMarketWeight)
+			t.Setenv("GO_TRADING_BASE_URL", testCase.goTradingBaseUrl)
+			t.Setenv("GO_TRADING_EMAIL", testCase.goTradingEmail)
+			t.Setenv("GO_TRADING_PASSWORD", testCase.goTradingPassword)
 
 			serverConfig, err := loadServerConfig()
 

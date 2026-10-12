@@ -29,7 +29,7 @@
 | Database | PostgreSQL · GORM（`gorm.io/driver/postgres`） | 不使用 SQLite；Code First，啟動時 `AutoMigrate`；連線字串 `DATABASE_URL`（必填，見 `.env.example`） |
 | Infrastructure | 本機 `go run` | 部署方式 TBD |
 | Key Libraries | `shopspring/decimal`（金額欄位）、`joho/godotenv`（讀 `.env`） | 測試：`testing` + `stretchr/testify`；mock 由 `mockery` 依介面產生於 `internal/domain/interface/mocks/` |
-| External Services | Anthropic Claude（`anthropic-sdk-go`，Beta Messages API + tool use；模型 `AI_ANALYSIS_MODEL` 預設 `claude-sonnet-5-5`、`AI_ANALYSIS_EFFORT` 預設 `medium`（成本考量；需要更強判斷時可改 `claude-opus-5-5`））、各市場新聞來源 | 新聞來源見 symbol-news-search 切片 |
+| External Services | Anthropic Claude（`anthropic-sdk-go`，Beta Messages API + tool use；模型 `AI_ANALYSIS_MODEL` 預設 `claude-sonnet-5-5`、`AI_ANALYSIS_EFFORT` 預設 `medium`（成本考量；需要更強判斷時可改 `claude-opus-5-5`））、各市場新聞來源、價格服務 go-trading（評等回測取 K 線；台股與加密貨幣，`GO_TRADING_BASE_URL` / `GO_TRADING_EMAIL` / `GO_TRADING_PASSWORD`） | 新聞來源見 symbol-news-search 切片；回測見 analysis-grade-backtest 切片 |
 
 ---
 
@@ -76,6 +76,7 @@
 - **Known Technical Debt / Risks:**
   - 公開的建立 API key 端點可能被大量灌單；目前只靠「預設停用」把關，未做限流。
   - 新聞來源的免費額度與使用條款可能變動。
+  - 評等回測依賴 go-trading：只有已在 go-trading 登錄的代號、且有每分鐘 K 線歷史的分析才可評估；美股目前一律無法評估。
 
 ---
 

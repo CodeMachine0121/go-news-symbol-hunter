@@ -7,6 +7,7 @@ import (
 
 	entities "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 
+	vo "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -125,6 +126,66 @@ func (_c *MockIAnalysisResultRepository_FindByAnalysisEventID_Call) Return(_a0 *
 }
 
 func (_c *MockIAnalysisResultRepository_FindByAnalysisEventID_Call) RunAndReturn(run func(context.Context, uint) (*entities.AnalysisResult, error)) *MockIAnalysisResultRepository_FindByAnalysisEventID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// FindForBacktest provides a mock function with given fields: ctx, gradeBacktestFilter, limit
+func (_m *MockIAnalysisResultRepository) FindForBacktest(ctx context.Context, gradeBacktestFilter vo.GradeBacktestFilterVo, limit int) ([]entities.AnalysisResult, error) {
+	ret := _m.Called(ctx, gradeBacktestFilter, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindForBacktest")
+	}
+
+	var r0 []entities.AnalysisResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, vo.GradeBacktestFilterVo, int) ([]entities.AnalysisResult, error)); ok {
+		return rf(ctx, gradeBacktestFilter, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, vo.GradeBacktestFilterVo, int) []entities.AnalysisResult); ok {
+		r0 = rf(ctx, gradeBacktestFilter, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]entities.AnalysisResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, vo.GradeBacktestFilterVo, int) error); ok {
+		r1 = rf(ctx, gradeBacktestFilter, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockIAnalysisResultRepository_FindForBacktest_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindForBacktest'
+type MockIAnalysisResultRepository_FindForBacktest_Call struct {
+	*mock.Call
+}
+
+// FindForBacktest is a helper method to define mock.On call
+//   - ctx context.Context
+//   - gradeBacktestFilter vo.GradeBacktestFilterVo
+//   - limit int
+func (_e *MockIAnalysisResultRepository_Expecter) FindForBacktest(ctx interface{}, gradeBacktestFilter interface{}, limit interface{}) *MockIAnalysisResultRepository_FindForBacktest_Call {
+	return &MockIAnalysisResultRepository_FindForBacktest_Call{Call: _e.mock.On("FindForBacktest", ctx, gradeBacktestFilter, limit)}
+}
+
+func (_c *MockIAnalysisResultRepository_FindForBacktest_Call) Run(run func(ctx context.Context, gradeBacktestFilter vo.GradeBacktestFilterVo, limit int)) *MockIAnalysisResultRepository_FindForBacktest_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(vo.GradeBacktestFilterVo), args[2].(int))
+	})
+	return _c
+}
+
+func (_c *MockIAnalysisResultRepository_FindForBacktest_Call) Return(_a0 []entities.AnalysisResult, _a1 error) *MockIAnalysisResultRepository_FindForBacktest_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockIAnalysisResultRepository_FindForBacktest_Call) RunAndReturn(run func(context.Context, vo.GradeBacktestFilterVo, int) ([]entities.AnalysisResult, error)) *MockIAnalysisResultRepository_FindForBacktest_Call {
 	_c.Call.Return(run)
 	return _c
 }

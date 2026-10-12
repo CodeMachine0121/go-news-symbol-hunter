@@ -20,6 +20,7 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/service"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/coingecko"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/gotrading"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/news"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/persistence"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/system"
@@ -73,6 +74,7 @@ type Controllers struct {
 	newsController               *controller.NewsController
 	analysisEventController      *controller.AnalysisEventController
 	trackedSymbolGradeController *controller.TrackedSymbolGradeController
+	gradeBacktestController      *controller.GradeBacktestController
 	symbolAnalysisApplication    *application.SymbolAnalysisApplication
 	sessionGradeApplication      *application.SessionGradeApplication
 }
@@ -140,6 +142,11 @@ func buildPriceProviderCatalog(externalSourceProxies ExternalSourceProxies) dto.
 	}
 }
 
+// go-trading has no US stocks, so they stay without a price source and cannot be backtested
+func buildPriceHistoryCatalog(priceHistoryProxy interfaces.IPriceHistoryProxy) dto.PriceHistoryCatalogDto {
+	return dto.PriceHistoryCatalogDto{TwStock: priceHistoryProxy, Crypto: priceHistoryProxy}
+}
+
 func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers {
 	clockProxy := system.NewSystemClockProxy()
 	httpBodyReader := httpfetch.NewHttpBodyReader(newExternalHttpClient())
@@ -157,6 +164,11 @@ func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers 
 		clockProxy,
 	)
 	symbolAnalysisApplication := application.NewSymbolAnalysisApplication(symbolAnalysisService, serverConfig.AiAnalysisMaximumConcurrency)
+	gradeBacktestService := service.NewGradeBacktestService(
+		persistence.NewAnalysisResultRepository(database),
+		clockProxy,
+		buildPriceHistoryCatalog(gotrading.NewGoTradingPriceHistoryProxy(newExternalHttpClient(), serverConfig.PriceServiceAccount)),
+	)
 	sessionGradeApplication := application.NewSessionGradeApplication(service.NewSessionGradeService(
 		symbolResolutionService,
 		analystConsultationService,
@@ -173,6 +185,7 @@ func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers 
 		newsController:               controller.NewNewsController(application.NewNewsSearchApplication(newsSearchService)),
 		analysisEventController:      controller.NewAnalysisEventController(symbolAnalysisApplication),
 		trackedSymbolGradeController: controller.NewTrackedSymbolGradeController(sessionGradeApplication),
+		gradeBacktestController:      controller.NewGradeBacktestController(application.NewGradeBacktestApplication(gradeBacktestService)),
 		symbolAnalysisApplication:    symbolAnalysisApplication,
 		sessionGradeApplication:      sessionGradeApplication,
 	}
@@ -201,6 +214,7 @@ func registerRoutes(router *gin.Engine, controllers Controllers) {
 	protectedRoutes.POST("/analysis-events", controllers.analysisEventController.StartSymbolAnalysis)
 	protectedRoutes.GET("/analysis-events/:analysisEventId", controllers.analysisEventController.GetAnalysisEvent)
 	protectedRoutes.GET("/tracked-symbol-grades", controllers.trackedSymbolGradeController.GetTrackedSymbolGrades)
+	protectedRoutes.GET("/grade-backtest", controllers.gradeBacktestController.GetGradeBacktest)
 }
 
 func buildBackgroundJobs(controllers Controllers, serverConfig ServerConfig) []interfaces.IBackgroundJob {
