@@ -351,15 +351,20 @@ func TestAnalysisBacktestDomain_ACheckpointDayStillTradingIsNotYetDue(t *testing
 	}
 	testCases := []struct {
 		name            string
+		category        string
 		evaluatedAt     time.Time
 		expectedOutcome string
 	}{
-		{name: "the checkpoint day is still trading", evaluatedAt: time.Date(2026, 10, 17, 23, 59, 0, 0, time.UTC), expectedOutcome: "pending"},
-		{name: "the checkpoint day has just closed", evaluatedAt: time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC), expectedOutcome: "hit"},
+		{name: "taiwan before its 13:30 close", category: "twStock", evaluatedAt: time.Date(2026, 10, 17, 13, 29, 0, 0, backtestTaipei), expectedOutcome: "pending"},
+		{name: "taiwan at its 13:30 close", category: "twStock", evaluatedAt: time.Date(2026, 10, 17, 13, 30, 0, 0, backtestTaipei), expectedOutcome: "hit"},
+		{name: "crypto before the utc day ends", category: "crypto", evaluatedAt: time.Date(2026, 10, 17, 23, 59, 0, 0, time.UTC), expectedOutcome: "pending"},
+		{name: "crypto once the utc day ends", category: "crypto", evaluatedAt: time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC), expectedOutcome: "hit"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(prices, testCase.evaluatedAt)
+			analysisResult := entities.AnalysisResult{Symbol: "X", Category: testCase.category, Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
+
+			analysisBacktest := domains.NewAnalysisBacktestDomain(analysisResult).Evaluate(prices, testCase.evaluatedAt)
 
 			assert.Equal(t, testCase.expectedOutcome, analysisBacktest.Outcome)
 		})

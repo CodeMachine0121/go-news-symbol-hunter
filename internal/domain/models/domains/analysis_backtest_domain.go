@@ -30,6 +30,8 @@ const (
 	dailyHolidayAllowanceDays   = 30
 	entryMinuteLookback         = 16 * time.Hour
 	entryHourlyFallbackLookback = 40 * 24 * time.Hour
+	// the Taiwan market closes at 13:30 Taipei, which is 05:30 into its UTC day
+	taiwanStockCloseIntoDay = 5*time.Hour + 30*time.Minute
 )
 
 // the backtest of one completed user analysis: where its entry price comes from, which trading day
@@ -78,6 +80,11 @@ func (analysisBacktestDomain AnalysisBacktestDomain) Evaluate(backtestPrices vo.
 	// the first trading day is the one after the day the entry price belongs to, so an analysis finished
 	// before the Taiwan open counts its own day; daily candles are cut at UTC midnight
 	entryDay := entryCandle.OpenTime.Truncate(dailyCandleLength)
+	// crypto trades around the clock, so its day closes only when the UTC day ends
+	closeIntoDay := dailyCandleLength
+	if analysisBacktestDomain.analysisResult.Category == vo.MarketCategoryTwStock {
+		closeIntoDay = taiwanStockCloseIntoDay
+	}
 	tradingDaysAfterEntry := 0
 	for _, dailyCandle := range backtestPrices.DailyCandles {
 		candleDay := dailyCandle.OpenTime.Truncate(dailyCandleLength)
@@ -85,7 +92,7 @@ func (analysisBacktestDomain AnalysisBacktestDomain) Evaluate(backtestPrices vo.
 			continue
 		}
 		// a day still trading has no close yet, so it cannot be a checkpoint
-		if candleDay.Add(dailyCandleLength).After(evaluatedAt) {
+		if candleDay.Add(closeIntoDay).After(evaluatedAt) {
 			break
 		}
 		tradingDaysAfterEntry++
