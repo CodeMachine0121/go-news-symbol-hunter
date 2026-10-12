@@ -15,6 +15,9 @@ import (
 
 var backtestTaipei = time.FixedZone("Asia/Taipei", 8*60*60)
 
+// long after every candle used below, so all of their days have closed
+var longAfterwards = time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
+
 // 2026-10-07 is a Wednesday
 func taipeiAt(day int, hour int, minute int) time.Time {
 	return time.Date(2026, 10, day, hour, minute, 0, 0, backtestTaipei)
@@ -83,7 +86,7 @@ func TestAnalysisBacktestDomain_JudgesTheGradeAgainstTheCheckpointClose(t *testi
 				MinuteCandles: entryMinute,
 				// the candle after the checkpoint must not be picked
 				DailyCandles: append(dailyCandlesEndingAt(utcDay(8), testCase.tradingDays, testCase.checkpointClose), candleAt(utcDay(8).AddDate(0, 0, testCase.tradingDays), "500")),
-			})
+			}, longAfterwards)
 
 			assert.Equal(t, testCase.expectedOutcome, analysisBacktest.Outcome)
 			require.NotNil(t, analysisBacktest.PriceChangeRate)
@@ -99,7 +102,7 @@ func TestAnalysisBacktestDomain_ReportsTheWholeAnalysis(t *testing.T) {
 	analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(vo.BacktestPricesVo{
 		MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")},
 		DailyCandles:  dailyCandlesEndingAt(utcDay(8), 10, "105"),
-	})
+	}, longAfterwards)
 
 	checkpointDate := "2026-10-17"
 	require.NotNil(t, analysisBacktest.PriceChangeRate)
@@ -168,7 +171,7 @@ func TestAnalysisBacktestDomain_EntryPriceIsTheLastPriceByCompletion(t *testing.
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			analysisBacktest := backtestOf("bullish", "short", testCase.completedAt).Evaluate(testCase.prices)
+			analysisBacktest := backtestOf("bullish", "short", testCase.completedAt).Evaluate(testCase.prices, longAfterwards)
 
 			require.NotNil(t, analysisBacktest.EntryPrice)
 			assert.Equal(t, testCase.expectedEntryPrice, analysisBacktest.EntryPrice.String())
@@ -200,7 +203,7 @@ func TestAnalysisBacktestDomain_FirstTradingDayFollowsTheEntryPriceDay(t *testin
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			analysisBacktest := backtestOf("bullish", "short", testCase.completedAt).Evaluate(testCase.prices)
+			analysisBacktest := backtestOf("bullish", "short", testCase.completedAt).Evaluate(testCase.prices, longAfterwards)
 
 			require.NotNil(t, analysisBacktest.CheckpointDate)
 			assert.Equal(t, testCase.expectedCheckpointDate, *analysisBacktest.CheckpointDate)
@@ -214,7 +217,7 @@ func TestAnalysisBacktestDomain_PendingUntilTheHorizonHasPassed(t *testing.T) {
 	analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(vo.BacktestPricesVo{
 		MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")},
 		DailyCandles:  dailyCandlesEndingAt(utcDay(7), 8, "105"),
-	})
+	}, longAfterwards)
 
 	assert.Equal(t, "pending", analysisBacktest.Outcome)
 	assert.Equal(t, decimalPointer("100"), analysisBacktest.EntryPrice)
@@ -235,7 +238,7 @@ func TestAnalysisBacktestDomain_UnevaluableWithoutAUsableEntryPrice(t *testing.T
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(testCase.prices)
+			analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(testCase.prices, longAfterwards)
 
 			assert.Equal(t, "unevaluable", analysisBacktest.Outcome)
 			assert.Nil(t, analysisBacktest.EntryPrice)
@@ -259,7 +262,7 @@ func TestAnalysisBacktestDomain_IgnoresThePriceAtAnalysis(t *testing.T) {
 	analysisBacktest := domains.NewAnalysisBacktestDomain(analysisResult).Evaluate(vo.BacktestPricesVo{
 		MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")},
 		DailyCandles:  dailyCandlesEndingAt(utcDay(8), 10, "105"),
-	})
+	}, longAfterwards)
 
 	assert.Equal(t, "hit", analysisBacktest.Outcome)
 }
@@ -318,7 +321,7 @@ func TestAnalysisBacktestDomain_PriceChangeRateKeepsFourDecimalPlaces(t *testing
 	analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(vo.BacktestPricesVo{
 		MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "3")},
 		DailyCandles:  dailyCandlesEndingAt(utcDay(8), 10, "4"),
-	})
+	}, longAfterwards)
 
 	require.NotNil(t, analysisBacktest.PriceChangeRate)
 	assert.Equal(t, "0.3333", analysisBacktest.PriceChangeRate.String())
@@ -333,8 +336,46 @@ func TestAnalysisBacktestDomain_CheckpointDateIsTheDailyCandlesUtcDay(t *testing
 	analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(vo.BacktestPricesVo{
 		MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")},
 		DailyCandles:  dailyCandles,
-	})
+	}, longAfterwards)
 
 	require.NotNil(t, analysisBacktest.CheckpointDate)
 	assert.Equal(t, "2026-10-17", *analysisBacktest.CheckpointDate)
+}
+
+func TestAnalysisBacktestDomain_ACheckpointDayStillTradingIsNotYetDue(t *testing.T) {
+	completedAt := taipeiAt(7, 10, 15)
+	prices := vo.BacktestPricesVo{
+		MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")},
+		// the tenth trading day is 2026-10-17
+		DailyCandles: dailyCandlesEndingAt(utcDay(8), 10, "105"),
+	}
+	testCases := []struct {
+		name            string
+		evaluatedAt     time.Time
+		expectedOutcome string
+	}{
+		{name: "the checkpoint day is still trading", evaluatedAt: time.Date(2026, 10, 17, 23, 59, 0, 0, time.UTC), expectedOutcome: "pending"},
+		{name: "the checkpoint day has just closed", evaluatedAt: time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC), expectedOutcome: "hit"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(prices, testCase.evaluatedAt)
+
+			assert.Equal(t, testCase.expectedOutcome, analysisBacktest.Outcome)
+		})
+	}
+}
+
+func TestAnalysisBacktestDomain_DaysWithoutADailyPriceAreNotTradingDays(t *testing.T) {
+	completedAt := taipeiAt(7, 10, 15)
+	// Thursday 2026-10-08 through 2026-10-18, with 2026-10-10 a holiday that has no daily price
+	dailyCandles := append(dailyCandlesFrom(utcDay(8), "100", "100"), dailyCandlesEndingAt(utcDay(11), 8, "105")...)
+
+	analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(vo.BacktestPricesVo{
+		MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")},
+		DailyCandles:  dailyCandles,
+	}, longAfterwards)
+
+	require.NotNil(t, analysisBacktest.CheckpointDate)
+	assert.Equal(t, "2026-10-18", *analysisBacktest.CheckpointDate)
 }

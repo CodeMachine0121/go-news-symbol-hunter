@@ -166,6 +166,7 @@ func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers 
 	symbolAnalysisApplication := application.NewSymbolAnalysisApplication(symbolAnalysisService, serverConfig.AiAnalysisMaximumConcurrency)
 	gradeBacktestService := service.NewGradeBacktestService(
 		persistence.NewAnalysisResultRepository(database),
+		clockProxy,
 		buildPriceHistoryCatalog(gotrading.NewGoTradingPriceHistoryProxy(newExternalHttpClient(), serverConfig.PriceServiceAccount)),
 	)
 	sessionGradeApplication := application.NewSessionGradeApplication(service.NewSessionGradeService(

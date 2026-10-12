@@ -23,6 +23,15 @@ var backtestCompletedAt = time.Date(2026, 10, 7, 10, 15, 0, 0, taipei)
 
 var errPriceServiceDown = errors.New("connection refused")
 
+// long after every checkpoint used below, so all of their days have closed
+var backtestEvaluatedAt = time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
+
+func clockAt(t *testing.T, now time.Time) *mocks.MockIClockProxy {
+	clockProxy := mocks.NewMockIClockProxy(t)
+	clockProxy.EXPECT().Now().Return(now).Maybe()
+	return clockProxy
+}
+
 type gradeBacktestFixture struct {
 	gradeBacktestApplication *application.GradeBacktestApplication
 	analysisResultRepository *mocks.MockIAnalysisResultRepository
@@ -36,6 +45,7 @@ func createGradeBacktestFixture(t *testing.T) gradeBacktestFixture {
 	}
 	fixture.gradeBacktestApplication = application.NewGradeBacktestApplication(service.NewGradeBacktestService(
 		fixture.analysisResultRepository,
+		clockAt(t, backtestEvaluatedAt),
 		dto.PriceHistoryCatalogDto{TwStock: fixture.priceHistoryProxy, Crypto: fixture.priceHistoryProxy},
 	))
 	return fixture
@@ -277,7 +287,7 @@ func TestGetGradeBacktest_FailsWhenTheAnalysesCannotBeRead(t *testing.T) {
 func TestGetGradeBacktest_AsksEachMarketsOwnPriceSource(t *testing.T) {
 	analysisResultRepository := mocks.NewMockIAnalysisResultRepository(t)
 	priceHistoryProxiesByCategory := map[string]*mocks.MockIPriceHistoryProxy{"twStock": mocks.NewMockIPriceHistoryProxy(t), "usStock": mocks.NewMockIPriceHistoryProxy(t), "crypto": mocks.NewMockIPriceHistoryProxy(t)}
-	gradeBacktestApplication := application.NewGradeBacktestApplication(service.NewGradeBacktestService(analysisResultRepository, dto.PriceHistoryCatalogDto{
+	gradeBacktestApplication := application.NewGradeBacktestApplication(service.NewGradeBacktestService(analysisResultRepository, clockAt(t, backtestEvaluatedAt), dto.PriceHistoryCatalogDto{
 		TwStock: priceHistoryProxiesByCategory["twStock"],
 		UsStock: priceHistoryProxiesByCategory["usStock"],
 		Crypto:  priceHistoryProxiesByCategory["crypto"],
@@ -298,4 +308,38 @@ func TestGetGradeBacktest_AsksEachMarketsOwnPriceSource(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, map[string]int{"hit": 3, "miss": 0, "neutral": 0, "pending": 0, "unevaluable": 0}, gradeBacktest.OutcomeCounts)
+}
+
+func TestGetGradeBacktest_ACheckpointDayStillTradingIsNotYetDue(t *testing.T) {
+	analysisResultRepository := mocks.NewMockIAnalysisResultRepository(t)
+	priceHistoryProxy := mocks.NewMockIPriceHistoryProxy(t)
+	// the tenth trading day is 2026-10-17 and it is still trading
+	duringTheCheckpointDay := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	gradeBacktestApplication := application.NewGradeBacktestApplication(service.NewGradeBacktestService(analysisResultRepository, clockAt(t, duringTheCheckpointDay), dto.PriceHistoryCatalogDto{Crypto: priceHistoryProxy}))
+	analysisResultRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return([]entities.AnalysisResult{completedAnalysis(1, "BTC", "crypto", "bullish")}, nil)
+	priceHistoryProxy.EXPECT().FetchCandles(mock.Anything, mock.MatchedBy(func(priceHistoryQuery vo.PriceHistoryQueryVo) bool { return priceHistoryQuery.Interval == "1m" })).
+		Return([]vo.PriceCandleVo{priceCandle(backtestCompletedAt, "100")}, nil)
+	priceHistoryProxy.EXPECT().FetchCandles(mock.Anything, mock.MatchedBy(func(priceHistoryQuery vo.PriceHistoryQueryVo) bool { return priceHistoryQuery.Interval == "1d" })).
+		Return(tenTradingDaysEndingAt("105"), nil)
+
+	gradeBacktest, err := gradeBacktestApplication.GetGradeBacktest(context.Background(), dto.GetGradeBacktestDto{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "pending", gradeBacktest.Analyses[0].Outcome)
+}
+
+func TestGetGradeBacktest_OneSymbolWithoutPricesLeavesTheOthersJudged(t *testing.T) {
+	fixture := createGradeBacktestFixture(t)
+	fixture.givenAnalyses(completedAnalysis(1, "6488", "twStock", "bullish"), completedAnalysis(2, "2330", "twStock", "bullish"))
+	fixture.givenCandles("6488", "1m", []vo.PriceCandleVo{})
+	fixture.givenCandles("6488", "1h", []vo.PriceCandleVo{})
+	fixture.givenCandles("6488", "1d", []vo.PriceCandleVo{})
+	fixture.givenTradedAt("2330", "100", "105")
+
+	gradeBacktest, err := fixture.gradeBacktestApplication.GetGradeBacktest(context.Background(), dto.GetGradeBacktestDto{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "unevaluable", gradeBacktest.Analyses[0].Outcome)
+	assert.Equal(t, "hit", gradeBacktest.Analyses[1].Outcome)
+	assert.Equal(t, 1.0, *gradeBacktest.Overall.HitRate)
 }

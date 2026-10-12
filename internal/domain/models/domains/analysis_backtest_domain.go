@@ -59,7 +59,8 @@ func (analysisBacktestDomain AnalysisBacktestDomain) PriceWindows() vo.BacktestP
 	}
 }
 
-func (analysisBacktestDomain AnalysisBacktestDomain) Evaluate(backtestPrices vo.BacktestPricesVo) dto.AnalysisBacktestDto {
+// evaluatedAt decides which daily candles are finished: the price service also returns the day still trading
+func (analysisBacktestDomain AnalysisBacktestDomain) Evaluate(backtestPrices vo.BacktestPricesVo, evaluatedAt time.Time) dto.AnalysisBacktestDto {
 	completedAt := analysisBacktestDomain.analysisResult.CreatedAt
 	// the minute candles are preferred; the hourly ones only matter when no minute candle qualifies
 	entryCandle := vo.PriceCandleVo{}
@@ -79,8 +80,13 @@ func (analysisBacktestDomain AnalysisBacktestDomain) Evaluate(backtestPrices vo.
 	entryDay := entryCandle.OpenTime.Truncate(dailyCandleLength)
 	tradingDaysAfterEntry := 0
 	for _, dailyCandle := range backtestPrices.DailyCandles {
-		if !dailyCandle.OpenTime.Truncate(dailyCandleLength).After(entryDay) {
+		candleDay := dailyCandle.OpenTime.Truncate(dailyCandleLength)
+		if !candleDay.After(entryDay) {
 			continue
+		}
+		// a day still trading has no close yet, so it cannot be a checkpoint
+		if candleDay.Add(dailyCandleLength).After(evaluatedAt) {
+			break
 		}
 		tradingDaysAfterEntry++
 		if tradingDaysAfterEntry == analysisBacktestDomain.requiredTradingDays() {

@@ -99,5 +99,12 @@ func TestGradeBacktestSummaryDomain_NothingToBacktest(t *testing.T) {
 
 	assert.Equal(t, dto.HitRateDto{}, gradeBacktest.Overall)
 	assert.Equal(t, []dto.AnalysisBacktestDto{}, gradeBacktest.Analyses)
+	assert.Len(t, gradeBacktest.ByCategory, 3)
+	assert.Len(t, gradeBacktest.ByGrade, 4)
 	assert.Len(t, gradeBacktest.ByConfidenceBand, 3)
+	for _, groups := range []map[string]dto.HitRateDto{gradeBacktest.ByCategory, gradeBacktest.ByGrade, gradeBacktest.ByConfidenceBand} {
+		for group, hitRate := range groups {
+			assert.Nil(t, hitRate.HitRate, group)
+		}
+	}
 }

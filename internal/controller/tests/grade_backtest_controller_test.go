@@ -29,7 +29,8 @@ type gradeBacktestRouterFixture struct {
 func createGradeBacktestRouter(t *testing.T) gradeBacktestRouterFixture {
 	gin.SetMode(gin.TestMode)
 	clockProxy := mocks.NewMockIClockProxy(t)
-	clockProxy.EXPECT().Now().Return(analysisStartedAt).Maybe()
+	// after every checkpoint below, so their days have closed
+	clockProxy.EXPECT().Now().Return(time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)).Maybe()
 	fixture := gradeBacktestRouterFixture{
 		apiKeyRepository:         mocks.NewMockIApiKeyRepository(t),
 		analysisResultRepository: mocks.NewMockIAnalysisResultRepository(t),
@@ -38,6 +39,7 @@ func createGradeBacktestRouter(t *testing.T) gradeBacktestRouterFixture {
 	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(fixture.apiKeyRepository, clockProxy, mocks.NewMockIRandomProxy(t))))
 	gradeBacktestController := controller.NewGradeBacktestController(application.NewGradeBacktestApplication(service.NewGradeBacktestService(
 		fixture.analysisResultRepository,
+		clockProxy,
 		dto.PriceHistoryCatalogDto{TwStock: fixture.priceHistoryProxy, Crypto: fixture.priceHistoryProxy},
 	)))
 	fixture.router = gin.New()

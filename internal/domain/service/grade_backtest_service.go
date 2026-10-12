@@ -18,12 +18,14 @@ const (
 
 type GradeBacktestService struct {
 	analysisResultRepository      interfaces.IAnalysisResultRepository
+	clockProxy                    interfaces.IClockProxy
 	priceHistoryProxiesByCategory map[string]interfaces.IPriceHistoryProxy
 }
 
-func NewGradeBacktestService(analysisResultRepository interfaces.IAnalysisResultRepository, priceHistoryCatalog dto.PriceHistoryCatalogDto) *GradeBacktestService {
+func NewGradeBacktestService(analysisResultRepository interfaces.IAnalysisResultRepository, clockProxy interfaces.IClockProxy, priceHistoryCatalog dto.PriceHistoryCatalogDto) *GradeBacktestService {
 	return &GradeBacktestService{
 		analysisResultRepository: analysisResultRepository,
+		clockProxy:               clockProxy,
 		priceHistoryProxiesByCategory: map[string]interfaces.IPriceHistoryProxy{
 			vo.MarketCategoryTwStock: priceHistoryCatalog.TwStock,
 			vo.MarketCategoryUsStock: priceHistoryCatalog.UsStock,
@@ -50,6 +52,7 @@ func (gradeBacktestService *GradeBacktestService) GetGradeBacktest(ctx context.C
 	if len(analysisResults) > MaximumBacktestAnalysisCount {
 		return dto.GradeBacktestDto{}, ErrBacktestAnalysisLimitExceeded
 	}
+	evaluatedAt := gradeBacktestService.clockProxy.Now()
 	analysisBacktests := make([]dto.AnalysisBacktestDto, len(analysisResults))
 	priceFetchGroup, priceFetchContext := errgroup.WithContext(ctx)
 	priceFetchGroup.SetLimit(maximumConcurrentPriceHistoryFetches)
@@ -77,7 +80,7 @@ func (gradeBacktestService *GradeBacktestService) GetGradeBacktest(ctx context.C
 			if err != nil {
 				return err
 			}
-			analysisBacktests[index] = analysisBacktest.Evaluate(vo.BacktestPricesVo{MinuteCandles: minuteCandles, HourlyCandles: hourlyCandles, DailyCandles: dailyCandles})
+			analysisBacktests[index] = analysisBacktest.Evaluate(vo.BacktestPricesVo{MinuteCandles: minuteCandles, HourlyCandles: hourlyCandles, DailyCandles: dailyCandles}, evaluatedAt)
 			return nil
 		})
 	}
