@@ -3,7 +3,7 @@
 **Project:** go-symbol-news-hunter
 **Bounded Context:** 標的資訊面分析（Symbol News Analysis）——依標的與市場類別爬取新聞，交由 AI 分析並產出標準化評等
 **Maintainer:** James Hsueh
-**Last Updated:** 2026-10-07
+**Last Updated:** 2026-10-12
 
 > 尚無程式碼，本版詞彙全部來自需求討論。使用者親口定義的詞標 `Confirmed`；討論中提出、方向已同意但細節待 `/clarify` 拍板的標 `Archeology`。
 
@@ -55,6 +55,16 @@
 | 時段權重 | `SessionWeight` | — | 計算綜合評等時各時段的權重；預設盤後 0.5、盤前 0.3、盤中 0.2，可由設定調整，不是正數時用預設值 | Confirmed |
 | 綜合分數 | `CombinedScore` | combinedScore | Σ(評等分數 × 時段權重) ÷ Σ(已有時段權重)；≥1.5 強烈看多、≥0.5 看多、>−0.5 中性、>−1.5 看空、其餘強烈看空 | Confirmed |
 | 時段執行紀錄 | `SessionRun` / table `session_runs` | — | 某交易日某時段的一次自動執行：狀態、開始 / 結束時間、成功 / 失敗檔數、失敗標的與各自原因（`FailedSymbols`）、AI 用量合計、失敗原因；同交易日同時段只有一筆；永久保留 | Confirmed |
+| 評等回測 | `GradeBacktest` | backtest | 拿使用者發起且已完成的分析，比較起點價格與檢查點收盤價，判斷評等方向是否命中，並彙總成命中率總表；查詢時當場計算、不保存結果。時段評等與綜合評等不回測 | Confirmed |
+| 價格服務 | `IPriceHistoryProxy`（實作 `GoTradingPriceHistoryProxy`） | — | 提供台股與加密貨幣每分鐘、每日價格的自家交易服務；沒有美股；代號須先在價格服務登錄才查得到 | Archeology |
+| 起點價格 | `EntryPrice` | entryPrice | 回測的比較基準：分析完成那一分鐘的價格；該市場當下不在交易中時，用分析完成前最後一筆價格。一律取自價格服務，與分析時價格無關 | Confirmed |
+| 檢查點 | `Checkpoint` | checkpoint | 依時間範圍決定的回測檢查日：短期為分析後第 10 個交易日、中期為第 60 個交易日；取該日收盤價。「分析後第 1 個交易日」是起點價格所屬那一天之後的第一個交易日（台股開盤前完成的分析，完成當天即為第 1 個交易日） | Confirmed |
+| 回測交易日 | — | — | 價格服務有當天每日價格的日子（國定假日自動跳過）；加密貨幣每天都是交易日。與時段評等使用的「交易日」（週一到週五）不同 | Confirmed |
+| 漲跌幅 | `PriceChangeRate` | priceChangeRate | (檢查點收盤價 − 起點價格) ÷ 起點價格 | Confirmed |
+| 回測結果 | `BacktestOutcome` | outcome | 單筆分析的回測結論：命中 / 沒命中 / 中性 / 尚未到期 / 無法評估（見 §4） | Confirmed |
+| 命中率 | `HitRate` | hitRate | 命中筆數 ÷ 有方向且可評估的筆數；分母為 0 時為「沒有資料」，不是 0%；並列隨機猜測 50% 作比較 | Confirmed |
+| 信心分組 | `ConfidenceBand` | confidenceBand | 依信心指數分組：0–49 低、50–74 中、75–100 高 | Confirmed |
+| 回測筆數上限 | — | — | 一次回測查詢最多涵蓋 500 筆分析，超過即拒絕並請使用者縮小期間 | Confirmed |
 
 ---
 
@@ -81,6 +91,7 @@
 | 重新計算綜合評等 | `RecalculateCombinedGrade` | 某追蹤標的產生新的時段評等後 | 以當天已有的時段評等加權平均，覆蓋該標的當天的綜合評等 | |
 | 查詢追蹤標的評等 | `GetTrackedSymbolGrades` | 使用者以已啟用 API key 查詢（可指定標的 + 市場類別） | 回傳仍追蹤中標的的最新一天綜合評等與該天各時段評等；沒有則回傳空結果 | 標的與市場類別需一起提供 |
 | 中斷時段執行 | `FailInterruptedSessionRuns` | 服務啟動時 | 仍為執行中的時段執行紀錄改為失敗 | 原因「服務重新啟動，執行中斷」；當天該時段不再重跑 |
+| 查詢評等回測 | `GetGradeBacktest` | 使用者以已啟用 API key 查詢（可指定分析完成期間、標的 + 市場類別） | 當場以價格服務的價格計算每筆分析的回測結果，回傳命中率總表（整體、依市場類別 / 評等 / 信心分組）與逐筆明細 | 超過 500 筆拒絕；價格服務無法連線則整次失敗 |
 
 ---
 
@@ -111,6 +122,8 @@
 | 時間範圍 | `short` / `mid` | 短期（兩週內）/ 中期（三個月內） | Confirmed；非法值正規化為 `short` |
 | 交易時段 | `preMarket` / `intraday` / `afterMarket` | 盤前 / 盤中 / 盤後 | Confirmed；執行時段（台北時間，起點含、終點不含）：08:00–09:00 / 12:30–13:30 / 20:00–24:00 |
 | 時段執行紀錄狀態 | `running` / `succeeded` / `failed` | 執行中 / 已完成 / 失敗 | Confirmed；服務重啟時殘留 `running` 改為 `failed`（「服務重新啟動，執行中斷」） |
+| 回測結果 | `hit` / `miss` / `neutral` / `pending` / `unevaluable` | 命中 / 沒命中 / 中性 / 尚未到期 / 無法評估 | Confirmed；只有命中與沒命中計入命中率 |
+| 信心分組 | `low` / `medium` / `high` | 低（0–49）/ 中（50–74）/ 高（75–100） | Confirmed |
 
 ---
 
