@@ -48,7 +48,7 @@
 | `GradeBacktestSummaryDomain` | Domain Model | 由 `[]dto.AnalysisBacktestDto` 建立；`ToDto() dto.GradeBacktestDto`：整體 / 市場類別 / 評等 / 信心分組命中率、中性平均漲跌幅、各回測結果筆數、隨機基準 0.5、逐筆明細 | — | US-04 |
 | `GradeBacktestFilterVo` | VO | 回測條件：`Period AnalysisCompletedPeriodVo`、`Symbol`、`Category`（空＝全部標的）。service 驗證：標的與市場類別只給一個 → `ErrSymbolAndCategoryRequiredTogether`；市場類別用 `vo.NewMarketCategoryVo` 驗證並以 `vo.NewSymbolVo` 正規化標的（與分析時同寫法） | — | 指定標的 / 只給標的 / 不支援的市場類別 |
 | `AnalysisCompletedPeriodVo` | VO | 建構子解析 `completedFrom` / `completedTo`（`2006-01-02`，台北時間，頭尾含），轉成 `[From, Before)`；格式錯或起日晚於迄日回 error（service 包成 `ErrBacktestPeriodInvalid`，VO 不 import service）；空字串＝不限 | — | 指定期間 / 期間不合理 |
-| `GradeBacktestService.GetGradeBacktest(ctx, dto.GetGradeBacktestDto) (dto.GradeBacktestDto, error)` | Domain Service | `GetGradeBacktestDto{CompletedFrom, CompletedTo, Symbol, Category}`（原始字串）→ 建立 `GradeBacktestFilterVo`（驗證期間、標的與市場類別）→ 讀 ≤ 501 筆分析結果（501 筆即 `ErrBacktestAnalysisLimitExceeded`）→ 以 errgroup（上限 8）逐筆取價並評估 → 任一取價錯誤即 `ErrPriceServiceUnavailable` → 彙總 | `IAnalysisResultRepository`、`PriceHistoryCatalogDto` | US-04 |
+| `GradeBacktestService.GetGradeBacktest(ctx, dto.GetGradeBacktestDto) (dto.GradeBacktestDto, error)` | Domain Service | `GetGradeBacktestDto{CompletedFrom, CompletedTo, Symbol, Category}`（原始字串）→ 建立 `GradeBacktestFilterVo`（驗證期間、標的與市場類別）→ 讀 ≤ 501 筆分析結果（501 筆即 `ErrBacktestAnalysisLimitExceeded`）→ 以 errgroup（上限 8）逐筆取價並評估 → 任一取價錯誤即 `ErrPriceServiceUnavailable` → 彙總 | `IAnalysisResultRepository`、`IClockProxy`、`PriceHistoryCatalogDto` | US-04 |
 | `GradeBacktestApplication` | Application | 轉呼叫 service | `GradeBacktestService` | — |
 | `GradeBacktestController` | Controller | 讀 `completedFrom` / `completedTo` / `symbol` / `category` query；錯誤對映：期間不正確 400 `backtest_period_invalid`、標的與市場類別需一起提供 400 `symbol_and_category_required_together`、市場類別不支援 400 `market_category_unsupported`、超過 500 筆 400 `backtest_analysis_limit_exceeded`、價格服務 503 `price_service_unavailable` | `GradeBacktestApplication` | US-04 |
 
@@ -59,10 +59,10 @@
 - `PriceWindows() vo.BacktestPriceWindowsVo`
   - 所需交易日 N：短期 10、中期 60（時間範圍非法值已在分析時正規化為短期）。
   - `Daily`：`[完成時間 − 10 天, 完成時間 + N × 7 / 5 + 30 天]`，涵蓋連假；最長約 124 根，低於價格服務單次 1000 根上限。
-- `Evaluate(vo.BacktestPricesVo) dto.AnalysisBacktestDto`
+- `Evaluate(vo.BacktestPricesVo, evaluatedAt time.Time) dto.AnalysisBacktestDto`（`evaluatedAt` 由 service 經 `IClockProxy` 取得）
   1. **起點價格**：`MinuteCandles` 中 `OpenTime ≤ 完成時間` 的最後一根收盤價；沒有則取 `HourlyCandles` 最後一根收盤價（16 小時內沒有成交，所以該小時不會含完成後的成交）；都沒有 → **無法評估**。
   2. **起點日**：起點那根 K 線的 UTC 日（價格服務的日 K 以 UTC 零點切分；台股交易時段 01:00–05:30 UTC，UTC 日＝台北日期）。
-  3. **檢查點**：`DailyCandles` 中日期晚於起點日的第 N 根；不足 N 根 → **尚未到期**。
+  3. **檢查點**：`DailyCandles` 中日期晚於起點日、且那一天已收盤（台股：UTC 日起點 + 5:30，即台北 13:30；其他市場：UTC 日終點；≤ `evaluatedAt`）的第 N 根；不足 N 根 → **尚未到期**。價格服務會回傳當天仍在交易的日 K（由目前為止的分 K 彙總），不能當檢查點。
      - 交易時段內 / 收盤後完成 → 起點日＝完成當天 → 隔天是第 1 個交易日。
      - 台股開盤前完成 → 起點是前一交易日 → 完成當天是第 1 個交易日。
   4. **漲跌幅**：`(檢查點收盤 − 起點) ÷ 起點`，decimal 計算，四捨五入到小數 4 位。
@@ -81,7 +81,7 @@
 
 | Component | Current role | Change needed |
 | :--- | :--- | :--- |
-| `IAnalysisResultRepository` | `Create`、`FindByAnalysisEventID` | 加 `FindForBacktest(ctx, vo.GradeBacktestFilterVo, limit int) ([]entities.AnalysisResult, error)`：`created_at` 在期間內、有標的時加 `symbol` + `category` 條件、依 `created_at` 舊到新、`Limit(limit)`；重新產生 mock |
+| `IAnalysisResultRepository` | `Create`、`FindByAnalysisEventID` | 加 `FindForBacktest(ctx, vo.GradeBacktestFilterVo, limit int) ([]entities.AnalysisResult, error)`：只取分析事件狀態為已完成者（子查詢 `analysis_events`；分析結果先於事件狀態寫入，狀態更新失敗時會留下結果）、`created_at` 在期間內、有標的時加 `symbol` + `category` 條件、依 `created_at` 舊到新、`Limit(limit)`；重新產生 mock |
 | `config.go` | 讀環境變數 | `GO_TRADING_BASE_URL`（無預設值，去掉結尾 `/`；本服務自己預設佔用 8080，不能拿來當 go-trading 的預設）、`GO_TRADING_EMAIL`、`GO_TRADING_PASSWORD`（任一為空 → 每次回測都是價格服務無法使用，不擋啟動） |
 | `dependencies.go` | DI、路由 | 組 `GoTradingPriceHistoryProxy`、`PriceHistoryCatalogDto{TwStock, Crypto: 同一個 proxy; UsStock: nil}`、service / application / controller；`protectedRoutes.GET("/grade-backtest", ...)` |
 | `.env.example`、`postman/`、`.sdd/PROJECT.md` | 文件 | 補新設定與路由 |
