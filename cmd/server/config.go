@@ -6,9 +6,11 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/gotrading"
 )
 
 const (
@@ -36,6 +38,8 @@ type ServerConfig struct {
 	// non-positive disables the trading session job
 	TradingSessionJobInterval time.Duration
 	SessionWeights            vo.SessionWeightsVo
+	// left incomplete, the server still starts and every backtest reports the price service as unavailable
+	PriceServiceAccount gotrading.GoTradingAccount
 }
 
 func loadServerConfig() (ServerConfig, error) {
@@ -98,5 +102,10 @@ func loadServerConfig() (ServerConfig, error) {
 		BackgroundJobsEnabled:        backgroundJobsEnabled,
 		TradingSessionJobInterval:    tradingSessionJobInterval,
 		SessionWeights:               vo.NewSessionWeightsVo(sessionWeightsBySetting["SESSION_WEIGHT_PRE_MARKET"], sessionWeightsBySetting["SESSION_WEIGHT_INTRADAY"], sessionWeightsBySetting["SESSION_WEIGHT_AFTER_MARKET"]),
+		PriceServiceAccount: gotrading.GoTradingAccount{
+			BaseUrl:  strings.TrimRight(os.Getenv("GO_TRADING_BASE_URL"), "/"),
+			Email:    os.Getenv("GO_TRADING_EMAIL"),
+			Password: os.Getenv("GO_TRADING_PASSWORD"),
+		},
 	}, nil
 }

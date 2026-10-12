@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/service"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/gotrading"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/system"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/job"
@@ -50,6 +51,8 @@ func TestRegisteredRoutes_ServeHealthAndGuardProtectedRoutes(t *testing.T) {
 	router.ServeHTTP(getAnalysisRecorder, httptest.NewRequest(http.MethodGet, "/analysis-events/1", nil))
 	trackedSymbolGradesRecorder := httptest.NewRecorder()
 	router.ServeHTTP(trackedSymbolGradesRecorder, httptest.NewRequest(http.MethodGet, "/tracked-symbol-grades", nil))
+	gradeBacktestRecorder := httptest.NewRecorder()
+	router.ServeHTTP(gradeBacktestRecorder, httptest.NewRequest(http.MethodGet, "/grade-backtest", nil))
 
 	assert.Equal(t, http.StatusOK, healthRecorder.Code)
 	assert.Equal(t, http.StatusBadRequest, issueRecorder.Code)
@@ -59,6 +62,7 @@ func TestRegisteredRoutes_ServeHealthAndGuardProtectedRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, startAnalysisRecorder.Code)
 	assert.Equal(t, http.StatusUnauthorized, getAnalysisRecorder.Code)
 	assert.Equal(t, http.StatusUnauthorized, trackedSymbolGradesRecorder.Code)
+	assert.Equal(t, http.StatusUnauthorized, gradeBacktestRecorder.Code)
 }
 
 func TestBuildNewsProvidersByCategory_AssignsProvidersAndLocalesPerMarket(t *testing.T) {
@@ -165,6 +169,14 @@ func TestBuildPriceProviderCatalog_AssignsAPriceSourcePerMarket(t *testing.T) {
 	assert.Len(t, priceProviderCatalog.TwStock, 2)
 	assert.Equal(t, "/yahoo/AAPL", usStockPath)
 	assert.Equal(t, "/binance", cryptoPath)
+}
+
+func TestBuildPriceHistoryCatalog_LeavesUsStocksWithoutAPriceSource(t *testing.T) {
+	priceHistoryProxy := gotrading.NewGoTradingPriceHistoryProxy(http.DefaultClient, gotrading.GoTradingAccount{})
+
+	priceHistoryCatalog := buildPriceHistoryCatalog(priceHistoryProxy)
+
+	assert.Equal(t, dto.PriceHistoryCatalogDto{TwStock: priceHistoryProxy, Crypto: priceHistoryProxy}, priceHistoryCatalog)
 }
 
 func TestBuildSymbolDirectoryCatalog_AsksTwseBeforeTpex(t *testing.T) {
