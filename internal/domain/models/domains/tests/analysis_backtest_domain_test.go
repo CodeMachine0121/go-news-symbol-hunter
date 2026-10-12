@@ -357,10 +357,11 @@ func TestAnalysisBacktestDomain_ACheckpointDayStillTradingIsNotYetDue(t *testing
 		evaluatedAt     time.Time
 		expectedOutcome string
 	}{
-		{name: "taiwan before its 13:30 close", category: "twStock", evaluatedAt: time.Date(2026, 10, 17, 13, 29, 0, 0, backtestTaipei), expectedOutcome: "pending"},
-		{name: "taiwan at its 13:30 close", category: "twStock", evaluatedAt: time.Date(2026, 10, 17, 13, 30, 0, 0, backtestTaipei), expectedOutcome: "hit"},
-		{name: "crypto before the utc day ends", category: "crypto", evaluatedAt: time.Date(2026, 10, 17, 23, 59, 0, 0, time.UTC), expectedOutcome: "pending"},
-		{name: "crypto once the utc day ends", category: "crypto", evaluatedAt: time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC), expectedOutcome: "hit"},
+		// a day counts an hour after its close, once its last minutes have reached the price service
+		{name: "taiwan within an hour of its 13:30 close", category: "twStock", evaluatedAt: time.Date(2026, 10, 17, 14, 29, 0, 0, backtestTaipei), expectedOutcome: "pending"},
+		{name: "taiwan an hour after its 13:30 close", category: "twStock", evaluatedAt: time.Date(2026, 10, 17, 14, 30, 0, 0, backtestTaipei), expectedOutcome: "hit"},
+		{name: "crypto within an hour of the utc day ending", category: "crypto", evaluatedAt: time.Date(2026, 10, 18, 0, 59, 0, 0, time.UTC), expectedOutcome: "pending"},
+		{name: "crypto an hour after the utc day ends", category: "crypto", evaluatedAt: time.Date(2026, 10, 18, 1, 0, 0, 0, time.UTC), expectedOutcome: "hit"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -389,22 +390,24 @@ func TestAnalysisBacktestDomain_DaysWithoutADailyPriceAreNotTradingDays(t *testi
 
 func TestAnalysisBacktestDomain_UnevaluableOnceTheWholeDailyWindowHasPassed(t *testing.T) {
 	completedAt := taipeiAt(7, 10, 15)
-	// the price service stopped after seven trading days; the short window runs to the end of 2026-11-20 UTC,
-	// and its last day gets one more day to arrive
+	// the price service stopped after seven trading days; the short window's last day is 2026-11-20, which
+	// settles an hour after its 13:30 Taipei close
 	prices := vo.BacktestPricesVo{MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")}, DailyCandles: dailyCandlesEndingAt(utcDay(8), 7, "105")}
 	testCases := []struct {
-		name            string
-		evaluatedAt     time.Time
-		expectedOutcome string
+		name               string
+		evaluatedAt        time.Time
+		expectedOutcome    string
+		expectedEntryPrice *decimal.Decimal
 	}{
-		{name: "the last day may still arrive", evaluatedAt: time.Date(2026, 11, 21, 23, 59, 59, 999000000, time.UTC), expectedOutcome: "pending"},
-		{name: "nothing more is coming", evaluatedAt: time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC), expectedOutcome: "unevaluable"},
+		{name: "the last day may still arrive", evaluatedAt: time.Date(2026, 11, 20, 14, 29, 59, 999000000, backtestTaipei), expectedOutcome: "pending", expectedEntryPrice: decimalPointer("100")},
+		{name: "nothing more is coming", evaluatedAt: time.Date(2026, 11, 20, 14, 30, 0, 0, backtestTaipei), expectedOutcome: "unevaluable"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(prices, testCase.evaluatedAt)
 
 			assert.Equal(t, testCase.expectedOutcome, analysisBacktest.Outcome)
+			assert.Equal(t, testCase.expectedEntryPrice, analysisBacktest.EntryPrice)
 		})
 	}
 }

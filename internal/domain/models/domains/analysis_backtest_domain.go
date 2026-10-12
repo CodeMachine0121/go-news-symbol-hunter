@@ -30,8 +30,8 @@ const (
 	dailyHolidayAllowanceDays   = 30
 	entryMinuteLookback         = 16 * time.Hour
 	entryHourlyFallbackLookback = 40 * 24 * time.Hour
-	// the price service builds a day from its minute candles, so the last day can arrive a little late
-	dailyCandleArrivalGrace = 24 * time.Hour
+	// the price service builds a day from its minute candles, which keep arriving for a while after the close
+	dailyCandleSettleTime = time.Hour
 )
 
 // the backtest of one completed user analysis: where its entry price comes from, which trading day
@@ -55,7 +55,8 @@ func (analysisBacktestDomain AnalysisBacktestDomain) PriceWindows() vo.BacktestP
 	return vo.BacktestPriceWindowsVo{
 		Minute:         priceHistoryQuery(vo.PriceCandleIntervalMinute, completedAt.Add(-entryMinuteLookback), completedAt),
 		HourlyFallback: priceHistoryQuery(vo.PriceCandleIntervalHour, completedAt.Add(-entryHourlyFallbackLookback), completedAt),
-		Daily:          priceHistoryQuery(vo.PriceCandleIntervalDay, completedAt.AddDate(0, 0, -dailyLookbackDays), analysisBacktestDomain.dailyWindowEnd()),
+		// to the last second of the window's last day, so its candle is a whole day
+		Daily: priceHistoryQuery(vo.PriceCandleIntervalDay, completedAt.AddDate(0, 0, -dailyLookbackDays), analysisBacktestDomain.dailyWindowLastDay().Add(dailyCandleLength-time.Second)),
 	}
 }
 
@@ -79,14 +80,15 @@ func (analysisBacktestDomain AnalysisBacktestDomain) Evaluate(backtestPrices vo.
 	// the first trading day is the one after the day the entry price belongs to, so an analysis finished
 	// before the Taiwan open counts its own day; daily candles are cut at UTC midnight
 	entryDay := entryCandle.OpenTime.Truncate(dailyCandleLength)
+	// a day is complete once it has closed and its last minutes have reached the price service;
 	// Taiwan's daily candle, cut at UTC midnight, carries the Taipei date of its session
-	dayClosesAt := func(candleDay time.Time) time.Time {
+	daySettlesAt := func(candleDay time.Time) time.Time {
 		if analysisBacktestDomain.analysisResult.Category != vo.MarketCategoryTwStock {
 			// crypto trades around the clock, so its day closes only when the UTC day ends
-			return candleDay.Add(dailyCandleLength)
+			return candleDay.Add(dailyCandleLength + dailyCandleSettleTime)
 		}
 		taipeiDate := candleDay.In(taipeiTimeZone)
-		return time.Date(taipeiDate.Year(), taipeiDate.Month(), taipeiDate.Day(), 0, 0, 0, 0, taipeiTimeZone).Add(taiwanStockMarketClose)
+		return time.Date(taipeiDate.Year(), taipeiDate.Month(), taipeiDate.Day(), 0, 0, 0, 0, taipeiTimeZone).Add(taiwanStockMarketClose + dailyCandleSettleTime)
 	}
 	tradingDaysAfterEntry := 0
 	for _, dailyCandle := range backtestPrices.DailyCandles {
@@ -94,8 +96,8 @@ func (analysisBacktestDomain AnalysisBacktestDomain) Evaluate(backtestPrices vo.
 		if !candleDay.After(entryDay) {
 			continue
 		}
-		// a day still trading has no close yet, so it cannot be a checkpoint
-		if dayClosesAt(candleDay).After(evaluatedAt) {
+		// a day still trading, or whose last minutes are still arriving, has no final close yet
+		if daySettlesAt(candleDay).After(evaluatedAt) {
 			break
 		}
 		tradingDaysAfterEntry++
@@ -116,9 +118,9 @@ func (analysisBacktestDomain AnalysisBacktestDomain) Evaluate(backtestPrices vo.
 			return analysisBacktestDomain.toDto(outcome, &entryCandle, &dailyCandle)
 		}
 	}
-	// once the whole daily window, and the time its last day needs to arrive, are behind us, the missing days
-	// are not coming: the symbol stopped trading or the price service stopped collecting it
-	if !evaluatedAt.Before(analysisBacktestDomain.dailyWindowEnd().Add(time.Second + dailyCandleArrivalGrace)) {
+	// once the window's last day has settled, the missing days are not coming: the symbol stopped trading
+	// or the price service stopped collecting it
+	if !evaluatedAt.Before(daySettlesAt(analysisBacktestDomain.dailyWindowLastDay())) {
 		return analysisBacktestDomain.toDto(BacktestOutcomeUnevaluable, nil, nil)
 	}
 	return analysisBacktestDomain.toDto(BacktestOutcomePending, &entryCandle, nil)
@@ -136,11 +138,11 @@ func (analysisBacktestDomain AnalysisBacktestDomain) requiredTradingDays() int {
 	return shortHorizonTradingDays
 }
 
-// roughly five trading days a week plus room for long holidays, running to the end of that UTC day so the
-// last daily candle is a whole day rather than one cut off at the completion time of day
-func (analysisBacktestDomain AnalysisBacktestDomain) dailyWindowEnd() time.Time {
+// roughly five trading days a week plus room for long holidays; returned as the start of that UTC day,
+// in UTC so the windows read as the UTC days the price service cuts its daily candles on
+func (analysisBacktestDomain AnalysisBacktestDomain) dailyWindowLastDay() time.Time {
 	lastDay := analysisBacktestDomain.analysisResult.CreatedAt.AddDate(0, 0, analysisBacktestDomain.requiredTradingDays()*7/5+dailyHolidayAllowanceDays)
-	return lastDay.UTC().Truncate(dailyCandleLength).Add(dailyCandleLength - time.Second)
+	return lastDay.UTC().Truncate(dailyCandleLength)
 }
 
 // the last candle opened by completion, latest first
