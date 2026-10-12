@@ -125,6 +125,8 @@ func TestAnalysisBacktestDomain_ReportsTheWholeAnalysis(t *testing.T) {
 }
 
 func TestAnalysisBacktestDomain_EntryPriceIsTheLastPriceByCompletion(t *testing.T) {
+	// before any of these analyses could run out of days, so the entry price is reported
+	withinTheWindow := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
 	testCases := []struct {
 		name               string
 		completedAt        time.Time
@@ -171,7 +173,7 @@ func TestAnalysisBacktestDomain_EntryPriceIsTheLastPriceByCompletion(t *testing.
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			analysisBacktest := backtestOf("bullish", "short", testCase.completedAt).Evaluate(testCase.prices, longAfterwards)
+			analysisBacktest := backtestOf("bullish", "short", testCase.completedAt).Evaluate(testCase.prices, withinTheWindow)
 
 			require.NotNil(t, analysisBacktest.EntryPrice)
 			assert.Equal(t, testCase.expectedEntryPrice, analysisBacktest.EntryPrice.String())
@@ -309,9 +311,8 @@ func TestAnalysisBacktestDomain_PriceWindows(t *testing.T) {
 			assert.Equal(t, vo.BacktestPriceWindowsVo{
 				Minute:         vo.PriceHistoryQueryVo{Symbol: "BTC", Category: "crypto", Interval: "1m", Since: completedAt.Add(-16 * time.Hour), Until: completedAt},
 				HourlyFallback: vo.PriceHistoryQueryVo{Symbol: "BTC", Category: "crypto", Interval: "1h", Since: completedAt.AddDate(0, 0, -40), Until: completedAt},
-				Daily:          vo.PriceHistoryQueryVo{Symbol: "BTC", Category: "crypto", Interval: "1d", Since: completedAt.AddDate(0, 0, -10), Until: priceWindows.Daily.Until},
+				Daily:          vo.PriceHistoryQueryVo{Symbol: "BTC", Category: "crypto", Interval: "1d", Since: completedAt.AddDate(0, 0, -10), Until: testCase.expectedDailyUntil},
 			}, priceWindows)
-			assert.True(t, testCase.expectedDailyUntil.Equal(priceWindows.Daily.Until), "daily until %v", priceWindows.Daily.Until)
 		})
 	}
 }
@@ -388,21 +389,22 @@ func TestAnalysisBacktestDomain_DaysWithoutADailyPriceAreNotTradingDays(t *testi
 
 func TestAnalysisBacktestDomain_UnevaluableOnceTheWholeDailyWindowHasPassed(t *testing.T) {
 	completedAt := taipeiAt(7, 10, 15)
-	// the price service stopped after seven trading days; the short window runs to the end of 2026-11-20 UTC
+	// the price service stopped after seven trading days; the short window runs to the end of 2026-11-20 UTC,
+	// and its last day gets one more day to arrive
 	prices := vo.BacktestPricesVo{MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")}, DailyCandles: dailyCandlesEndingAt(utcDay(8), 7, "105")}
 	testCases := []struct {
+		name            string
 		evaluatedAt     time.Time
 		expectedOutcome string
 	}{
-		{evaluatedAt: time.Date(2026, 11, 20, 23, 59, 59, 0, time.UTC), expectedOutcome: "pending"},
-		{evaluatedAt: time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC), expectedOutcome: "unevaluable"},
+		{name: "the last day may still arrive", evaluatedAt: time.Date(2026, 11, 21, 23, 59, 59, 999000000, time.UTC), expectedOutcome: "pending"},
+		{name: "nothing more is coming", evaluatedAt: time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC), expectedOutcome: "unevaluable"},
 	}
 	for _, testCase := range testCases {
-		t.Run(testCase.expectedOutcome, func(t *testing.T) {
+		t.Run(testCase.name, func(t *testing.T) {
 			analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(prices, testCase.evaluatedAt)
 
 			assert.Equal(t, testCase.expectedOutcome, analysisBacktest.Outcome)
-			assert.Equal(t, decimalPointer("100"), analysisBacktest.EntryPrice)
 		})
 	}
 }
@@ -442,4 +444,17 @@ func TestAnalysisBacktestDomain_CryptoWithAMinuteGapIsUnevaluableRatherThanStale
 
 	assert.Equal(t, "unevaluable", analysisBacktest.Outcome)
 	assert.Nil(t, analysisBacktest.EntryPrice)
+}
+
+func TestAnalysisBacktestDomain_AnUnevaluableResultCarriesNoPrices(t *testing.T) {
+	completedAt := taipeiAt(7, 10, 15)
+
+	analysisBacktest := backtestOf("bullish", "short", completedAt).Evaluate(vo.BacktestPricesVo{
+		MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")},
+		DailyCandles:  dailyCandlesEndingAt(utcDay(8), 7, "105"),
+	}, longAfterwards)
+
+	assert.Equal(t, "unevaluable", analysisBacktest.Outcome)
+	assert.Nil(t, analysisBacktest.EntryPrice)
+	assert.Nil(t, analysisBacktest.CheckpointPrice)
 }

@@ -30,6 +30,8 @@ const (
 	dailyHolidayAllowanceDays   = 30
 	entryMinuteLookback         = 16 * time.Hour
 	entryHourlyFallbackLookback = 40 * 24 * time.Hour
+	// the price service builds a day from its minute candles, so the last day can arrive a little late
+	dailyCandleArrivalGrace = 24 * time.Hour
 )
 
 // the backtest of one completed user analysis: where its entry price comes from, which trading day
@@ -114,10 +116,10 @@ func (analysisBacktestDomain AnalysisBacktestDomain) Evaluate(backtestPrices vo.
 			return analysisBacktestDomain.toDto(outcome, &entryCandle, &dailyCandle)
 		}
 	}
-	// once the whole daily window is behind us, the missing days are not coming: the symbol stopped trading
-	// or the price service stopped collecting it
-	if evaluatedAt.After(analysisBacktestDomain.dailyWindowEnd()) {
-		return analysisBacktestDomain.toDto(BacktestOutcomeUnevaluable, &entryCandle, nil)
+	// once the whole daily window, and the time its last day needs to arrive, are behind us, the missing days
+	// are not coming: the symbol stopped trading or the price service stopped collecting it
+	if !evaluatedAt.Before(analysisBacktestDomain.dailyWindowEnd().Add(time.Second + dailyCandleArrivalGrace)) {
+		return analysisBacktestDomain.toDto(BacktestOutcomeUnevaluable, nil, nil)
 	}
 	return analysisBacktestDomain.toDto(BacktestOutcomePending, &entryCandle, nil)
 }
@@ -138,7 +140,7 @@ func (analysisBacktestDomain AnalysisBacktestDomain) requiredTradingDays() int {
 // last daily candle is a whole day rather than one cut off at the completion time of day
 func (analysisBacktestDomain AnalysisBacktestDomain) dailyWindowEnd() time.Time {
 	lastDay := analysisBacktestDomain.analysisResult.CreatedAt.AddDate(0, 0, analysisBacktestDomain.requiredTradingDays()*7/5+dailyHolidayAllowanceDays)
-	return lastDay.Truncate(dailyCandleLength).Add(dailyCandleLength - time.Second)
+	return lastDay.UTC().Truncate(dailyCandleLength).Add(dailyCandleLength - time.Second)
 }
 
 // the last candle opened by completion, latest first
