@@ -2,7 +2,7 @@
   "info": {
     "name": "go-symbol-news-hunter API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "標的資訊面分析引擎的全部端點。\n\n**啟動**：建立資料庫後 `make start`（讀 `.env`，預設 port 8080，啟動時自動建表）。\n\n**執行順序**：\n1. `1. API Key` → Issue API key（自動存 `apiKey`）\n2. 以 SQL 啟用：`UPDATE api_keys SET is_active = true WHERE name = '<apiKeyName>';`\n3. `2. News Search`、`3. Analysis`（Start 後輪詢 Get 直到 `succeeded` / `failed`）、`4. Tracked Symbol Grades`、`5. Grade Backtest`（需先設定 go-trading 帳號）\n4. `6. Error Cases`\n5. `7. Revoke` 最後跑（會讓 `apiKey` 永久失效）\n\n鑑權：collection 層級以 header `X-API-Key: {{apiKey}}` 送出；公開端點個別設為 No Auth。\n\n錯誤格式：`{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`。"
+    "description": "標的資訊面分析引擎的全部端點。\n\n**啟動**：建立資料庫後 `make start`（讀 `.env`，`.env.example` 設為 port 8081，避開 go-trading 的 8080，啟動時自動建表）。\n\n**執行順序**：\n1. `1. API Key` → Issue API key（自動存 `apiKey`）\n2. 以 SQL 啟用：`UPDATE api_keys SET is_active = true WHERE name = '<apiKeyName>';`\n3. `2. News Search`、`3. Analysis`（Start 後輪詢 Get 直到 `succeeded` / `failed`）、`4. Tracked Symbol Grades`、`5. Grade Backtest`（需先設定 go-trading 帳號）\n4. `6. Error Cases`\n5. `7. Revoke` 最後跑（會讓 `apiKey` 永久失效）\n\n鑑權：collection 層級以 header `X-API-Key: {{apiKey}}` 送出；公開端點個別設為 No Auth。\n\n錯誤格式：`{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`。"
   },
   "auth": {
     "type": "apikey",
@@ -893,7 +893,7 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:8080"
+      "value": "http://localhost:8081"
     },
     {
       "key": "apiKey",
