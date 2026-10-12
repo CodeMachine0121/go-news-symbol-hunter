@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"gorm.io/gorm"
@@ -35,7 +36,13 @@ func (analysisResultRepository *AnalysisResultRepository) FindByAnalysisEventID(
 }
 
 func (analysisResultRepository *AnalysisResultRepository) FindForBacktest(ctx context.Context, gradeBacktestFilter vo.GradeBacktestFilterVo, limit int) ([]entities.AnalysisResult, error) {
-	query := analysisResultRepository.database.WithContext(ctx)
+	// a result is saved before its event is marked succeeded, so a failed status update can leave a result
+	// behind an analysis that did not succeed
+	succeededAnalysisEventIDs := analysisResultRepository.database.WithContext(ctx).Model(&entities.AnalysisEvent{}).Select("id").
+		Where(clause.Eq{Column: clause.Column{Name: "status"}, Value: domains.AnalysisStatusSucceeded})
+	query := analysisResultRepository.database.WithContext(ctx).
+		// nested so gorm brackets the subquery; a lone value would be rendered as "= SELECT ..."
+		Where(clause.IN{Column: clause.Column{Name: "analysis_event_id"}, Values: []any{[]any{succeededAnalysisEventIDs}}})
 	if !gradeBacktestFilter.CompletedPeriod.From.IsZero() {
 		query = query.Where(clause.Gte{Column: clause.Column{Name: "created_at"}, Value: gradeBacktestFilter.CompletedPeriod.From})
 	}

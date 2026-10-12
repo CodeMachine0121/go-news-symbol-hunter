@@ -10,15 +10,23 @@ import (
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/persistence"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 var backtestTaipei = time.FixedZone("Asia/Taipei", 8*60*60)
 
-func createCompletedAnalysis(t *testing.T, analysisResultRepository *persistence.AnalysisResultRepository, analysisEventID uint, symbol string, category string, completedAt time.Time) {
-	require.NoError(t, analysisResultRepository.Create(context.Background(), &entities.AnalysisResult{
-		AnalysisEventID: analysisEventID, Symbol: symbol, Category: category, Grade: "bullish", TimeHorizon: "short", Reason: "r",
+// event ids follow creation order in a freshly created table
+func createAnalysisWithStatus(t *testing.T, database *gorm.DB, status string, symbol string, category string, completedAt time.Time) {
+	analysisEvent := entities.AnalysisEvent{Symbol: symbol, Category: category, Status: status, StartedAt: completedAt}
+	require.NoError(t, persistence.NewAnalysisEventRepository(database).Create(context.Background(), &analysisEvent))
+	require.NoError(t, persistence.NewAnalysisResultRepository(database).Create(context.Background(), &entities.AnalysisResult{
+		AnalysisEventID: analysisEvent.ID, Symbol: symbol, Category: category, Grade: "bullish", TimeHorizon: "short", Reason: "r",
 		KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{}, CreatedAt: completedAt,
 	}))
+}
+
+func createCompletedAnalysis(t *testing.T, database *gorm.DB, symbol string, category string, completedAt time.Time) {
+	createAnalysisWithStatus(t, database, "succeeded", symbol, category, completedAt)
 }
 
 func analysisEventIDsOf(analysisResults []entities.AnalysisResult) []uint {
@@ -30,13 +38,14 @@ func analysisEventIDsOf(analysisResults []entities.AnalysisResult) []uint {
 }
 
 func TestAnalysisResultRepository_FindForBacktestFiltersByCompletedPeriodAndSymbol(t *testing.T) {
-	analysisResultRepository := persistence.NewAnalysisResultRepository(openTestDatabase(t))
-	createCompletedAnalysis(t, analysisResultRepository, 1, "2330", "twStock", time.Date(2026, 9, 30, 23, 59, 0, 0, backtestTaipei))
-	createCompletedAnalysis(t, analysisResultRepository, 2, "2330", "twStock", time.Date(2026, 10, 1, 0, 0, 0, 0, backtestTaipei))
-	createCompletedAnalysis(t, analysisResultRepository, 3, "2317", "twStock", time.Date(2026, 10, 15, 9, 0, 0, 0, backtestTaipei))
-	createCompletedAnalysis(t, analysisResultRepository, 4, "2330", "usStock", time.Date(2026, 10, 20, 9, 0, 0, 0, backtestTaipei))
-	createCompletedAnalysis(t, analysisResultRepository, 5, "2330", "twStock", time.Date(2026, 10, 31, 23, 59, 0, 0, backtestTaipei))
-	createCompletedAnalysis(t, analysisResultRepository, 6, "2330", "twStock", time.Date(2026, 11, 1, 0, 0, 0, 0, backtestTaipei))
+	database := openTestDatabase(t)
+	analysisResultRepository := persistence.NewAnalysisResultRepository(database)
+	createCompletedAnalysis(t, database, "2330", "twStock", time.Date(2026, 9, 30, 23, 59, 0, 0, backtestTaipei))
+	createCompletedAnalysis(t, database, "2330", "twStock", time.Date(2026, 10, 1, 0, 0, 0, 0, backtestTaipei))
+	createCompletedAnalysis(t, database, "2317", "twStock", time.Date(2026, 10, 15, 9, 0, 0, 0, backtestTaipei))
+	createCompletedAnalysis(t, database, "2330", "usStock", time.Date(2026, 10, 20, 9, 0, 0, 0, backtestTaipei))
+	createCompletedAnalysis(t, database, "2330", "twStock", time.Date(2026, 10, 31, 23, 59, 0, 0, backtestTaipei))
+	createCompletedAnalysis(t, database, "2330", "twStock", time.Date(2026, 11, 1, 0, 0, 0, 0, backtestTaipei))
 	october, err := vo.NewAnalysisCompletedPeriodVo("2026-10-01", "2026-10-31")
 	require.NoError(t, err)
 	testCases := []struct {
@@ -61,9 +70,10 @@ func TestAnalysisResultRepository_FindForBacktestFiltersByCompletedPeriodAndSymb
 }
 
 func TestAnalysisResultRepository_FindForBacktestStopsAtTheLimit(t *testing.T) {
-	analysisResultRepository := persistence.NewAnalysisResultRepository(openTestDatabase(t))
-	for analysisEventID := uint(1); analysisEventID <= 3; analysisEventID++ {
-		createCompletedAnalysis(t, analysisResultRepository, analysisEventID, "BTC", "crypto", time.Date(2026, 10, int(analysisEventID), 0, 0, 0, 0, time.UTC))
+	database := openTestDatabase(t)
+	analysisResultRepository := persistence.NewAnalysisResultRepository(database)
+	for day := 1; day <= 3; day++ {
+		createCompletedAnalysis(t, database, "BTC", "crypto", time.Date(2026, 10, day, 0, 0, 0, 0, time.UTC))
 	}
 
 	analysisResults, err := analysisResultRepository.FindForBacktest(context.Background(), vo.GradeBacktestFilterVo{}, 2)
@@ -81,4 +91,18 @@ func TestAnalysisResultRepository_FindForBacktestFailsWithoutTheDatabase(t *test
 	_, findError := persistence.NewAnalysisResultRepository(database).FindForBacktest(context.Background(), vo.GradeBacktestFilterVo{}, 10)
 
 	assert.Error(t, findError)
+}
+
+func TestAnalysisResultRepository_FindForBacktestOnlyCoversSucceededAnalyses(t *testing.T) {
+	database := openTestDatabase(t)
+	completedAt := time.Date(2026, 10, 7, 2, 15, 0, 0, time.UTC)
+	createAnalysisWithStatus(t, database, "succeeded", "2330", "twStock", completedAt)
+	// its result was saved but marking the event succeeded failed, and a restart then failed it
+	createAnalysisWithStatus(t, database, "failed", "2317", "twStock", completedAt)
+	createAnalysisWithStatus(t, database, "running", "BTC", "crypto", completedAt)
+
+	analysisResults, err := persistence.NewAnalysisResultRepository(database).FindForBacktest(context.Background(), vo.GradeBacktestFilterVo{}, 10)
+
+	require.NoError(t, err)
+	assert.Equal(t, []uint{1}, analysisEventIDsOf(analysisResults))
 }
