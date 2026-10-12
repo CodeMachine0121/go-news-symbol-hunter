@@ -113,7 +113,7 @@ flowchart TD
 - **How to add it:** 美股：新增 `YahooFinancePriceHistoryProxy` 實作 `IPriceHistoryProxy`，在組裝根填入 `UsStock`；另需在 `AnalysisBacktestDomain` 補上美股的收盤時間（紐約時區、含夏令時間），讓「當天是否已收盤」與「小時 K 退而求其次」把美股當會收盤的市場——目前這兩條只對台股成立，其他市場一律視為全天交易。彙總不動。其他檢查點：讓 `AnalysisBacktestDomain` 回傳多個檢查點的結果，`GradeBacktestSummaryDomain` 依檢查點分組，取價邏輯不動（`Daily` 視窗加長即可）。
 - **Patterns applied & why:** 依市場類別的 proxy catalog 沿用 `PriceProviderCatalogDto` 的做法；Domain Model 一進（K 線）一出（DTO），service 只負責取資料與併發。
 - **Do not hardcode:** go-trading 網址與帳密（設定）。
-- **Known debt / deferred:** 同一標的多筆分析會各自取價（最多 500 × 2–3 次呼叫，併發 8，每次日 K 查詢讓價格服務彙總約 125 天的分 K）；code review 已點出，慢到有感時再依標的合併日 K 查詢。登入憑證只在記憶體，服務重啟會重新登入一次。
+- **Known debt / deferred:** 「當天日 K 已到齊」以收盤後固定等一小時推定；價格服務若延遲超過一小時，可能用到不完整的一天（下次查詢自動更正）——真正的解法是價格服務提供「當日已完整」的訊號。同一標的多筆分析會各自取價（最多 500 × 2–3 次呼叫，併發 8，每次日 K 查詢讓價格服務彙總約 125 天的分 K）；code review 已點出，慢到有感時再依標的合併日 K 查詢。登入憑證只在記憶體，服務重啟會重新登入一次。
 
 ---
 

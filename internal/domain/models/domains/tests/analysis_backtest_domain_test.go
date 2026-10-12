@@ -461,3 +461,24 @@ func TestAnalysisBacktestDomain_AnUnevaluableResultCarriesNoPrices(t *testing.T)
 	assert.Nil(t, analysisBacktest.EntryPrice)
 	assert.Nil(t, analysisBacktest.CheckpointPrice)
 }
+
+func TestAnalysisBacktestDomain_ACryptoWindowEndsAnHourAfterItsLastUtcDay(t *testing.T) {
+	completedAt := taipeiAt(7, 10, 15)
+	analysisResult := entities.AnalysisResult{Symbol: "BTC", Category: "crypto", Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
+	// the price service stopped after seven trading days; the short window's last day is 2026-11-20 UTC
+	prices := vo.BacktestPricesVo{MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")}, DailyCandles: dailyCandlesEndingAt(utcDay(8), 7, "105")}
+	testCases := []struct {
+		evaluatedAt     time.Time
+		expectedOutcome string
+	}{
+		{evaluatedAt: time.Date(2026, 11, 21, 0, 59, 59, 0, time.UTC), expectedOutcome: "pending"},
+		{evaluatedAt: time.Date(2026, 11, 21, 1, 0, 0, 0, time.UTC), expectedOutcome: "unevaluable"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.expectedOutcome, func(t *testing.T) {
+			analysisBacktest := domains.NewAnalysisBacktestDomain(analysisResult).Evaluate(prices, testCase.evaluatedAt)
+
+			assert.Equal(t, testCase.expectedOutcome, analysisBacktest.Outcome)
+		})
+	}
+}
