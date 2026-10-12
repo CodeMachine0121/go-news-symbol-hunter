@@ -37,22 +37,11 @@ func (gradeBacktestService *GradeBacktestService) GetGradeBacktest(ctx context.C
 	if err != nil {
 		return dto.GradeBacktestDto{}, err
 	}
-	gradeBacktestFilter := vo.GradeBacktestFilterVo{CompletedPeriod: completedPeriod}
-	if getGradeBacktestDto.Symbol != "" || getGradeBacktestDto.Category != "" {
-		if getGradeBacktestDto.Symbol == "" || getGradeBacktestDto.Category == "" {
-			return dto.GradeBacktestDto{}, ErrSymbolAndCategoryRequiredTogether
-		}
-		marketCategory, err := vo.NewMarketCategoryVo(getGradeBacktestDto.Category)
-		if err != nil {
-			return dto.GradeBacktestDto{}, err
-		}
-		requestedSymbol, err := vo.NewSymbolVo(getGradeBacktestDto.Symbol, marketCategory)
-		if err != nil {
-			return dto.GradeBacktestDto{}, err
-		}
-		gradeBacktestFilter.Symbol = requestedSymbol.Value
-		gradeBacktestFilter.Category = marketCategory.Value
+	symbolFilter, err := vo.NewSymbolFilterVo(getGradeBacktestDto.Symbol, getGradeBacktestDto.Category)
+	if err != nil {
+		return dto.GradeBacktestDto{}, err
 	}
+	gradeBacktestFilter := vo.GradeBacktestFilterVo{CompletedPeriod: completedPeriod, SymbolFilterVo: symbolFilter}
 	// one past the limit tells "exactly at the limit" apart from "over it"
 	analysisResults, err := gradeBacktestService.analysisResultRepository.FindForBacktest(ctx, gradeBacktestFilter, MaximumBacktestAnalysisCount+1)
 	if err != nil {

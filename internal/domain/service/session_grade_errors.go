@@ -1,6 +1,10 @@
 package service
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
+)
 
 const (
 	FailureReasonSessionRunInterrupted     = "服務重新啟動，執行中斷"
@@ -11,7 +15,7 @@ const (
 )
 
 var (
-	ErrSymbolAndCategoryRequiredTogether = errors.New("標的與市場類別需一起提供")
+	ErrSymbolAndCategoryRequiredTogether = vo.ErrSymbolAndCategoryRequiredTogether
 	ErrSessionRunAlreadyExists           = errors.New("this trading session already ran")
 	ErrSessionGradeStorageUnavailable    = errors.New("session grade storage unavailable")
 )

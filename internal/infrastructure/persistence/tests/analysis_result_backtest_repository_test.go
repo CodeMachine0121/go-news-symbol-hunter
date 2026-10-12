@@ -46,7 +46,7 @@ func TestAnalysisResultRepository_FindForBacktestFiltersByCompletedPeriodAndSymb
 	}{
 		{name: "everything oldest first", gradeBacktestFilter: vo.GradeBacktestFilterVo{}, expectedAnalysisEventIDs: []uint{1, 2, 3, 4, 5, 6}},
 		{name: "both ends of the period are included", gradeBacktestFilter: vo.GradeBacktestFilterVo{CompletedPeriod: october}, expectedAnalysisEventIDs: []uint{2, 3, 4, 5}},
-		{name: "one symbol in one market", gradeBacktestFilter: vo.GradeBacktestFilterVo{CompletedPeriod: october, Symbol: "2330", Category: "twStock"}, expectedAnalysisEventIDs: []uint{2, 5}},
+		{name: "one symbol in one market", gradeBacktestFilter: vo.GradeBacktestFilterVo{CompletedPeriod: october, SymbolFilterVo: vo.SymbolFilterVo{Symbol: "2330", Category: "twStock"}}, expectedAnalysisEventIDs: []uint{2, 5}},
 		{name: "only a start", gradeBacktestFilter: vo.GradeBacktestFilterVo{CompletedPeriod: vo.AnalysisCompletedPeriodVo{From: october.From}}, expectedAnalysisEventIDs: []uint{2, 3, 4, 5, 6}},
 		{name: "only an end", gradeBacktestFilter: vo.GradeBacktestFilterVo{CompletedPeriod: vo.AnalysisCompletedPeriodVo{Before: october.Before}}, expectedAnalysisEventIDs: []uint{1, 2, 3, 4, 5}},
 	}
