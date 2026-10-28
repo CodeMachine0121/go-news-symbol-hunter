@@ -31,6 +31,7 @@ func TestYahooFinanceProxy_ListsOnlyUsStocksAndEtfsInSearchOrder(t *testing.T) {
 		{"symbol":"TSLA","shortname":"Tesla, Inc.","longname":"Tesla, Inc.","quoteType":"EQUITY","exchange":"NMS"},
 		{"symbol":"STSLA=F","shortname":"Tesla Inc Single Stock futures,","quoteType":"FUTURE","exchange":"CME"},
 		{"symbol":"TSLA.TO","shortname":"TESLA CDR (CAD HEDGED)","longname":"Tesla, Inc.","quoteType":"EQUITY","exchange":"TOR"},
+		{"symbol":"FXAIX","shortname":"Fidelity 500 Index","quoteType":"MUTUALFUND","exchange":"NAS"},
 		{"symbol":"TSLT","shortname":" T-REX 2X Long Tesla Daily Targe ","quoteType":"ETF","exchange":"BTS"},
 		{"symbol":"BRK-B","shortname":"Berkshire Hathaway Inc. New","longname":"Berkshire Hathaway Inc.","quoteType":"EQUITY","exchange":"NYQ"}
 	]}`)
