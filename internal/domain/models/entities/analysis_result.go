@@ -11,6 +11,7 @@ type AnalysisResult struct {
 	AnalysisEventID uint                `gorm:"not null;uniqueIndex"`
 	Symbol          string              `gorm:"size:32;not null"`
 	Category        string              `gorm:"size:16;not null"`
+	SymbolName      string              `gorm:"size:100;not null;default:''"`
 	Grade           string              `gorm:"size:16;not null"`
 	Confidence      int                 `gorm:"not null"`
 	TimeHorizon     string              `gorm:"size:16;not null"`

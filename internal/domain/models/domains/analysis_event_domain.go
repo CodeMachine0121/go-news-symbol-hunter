@@ -25,14 +25,15 @@ func NewAnalysisEventDomain(analysisEvent entities.AnalysisEvent) AnalysisEventD
 	return AnalysisEventDomain{analysisEvent: analysisEvent}
 }
 
-func NewStartedAnalysisEventDomain(apiKeyID uint, symbol vo.SymbolVo, model string, startedAt time.Time) AnalysisEventDomain {
+func NewStartedAnalysisEventDomain(apiKeyID uint, resolvedSymbol vo.ResolvedSymbolVo, model string, startedAt time.Time) AnalysisEventDomain {
 	return AnalysisEventDomain{analysisEvent: entities.AnalysisEvent{
-		ApiKeyID:  apiKeyID,
-		Symbol:    symbol.Value,
-		Category:  symbol.Category.Value,
-		Status:    AnalysisStatusRunning,
-		Model:     model,
-		StartedAt: startedAt,
+		ApiKeyID:   apiKeyID,
+		Symbol:     resolvedSymbol.Symbol.Value,
+		Category:   resolvedSymbol.Symbol.Category.Value,
+		SymbolName: resolvedSymbol.SymbolName.Value,
+		Status:     AnalysisStatusRunning,
+		Model:      model,
+		StartedAt:  startedAt,
 	}}
 }
 
@@ -74,6 +75,7 @@ func (analysisEventDomain AnalysisEventDomain) ToDto(analysisResult *entities.An
 	analysisEventDto := dto.AnalysisEventDto{
 		AnalysisEventID: analysisEventDomain.analysisEvent.ID,
 		Symbol:          analysisEventDomain.analysisEvent.Symbol,
+		SymbolName:      analysisEventDomain.analysisEvent.SymbolName,
 		Category:        analysisEventDomain.analysisEvent.Category,
 		Status:          analysisEventDomain.analysisEvent.Status,
 		FailureReason:   analysisEventDomain.analysisEvent.FailureReason,
@@ -98,6 +100,7 @@ func (analysisEventDomain AnalysisEventDomain) ToDto(analysisResult *entities.An
 	analysisEventDto.Result = &dto.AnalysisResultDto{
 		AnalysisEventID: analysisResult.AnalysisEventID,
 		Symbol:          analysisResult.Symbol,
+		SymbolName:      analysisResult.SymbolName,
 		Category:        analysisResult.Category,
 		Grade:           analysisResult.Grade,
 		Confidence:      analysisResult.Confidence,

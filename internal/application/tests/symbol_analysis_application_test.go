@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"testing"
@@ -25,6 +26,7 @@ var analysisStartedAt = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 type symbolAnalysisFixture struct {
 	symbolAnalysisApplication *application.SymbolAnalysisApplication
 	listedCompanyProxy        *mocks.MockIListedCompanyProxy
+	usStockCompanyProxy       *mocks.MockIListedCompanyProxy
 	cryptocurrencyProxy       *mocks.MockICryptocurrencyProxy
 	cryptoNewsProxy           *mocks.MockINewsProxy
 	usStockNewsProxy          *mocks.MockINewsProxy
@@ -41,6 +43,7 @@ func createSymbolAnalysisFixture(t *testing.T) symbolAnalysisFixture {
 func createSymbolAnalysisFixtureWithCapacity(t *testing.T, maximumConcurrentAnalyses int) symbolAnalysisFixture {
 	fixture := symbolAnalysisFixture{
 		listedCompanyProxy:       mocks.NewMockIListedCompanyProxy(t),
+		usStockCompanyProxy:      mocks.NewMockIListedCompanyProxy(t),
 		cryptocurrencyProxy:      mocks.NewMockICryptocurrencyProxy(t),
 		cryptoNewsProxy:          createNewsProxy(t, "CoinDesk"),
 		usStockNewsProxy:         createNewsProxy(t, "Yahoo 財經"),
@@ -64,7 +67,7 @@ func createSymbolAnalysisFixtureWithCapacity(t *testing.T, maximumConcurrentAnal
 	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: []interfaces.IPriceProxy{newPriceProxy()}, UsStock: []interfaces.IPriceProxy{newPriceProxy()}, Crypto: []interfaces.IPriceProxy{newPriceProxy()}})
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(analysisStartedAt).Maybe()
-	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{fixture.listedCompanyProxy}, Crypto: fixture.cryptocurrencyProxy})
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{fixture.listedCompanyProxy}, UsStock: fixture.usStockCompanyProxy, Crypto: fixture.cryptocurrencyProxy})
 	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{
 		Crypto:  []dto.NewsProviderDto{{NewsProxy: fixture.cryptoNewsProxy}},
 		UsStock: []dto.NewsProviderDto{{NewsProxy: fixture.usStockNewsProxy}},
@@ -112,8 +115,8 @@ func TestStartSymbolAnalysis_CreatesARunningAnalysisAndAnalyzesInTheBackground(t
 
 	require.NoError(t, err)
 	assert.True(t, startedSymbolAnalysis.IsNew)
-	assert.Equal(t, dto.AnalysisEventDto{AnalysisEventID: 11, Symbol: "BTC", Category: "crypto", Status: "running", StartedAt: analysisStartedAt}, startedSymbolAnalysis.AnalysisEvent)
-	assert.Equal(t, entities.AnalysisEvent{ID: 11, ApiKeyID: 5, Symbol: "BTC", Category: "crypto", Status: "running", Model: "claude-opus-5-5", StartedAt: analysisStartedAt}, createdAnalysisEvent)
+	assert.Equal(t, dto.AnalysisEventDto{AnalysisEventID: 11, Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Status: "running", StartedAt: analysisStartedAt}, startedSymbolAnalysis.AnalysisEvent)
+	assert.Equal(t, entities.AnalysisEvent{ID: 11, ApiKeyID: 5, Symbol: "BTC", Category: "crypto", SymbolName: "Bitcoin", Status: "running", Model: "claude-opus-5-5", StartedAt: analysisStartedAt}, createdAnalysisEvent)
 	assert.Equal(t, vo.AnalystRequestVo{Symbol: "BTC", Category: "crypto", SearchKeyword: "Bitcoin"}, <-analyzed)
 	<-finished
 }
@@ -124,8 +127,8 @@ func TestStartSymbolAnalysis_ReusesRecentOrRunningAnalyses(t *testing.T) {
 		latestEvent   entities.AnalysisEvent
 		expectsResult bool
 	}{
-		{name: "succeeded 5h59m ago", latestEvent: entities.AnalysisEvent{ID: 3, Symbol: "BTC", Category: "crypto", Status: "succeeded", FinishedAt: finishedAgo(5*time.Hour + 59*time.Minute)}, expectsResult: true},
-		{name: "still running", latestEvent: entities.AnalysisEvent{ID: 3, Symbol: "BTC", Category: "crypto", Status: "running", StartedAt: analysisStartedAt}},
+		{name: "succeeded 5h59m ago", latestEvent: entities.AnalysisEvent{ID: 3, Symbol: "BTC", Category: "crypto", SymbolName: "比特幣", Status: "succeeded", FinishedAt: finishedAgo(5*time.Hour + 59*time.Minute)}, expectsResult: true},
+		{name: "still running", latestEvent: entities.AnalysisEvent{ID: 3, Symbol: "BTC", Category: "crypto", SymbolName: "比特幣", Status: "running", StartedAt: analysisStartedAt}},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -141,6 +144,8 @@ func TestStartSymbolAnalysis_ReusesRecentOrRunningAnalyses(t *testing.T) {
 			require.NoError(t, err)
 			assert.False(t, startedSymbolAnalysis.IsNew)
 			assert.Equal(t, uint(3), startedSymbolAnalysis.AnalysisEvent.AnalysisEventID)
+			// the stored name wins over the name resolved for this request
+			assert.Equal(t, "比特幣", startedSymbolAnalysis.AnalysisEvent.SymbolName)
 			assert.Equal(t, testCase.expectsResult, startedSymbolAnalysis.AnalysisEvent.Result != nil)
 		})
 	}
@@ -178,6 +183,7 @@ func TestStartSymbolAnalysis_StartsANewAnalysisWhenNothingIsReusable(t *testing.
 
 func TestStartSymbolAnalysis_LooksUpReuseByMarketCategory(t *testing.T) {
 	fixture := createSymbolAnalysisFixture(t)
+	fixture.usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "BTC").Return("", false, nil)
 	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "usStock").Return(nil, nil)
 	fixture.analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(nil)
 	analysisDone := make(chan struct{})
@@ -250,6 +256,9 @@ func TestStartSymbolAnalysis_Rejections(t *testing.T) {
 			_, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: testCase.symbol, Category: testCase.category})
 
 			assert.ErrorIs(t, err, testCase.expectedError)
+			if errors.Is(testCase.expectedError, service.ErrSymbolNotFound) {
+				fixture.analysisEventRepository.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+			}
 		})
 	}
 }
@@ -269,7 +278,9 @@ func (fixture symbolAnalysisFixture) captureFinishedEvent() *entities.AnalysisEv
 
 func TestAnalyzeSymbol_SearchesThenSavesTheNormalizedConclusion(t *testing.T) {
 	fixture := createSymbolAnalysisFixture(t)
-	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
+	runningAnalysis := runningBitcoinAnalysis()
+	runningAnalysis.SymbolName = "Bitcoin"
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningAnalysis, nil)
 	fixture.givenBitcoin()
 	fixture.cryptoNewsProxy.EXPECT().FetchNews(mock.Anything, "Bitcoin").Return([]vo.NewsVo{
 		{Title: "Bitcoin ETF inflows", Link: "https://news/1", PublishedAt: analysisStartedAt.Add(-time.Hour), ProviderName: "CoinDesk"},
@@ -315,7 +326,7 @@ func TestAnalyzeSymbol_SearchesThenSavesTheNormalizedConclusion(t *testing.T) {
 	assert.Len(t, searchResult.News, 2)
 	assert.Equal(t, vo.AnalystToolResultVo{ToolCallID: "search-bad", Content: "市場類別只能是 crypto、twStock、usStock", IsError: true}, toolResults[2])
 	assert.Equal(t, entities.AnalysisResult{
-		AnalysisEventID: 21, Symbol: "BTC", Category: "crypto", Grade: "bullish", Confidence: 72, TimeHorizon: "short", Reason: "ETF 資金流入",
+		AnalysisEventID: 21, Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Grade: "bullish", Confidence: 72, TimeHorizon: "short", Reason: "ETF 資金流入",
 		KeyEvents:   []entities.AnalysisKeyEvent{{Title: "Bitcoin ETF inflows", Link: "https://news/1", PublishedAt: analysisStartedAt.Add(-time.Hour)}},
 		RiskFactors: []string{"礦工賣壓"},
 		Evidence: []entities.AnalysisEvidence{
@@ -326,7 +337,7 @@ func TestAnalyzeSymbol_SearchesThenSavesTheNormalizedConclusion(t *testing.T) {
 		CreatedAt: analysisStartedAt,
 	}, savedAnalysisResult)
 	finishedAt := analysisStartedAt
-	assert.Equal(t, entities.AnalysisEvent{ID: 21, ApiKeyID: 5, Symbol: "BTC", Category: "crypto", Status: "succeeded", Model: "claude-opus-5-5", InputTokens: 300, OutputTokens: 30, StartedAt: analysisStartedAt, FinishedAt: &finishedAt}, *finishedAnalysisEvent)
+	assert.Equal(t, entities.AnalysisEvent{ID: 21, ApiKeyID: 5, Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Status: "succeeded", Model: "claude-opus-5-5", InputTokens: 300, OutputTokens: 30, StartedAt: analysisStartedAt, FinishedAt: &finishedAt}, *finishedAnalysisEvent)
 }
 
 func TestAnalyzeSymbol_RecordsWhyAnAnalysisFailed(t *testing.T) {
@@ -435,11 +446,13 @@ func TestGetAnalysisEvent(t *testing.T) {
 		expectedStatus string
 		expectsResult  bool
 		expectedReason string
+		expectedName   string
 		expectedError  error
 	}{
-		{name: "succeeded", storedEvent: &entities.AnalysisEvent{ID: 4, Status: "succeeded", FinishedAt: &finishedAt}, storedResult: &entities.AnalysisResult{AnalysisEventID: 4, Grade: "bearish"}, expectedStatus: "succeeded", expectsResult: true},
-		{name: "running", storedEvent: &entities.AnalysisEvent{ID: 4, Status: "running"}, expectedStatus: "running"},
-		{name: "failed", storedEvent: &entities.AnalysisEvent{ID: 4, Status: "failed", FailureReason: "AI 服務暫時無法使用", FinishedAt: &finishedAt}, expectedStatus: "failed", expectedReason: "AI 服務暫時無法使用"},
+		{name: "succeeded", storedEvent: &entities.AnalysisEvent{ID: 4, SymbolName: "台積電", Status: "succeeded", FinishedAt: &finishedAt}, storedResult: &entities.AnalysisResult{AnalysisEventID: 4, SymbolName: "台積電", Grade: "bearish"}, expectedStatus: "succeeded", expectsResult: true, expectedName: "台積電"},
+		{name: "running", storedEvent: &entities.AnalysisEvent{ID: 4, SymbolName: "台積電", Status: "running"}, expectedStatus: "running", expectedName: "台積電"},
+		{name: "failed", storedEvent: &entities.AnalysisEvent{ID: 4, SymbolName: "台積電", Status: "failed", FailureReason: "AI 服務暫時無法使用", FinishedAt: &finishedAt}, expectedStatus: "failed", expectedReason: "AI 服務暫時無法使用", expectedName: "台積電"},
+		{name: "started before symbol names existed", storedEvent: &entities.AnalysisEvent{ID: 4, Status: "failed", FinishedAt: &finishedAt}, expectedStatus: "failed", expectedName: ""},
 		{name: "missing", storedEvent: nil, expectedError: service.ErrAnalysisEventNotFound},
 	}
 	for _, testCase := range testCases {
@@ -456,8 +469,108 @@ func TestGetAnalysisEvent(t *testing.T) {
 			assert.Equal(t, testCase.expectedStatus, analysisEvent.Status)
 			assert.Equal(t, testCase.expectedReason, analysisEvent.FailureReason)
 			assert.Equal(t, testCase.expectsResult, analysisEvent.Result != nil)
+			assert.Equal(t, testCase.expectedName, analysisEvent.SymbolName)
+			if testCase.expectsResult {
+				assert.Equal(t, testCase.expectedName, analysisEvent.Result.SymbolName)
+			}
 		})
 	}
+}
+
+func TestStartSymbolAnalysis_SavesTheResolvedSymbolName(t *testing.T) {
+	for _, testCase := range []struct {
+		name                  string
+		symbol                string
+		category              string
+		givenDirectories      func(symbolAnalysisFixture)
+		expectedName          string
+		expectedSearchKeyword string
+	}{
+		{name: "Taiwan stock by company short name", symbol: "2330", category: "twStock", givenDirectories: func(fixture symbolAnalysisFixture) {
+			fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "2330").Return("台積電", true, nil)
+		}, expectedName: "台積電", expectedSearchKeyword: "台積電"},
+		{name: "crypto by coin name", symbol: "BTC", category: "crypto", givenDirectories: func(fixture symbolAnalysisFixture) {
+			fixture.givenBitcoin()
+		}, expectedName: "Bitcoin", expectedSearchKeyword: "Bitcoin"},
+		{name: "US stock by the quote source's company name, still searched by ticker", symbol: "AAPL", category: "usStock", givenDirectories: func(fixture symbolAnalysisFixture) {
+			fixture.usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "AAPL").Return("Apple Inc.", true, nil)
+		}, expectedName: "Apple Inc.", expectedSearchKeyword: "AAPL"},
+		{name: "US stock while the quote source is unavailable", symbol: "AAPL", category: "usStock", givenDirectories: func(fixture symbolAnalysisFixture) {
+			fixture.usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "AAPL").Return("", false, errDatabaseDown)
+		}, expectedName: "", expectedSearchKeyword: "AAPL"},
+		{name: "US stock the quote source does not know", symbol: "ZZZZ", category: "usStock", givenDirectories: func(fixture symbolAnalysisFixture) {
+			fixture.usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "ZZZZ").Return("", false, nil)
+		}, expectedName: "", expectedSearchKeyword: "ZZZZ"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := createSymbolAnalysisFixture(t)
+			testCase.givenDirectories(fixture)
+			fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, testCase.symbol, testCase.category).Return(nil, nil)
+			createdAnalysisEvent := entities.AnalysisEvent{}
+			fixture.analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisEvent *entities.AnalysisEvent) error {
+				createdAnalysisEvent = *analysisEvent
+				return nil
+			})
+			analysisDone := make(chan struct{})
+			fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(0)).RunAndReturn(func(context.Context, uint) (*entities.AnalysisEvent, error) {
+				close(analysisDone)
+				return nil, nil
+			})
+
+			startedSymbolAnalysis, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: testCase.symbol, Category: testCase.category})
+
+			require.NoError(t, err)
+			assert.True(t, startedSymbolAnalysis.IsNew)
+			assert.Equal(t, testCase.expectedName, createdAnalysisEvent.SymbolName)
+			assert.Equal(t, testCase.expectedName, startedSymbolAnalysis.AnalysisEvent.SymbolName)
+			assert.Equal(t, testCase.expectedSearchKeyword, startedSymbolAnalysis.SearchKeyword)
+			<-analysisDone
+		})
+	}
+}
+
+func TestStartSymbolAnalysis_ReusingAUsAnalysisDoesNotAskForItsName(t *testing.T) {
+	fixture := createSymbolAnalysisFixture(t)
+	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "AAPL", "usStock").Return(&entities.AnalysisEvent{ID: 3, Symbol: "AAPL", Category: "usStock", SymbolName: "Apple Inc.", Status: "running", StartedAt: analysisStartedAt}, nil)
+
+	startedSymbolAnalysis, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: "AAPL", Category: "usStock"})
+
+	require.NoError(t, err)
+	assert.False(t, startedSymbolAnalysis.IsNew)
+	assert.Equal(t, "Apple Inc.", startedSymbolAnalysis.AnalysisEvent.SymbolName)
+	fixture.usStockCompanyProxy.AssertNotCalled(t, "FindCompanyShortName", mock.Anything, mock.Anything)
+}
+
+func TestStartSymbolAnalysis_WaitsAtMostFiveSecondsForAUsCompanyName(t *testing.T) {
+	fixture := createSymbolAnalysisFixture(t)
+	lookupBudget := time.Duration(0)
+	fixture.usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "AAPL").RunAndReturn(func(ctx context.Context, _ string) (string, bool, error) {
+		deadline, hasDeadline := ctx.Deadline()
+		require.True(t, hasDeadline)
+		lookupBudget = time.Until(deadline)
+		// stands in for a lookup that ran out of its budget
+		return "", false, context.DeadlineExceeded
+	})
+	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "AAPL", "usStock").Return(nil, nil)
+	createdAnalysisEvent := entities.AnalysisEvent{}
+	fixture.analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisEvent *entities.AnalysisEvent) error {
+		createdAnalysisEvent = *analysisEvent
+		return nil
+	})
+	analysisDone := make(chan struct{})
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(0)).RunAndReturn(func(context.Context, uint) (*entities.AnalysisEvent, error) {
+		close(analysisDone)
+		return nil, nil
+	})
+
+	startedSymbolAnalysis, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: "AAPL", Category: "usStock"})
+
+	require.NoError(t, err)
+	assert.LessOrEqual(t, lookupBudget, 5*time.Second)
+	assert.Greater(t, lookupBudget, 4*time.Second)
+	assert.True(t, startedSymbolAnalysis.IsNew)
+	assert.Equal(t, "", createdAnalysisEvent.SymbolName)
+	<-analysisDone
 }
 
 func TestGetAnalysisEvent_StorageUnavailable(t *testing.T) {

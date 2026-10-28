@@ -3,7 +3,7 @@
 **Project:** go-symbol-news-hunter
 **Bounded Context:** 標的資訊面分析（Symbol News Analysis）——依標的與市場類別爬取新聞，交由 AI 分析並產出標準化評等
 **Maintainer:** James Hsueh
-**Last Updated:** 2026-10-12
+**Last Updated:** 2026-10-28
 
 > 尚無程式碼，本版詞彙全部來自需求討論。使用者親口定義的詞標 `Confirmed`；討論中提出、方向已同意但細節待 `/clarify` 拍板的標 `Archeology`。
 
@@ -15,6 +15,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | 標的 | `Symbol` / `symbol` | symbol | 被分析的股票或加密貨幣代號。同一標的在不同市場寫法不同（`2330`、`AAPL`、`BTC`），一律搭配市場類別才有意義 | Confirmed |
 | 市場類別 | `Category` / `category` | category | 決定要爬哪些新聞來源。只允許 `crypto`、`twStock`、`usStock` 三種（見 §4） | Confirmed |
+| 標的名稱 | `SymbolName` / `symbol_name` | symbolName | 標的給人看的名字，只用於保存與顯示、不影響搜尋字。追蹤標的由 administrator 登記（可為空）；使用者發起的分析於辨識標的時自動帶入並保存在分析事件與分析結果：台股為公司簡稱、加密貨幣為幣種名稱、美股為美股報價來源提供的公司英文名稱（查不到為空，不影響分析）。最長 100 字；既有資料為空、不回補 | Confirmed |
 | 分析事件 | `AnalysisEvent` / table `analysis_events` | analysisEventId | 記錄「什麼時候執行了一次分析」：發起的 API key、標的、市場類別、狀態、失敗原因、開始 / 結束時間、AI 模型與用量；不含分析結論 | Confirmed |
 | 分析結果 | `AnalysisResult` / table `analysis_results` | result | 一次分析事件的標準化產出，以 `analysis_event_id` 關聯所屬分析事件（一對一）；含 `created_at` | Confirmed |
 | 評等 | `Grade` / `grade` | grade | AI 對標的資訊面的結論評等，值域見 §4，非法值正規化為中性 | Confirmed |

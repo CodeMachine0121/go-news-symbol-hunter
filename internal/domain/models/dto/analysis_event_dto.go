@@ -5,6 +5,7 @@ import "time"
 type AnalysisEventDto struct {
 	AnalysisEventID uint               `json:"analysisEventId"`
 	Symbol          string             `json:"symbol"`
+	SymbolName      string             `json:"symbolName"`
 	Category        string             `json:"category"`
 	Status          string             `json:"status"`
 	FailureReason   string             `json:"failureReason,omitempty"`

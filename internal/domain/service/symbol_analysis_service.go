@@ -64,7 +64,8 @@ func (symbolAnalysisService *SymbolAnalysisService) StartSymbolAnalysis(ctx cont
 		if !startSymbolAnalysisDto.AllowsNewAnalysis {
 			return dto.StartedSymbolAnalysisDto{}, ErrAnalysisCapacityReached
 		}
-		analysisEvent := domains.NewStartedAnalysisEventDomain(startSymbolAnalysisDto.ApiKeyID, symbol, symbolAnalysisService.analystConsultationService.ModelName(), now).ToEntity()
+		resolvedSymbol = symbolAnalysisService.symbolResolutionService.NameResolvedSymbol(ctx, resolvedSymbol)
+		analysisEvent := domains.NewStartedAnalysisEventDomain(startSymbolAnalysisDto.ApiKeyID, resolvedSymbol, symbolAnalysisService.analystConsultationService.ModelName(), now).ToEntity()
 		createError := symbolAnalysisService.analysisEventRepository.Create(ctx, &analysisEvent)
 		if errors.Is(createError, ErrAnalysisAlreadyRunning) {
 			continue

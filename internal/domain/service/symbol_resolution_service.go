@@ -5,19 +5,24 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 )
 
+// a US company name is only for display, so waiting longer would only slow the start of an analysis
+const usStockCompanyNameLookupTimeout = 5 * time.Second
+
 type SymbolResolutionService struct {
-	listedCompanyProxies []interfaces.IListedCompanyProxy
-	cryptocurrencyProxy  interfaces.ICryptocurrencyProxy
+	listedCompanyProxies      []interfaces.IListedCompanyProxy
+	usStockListedCompanyProxy interfaces.IListedCompanyProxy
+	cryptocurrencyProxy       interfaces.ICryptocurrencyProxy
 }
 
 func NewSymbolResolutionService(symbolDirectoryCatalog dto.SymbolDirectoryCatalogDto) *SymbolResolutionService {
-	return &SymbolResolutionService{listedCompanyProxies: symbolDirectoryCatalog.TwStock, cryptocurrencyProxy: symbolDirectoryCatalog.Crypto}
+	return &SymbolResolutionService{listedCompanyProxies: symbolDirectoryCatalog.TwStock, usStockListedCompanyProxy: symbolDirectoryCatalog.UsStock, cryptocurrencyProxy: symbolDirectoryCatalog.Crypto}
 }
 
 func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx context.Context, resolveSymbolDto dto.ResolveSymbolDto) (vo.ResolvedSymbolVo, error) {
@@ -68,4 +73,21 @@ func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx contex
 	default:
 		return vo.NewUsStockResolvedSymbolVo(symbol), nil
 	}
+}
+
+// only a new analysis keeps a US company name, so the quote source is asked here and not on every resolution
+func (symbolResolutionService *SymbolResolutionService) NameResolvedSymbol(ctx context.Context, resolvedSymbol vo.ResolvedSymbolVo) vo.ResolvedSymbolVo {
+	if resolvedSymbol.Symbol.Category.Value != vo.MarketCategoryUsStock || resolvedSymbol.SymbolName.Value != "" {
+		return resolvedSymbol
+	}
+	lookupContext, cancelLookup := context.WithTimeout(ctx, usStockCompanyNameLookupTimeout)
+	defer cancelLookup()
+	// an unknown or unreachable name leaves it empty; a US symbol is never rejected for it
+	companyName, found, err := symbolResolutionService.usStockListedCompanyProxy.FindCompanyShortName(lookupContext, resolvedSymbol.Symbol.Value)
+	if err != nil || !found {
+		return resolvedSymbol
+	}
+	namedSymbol := resolvedSymbol
+	namedSymbol.SymbolName = vo.NewSymbolNameVo(companyName)
+	return namedSymbol
 }

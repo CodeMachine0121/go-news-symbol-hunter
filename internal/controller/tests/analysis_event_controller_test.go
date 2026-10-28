@@ -85,7 +85,7 @@ func TestStartSymbolAnalysis_AcceptsANewAnalysisForTheCallingKey(t *testing.T) {
 	recorder := send(fixture.router, http.MethodPost, "/analysis-events", presentedApiKey, `{"symbol":"btc","category":"crypto"}`)
 
 	assert.Equal(t, http.StatusAccepted, recorder.Code)
-	assert.JSONEq(t, `{"analysisEventId":31,"symbol":"BTC","category":"crypto","status":"running","startedAt":"2026-10-06T12:00:00Z"}`, recorder.Body.String())
+	assert.JSONEq(t, `{"analysisEventId":31,"symbol":"BTC","symbolName":"Bitcoin","category":"crypto","status":"running","startedAt":"2026-10-06T12:00:00Z"}`, recorder.Body.String())
 	assert.Equal(t, uint(12), <-createdApiKeyID)
 	<-analysisDone
 }
@@ -94,12 +94,12 @@ func TestStartSymbolAnalysis_ReturnsAReusedAnalysisWithOk(t *testing.T) {
 	fixture := createAnalysisRouter(t)
 	fixture.givenActiveKey()
 	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "BTC").Return("Bitcoin", true, nil)
-	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "crypto").Return(&entities.AnalysisEvent{ID: 30, Symbol: "BTC", Category: "crypto", Status: "running", StartedAt: analysisStartedAt}, nil)
+	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "crypto").Return(&entities.AnalysisEvent{ID: 30, Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Status: "running", StartedAt: analysisStartedAt}, nil)
 
 	recorder := send(fixture.router, http.MethodPost, "/analysis-events", presentedApiKey, `{"symbol":"BTC","category":"crypto"}`)
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.JSONEq(t, `{"analysisEventId":30,"symbol":"BTC","category":"crypto","status":"running","startedAt":"2026-10-06T12:00:00Z"}`, recorder.Body.String())
+	assert.JSONEq(t, `{"analysisEventId":30,"symbol":"BTC","symbolName":"Bitcoin","category":"crypto","status":"running","startedAt":"2026-10-06T12:00:00Z"}`, recorder.Body.String())
 }
 
 func TestStartSymbolAnalysis_ErrorResponses(t *testing.T) {
@@ -156,9 +156,9 @@ func TestGetAnalysisEvent_ReturnsTheResultOfASucceededAnalysis(t *testing.T) {
 	fixture := createAnalysisRouter(t)
 	fixture.givenActiveKey()
 	finishedAt := analysisStartedAt.Add(time.Minute)
-	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(30)).Return(&entities.AnalysisEvent{ID: 30, ApiKeyID: 99, Symbol: "BTC", Category: "crypto", Status: "succeeded", StartedAt: analysisStartedAt, FinishedAt: &finishedAt}, nil)
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(30)).Return(&entities.AnalysisEvent{ID: 30, ApiKeyID: 99, Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Status: "succeeded", StartedAt: analysisStartedAt, FinishedAt: &finishedAt}, nil)
 	fixture.analysisResultRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(30)).Return(&entities.AnalysisResult{
-		AnalysisEventID: 30, Symbol: "BTC", Category: "crypto", Grade: "bullish", Confidence: 70, TimeHorizon: "short", Reason: "理由",
+		AnalysisEventID: 30, Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Grade: "bullish", Confidence: 70, TimeHorizon: "short", Reason: "理由",
 		KeyEvents:   []entities.AnalysisKeyEvent{{Title: "t", Link: "https://news/1", PublishedAt: analysisStartedAt}},
 		RiskFactors: []string{"風險"},
 		Evidence:    []entities.AnalysisEvidence{{Title: "t", Link: "https://news/1", PublishedAt: analysisStartedAt, ProviderName: "CoinDesk"}},
@@ -169,8 +169,8 @@ func TestGetAnalysisEvent_ReturnsTheResultOfASucceededAnalysis(t *testing.T) {
 	recorder := send(fixture.router, http.MethodGet, "/analysis-events/30", presentedApiKey, "")
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.JSONEq(t, `{"analysisEventId":30,"symbol":"BTC","category":"crypto","status":"succeeded","startedAt":"2026-10-06T12:00:00Z","finishedAt":"2026-10-06T12:01:00Z",
-		"result":{"analysisEventId":30,"symbol":"BTC","category":"crypto","grade":"bullish","confidence":70,"timeHorizon":"short","reason":"理由",
+	assert.JSONEq(t, `{"analysisEventId":30,"symbol":"BTC","symbolName":"Bitcoin","category":"crypto","status":"succeeded","startedAt":"2026-10-06T12:00:00Z","finishedAt":"2026-10-06T12:01:00Z",
+		"result":{"analysisEventId":30,"symbol":"BTC","symbolName":"Bitcoin","category":"crypto","grade":"bullish","confidence":70,"timeHorizon":"short","reason":"理由",
 		"keyEvents":[{"title":"t","link":"https://news/1","publishedAt":"2026-10-06T12:00:00Z"}],"riskFactors":["風險"],
 		"evidence":[{"title":"t","link":"https://news/1","publishedAt":"2026-10-06T12:00:00Z","providerName":"CoinDesk"}],
 		"priceAtAnalysis":{"price":"86607.62","currency":"USDT","pricedAt":"2026-10-06T12:01:00Z","source":"Binance"},"createdAt":"2026-10-06T12:01:00Z"}}`, recorder.Body.String())
@@ -185,7 +185,7 @@ func TestGetAnalysisEvent_ShowsAFailureReason(t *testing.T) {
 	recorder := send(fixture.router, http.MethodGet, "/analysis-events/32", presentedApiKey, "")
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.JSONEq(t, `{"analysisEventId":32,"symbol":"BTC","category":"crypto","status":"failed","failureReason":"AI 服務暫時無法使用","startedAt":"2026-10-06T12:00:00Z","finishedAt":"2026-10-06T12:01:00Z"}`, recorder.Body.String())
+	assert.JSONEq(t, `{"analysisEventId":32,"symbol":"BTC","symbolName":"","category":"crypto","status":"failed","failureReason":"AI 服務暫時無法使用","startedAt":"2026-10-06T12:00:00Z","finishedAt":"2026-10-06T12:01:00Z"}`, recorder.Body.String())
 }
 
 func TestGetAnalysisEvent_UnknownIdsAreNotFound(t *testing.T) {

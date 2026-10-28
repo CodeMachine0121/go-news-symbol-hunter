@@ -275,7 +275,8 @@
                 "exec": [
                   "pm.test('status is one of [200, 202]', () => pm.expect(pm.response.code).to.be.oneOf([200, 202]));",
                   "const body = pm.response.json();",
-                  "pm.collectionVariables.set('analysisEventId', body.analysisEventId);"
+                  "pm.collectionVariables.set('analysisEventId', body.analysisEventId);",
+                  "pm.test('carries a symbol name (empty when unknown)', () => pm.expect(body.symbolName).to.be.a('string'));"
                 ]
               }
             }
@@ -322,6 +323,10 @@
                   "pm.test('has a known status', () => pm.expect(body.status).to.be.oneOf(['running', 'succeeded', 'failed']));",
                   "if (body.status === 'succeeded') {",
                   "  pm.test('succeeded analysis has a result', () => pm.expect(body.result.grade).to.be.oneOf(['strongBullish', 'bullish', 'neutral', 'bearish', 'strongBearish']));",
+                  "}",
+                  "pm.test('carries a symbol name (empty when unknown)', () => pm.expect(body.symbolName).to.be.a('string'));",
+                  "if (body.result) {",
+                  "  pm.test('result carries the same symbol name', () => pm.expect(body.result.symbolName).to.eql(body.symbolName));",
                   "}"
                 ]
               }
@@ -357,7 +362,8 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
-                  "pm.test('grades are an array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test('grades are an array', () => pm.expect(pm.response.json()).to.be.an('array'));",
+                  "pm.test('every grade carries the registered symbol name', () => pm.response.json().forEach((grade) => pm.expect(grade.symbolName).to.be.a('string')));"
                 ]
               }
             }

@@ -91,6 +91,7 @@ func (analysisConclusionDomain AnalysisConclusionDomain) ToResultEntity(analysis
 	analysisResult := entities.AnalysisResult{
 		AnalysisEventID: analysisEvent.ID,
 		Symbol:          analysisEvent.Symbol,
+		SymbolName:      analysisEvent.SymbolName,
 		Category:        analysisEvent.Category,
 		Grade:           analysisConclusionDomain.grade,
 		Confidence:      analysisConclusionDomain.confidence,

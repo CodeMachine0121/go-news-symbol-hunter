@@ -59,13 +59,13 @@ func TestGetTrackedSymbolGrades_ReturnsTheGradesAsJson(t *testing.T) {
 	fixture.apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 12, IsActive: true}, nil)
 	updatedAt := time.Date(2026, 10, 7, 4, 31, 0, 0, time.UTC)
 	fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "2330", "twStock").Return([]entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "bullish", CombinedScore: 1, Confidence: 60, UpdatedAt: updatedAt}}, nil)
-	fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return([]entities.TrackedSymbol{{Symbol: "2330", Category: "twStock", IsTracking: true}}, nil)
+	fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return([]entities.TrackedSymbol{{Symbol: "2330", Category: "twStock", SymbolName: "台積電", IsTracking: true}}, nil)
 	fixture.sessionGradeRepository.EXPECT().FindByTradingDays(mock.Anything, []string{"2026-10-07"}).Return([]entities.SessionGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Session: "preMarket", Grade: "bullish", Confidence: 60, Reason: "法說會", CreatedAt: updatedAt}}, nil)
 
 	recorder := send(fixture.router, http.MethodGet, "/tracked-symbol-grades?symbol=2330&category=twStock", presentedApiKey, "")
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.JSONEq(t, `[{"symbol":"2330","category":"twStock","tradingDay":"2026-10-07","grade":"bullish","combinedScore":1,"confidence":60,"updatedAt":"2026-10-07T04:31:00Z",
+	assert.JSONEq(t, `[{"symbol":"2330","symbolName":"台積電","category":"twStock","tradingDay":"2026-10-07","grade":"bullish","combinedScore":1,"confidence":60,"updatedAt":"2026-10-07T04:31:00Z",
 		"sessionGrades":[{"session":"preMarket","grade":"bullish","confidence":60,"reason":"法說會","keyEvents":[],"riskFactors":[],"evidence":[],"createdAt":"2026-10-07T04:31:00Z"}]}]`, recorder.Body.String())
 }
 

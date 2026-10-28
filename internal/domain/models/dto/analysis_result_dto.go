@@ -5,6 +5,7 @@ import "time"
 type AnalysisResultDto struct {
 	AnalysisEventID uint                  `json:"analysisEventId"`
 	Symbol          string                `json:"symbol"`
+	SymbolName      string                `json:"symbolName"`
 	Category        string                `json:"category"`
 	Grade           string                `json:"grade"`
 	Confidence      int                   `json:"confidence"`

@@ -75,3 +75,53 @@ func TestYahooFinanceProxy_WritesShareClassesWithADash(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "/v8/finance/chart/BRK-B?range=1d&interval=1d", receivedPath)
 }
+
+func findCompanyNameFrom(t *testing.T, statusCode int, body string) (string, bool, error) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(statusCode)
+		_, _ = writer.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	return yahoofinance.NewYahooFinanceProxy(httpfetch.NewHttpBodyReader(server.Client()), nil, yahoofinance.YahooFinanceUrls{Chart: server.URL + "/v8/finance/chart/"}).FindCompanyShortName(context.Background(), "AAPL")
+}
+
+func TestYahooFinanceProxy_FindsTheCompanyName(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		body          string
+		expectedName  string
+		expectedFound bool
+	}{
+		{name: "short name", body: `{"chart":{"result":[{"meta":{"shortName":" Apple Inc. ","longName":"Apple Incorporated"}}]}}`, expectedName: "Apple Inc.", expectedFound: true},
+		{name: "only a long name", body: `{"chart":{"result":[{"meta":{"longName":"Apple Inc."}}]}}`, expectedName: "Apple Inc.", expectedFound: true},
+		{name: "no name", body: `{"chart":{"result":[{"meta":{"currency":"USD"}}]}}`, expectedName: "", expectedFound: false},
+		{name: "no result", body: `{"chart":{"result":[],"error":null}}`, expectedName: "", expectedFound: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			companyName, found, err := findCompanyNameFrom(t, http.StatusOK, testCase.body)
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.expectedName, companyName)
+			assert.Equal(t, testCase.expectedFound, found)
+		})
+	}
+}
+
+func TestYahooFinanceProxy_FailsToNameWhenTheChartCannotBeRead(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		statusCode int
+		body       string
+	}{
+		{name: "unknown symbol", statusCode: http.StatusNotFound, body: `{"chart":{"result":null,"error":{"code":"Not Found"}}}`},
+		{name: "malformed", statusCode: http.StatusOK, body: `{`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, found, err := findCompanyNameFrom(t, testCase.statusCode, testCase.body)
+
+			assert.Error(t, err)
+			assert.False(t, found)
+		})
+	}
+}

@@ -45,13 +45,13 @@ func TestAnalysisEventDomain_IsReusableAt(t *testing.T) {
 func TestAnalysisEventDomain_StartsRunningAndFinishesWithUsage(t *testing.T) {
 	crypto, _ := vo.NewMarketCategoryVo("crypto")
 	symbol, _ := vo.NewSymbolVo("btc", crypto)
-	analysisEvent := domains.NewStartedAnalysisEventDomain(7, symbol, "claude-opus-5-5", analyzedAt)
-	assert.Equal(t, entities.AnalysisEvent{ApiKeyID: 7, Symbol: "BTC", Category: "crypto", Status: "running", Model: "claude-opus-5-5", StartedAt: analyzedAt}, analysisEvent.ToEntity())
+	analysisEvent := domains.NewStartedAnalysisEventDomain(7, vo.NewCryptoResolvedSymbolVo(symbol, "Bitcoin"), "claude-opus-5-5", analyzedAt)
+	assert.Equal(t, entities.AnalysisEvent{ApiKeyID: 7, Symbol: "BTC", Category: "crypto", SymbolName: "Bitcoin", Status: "running", Model: "claude-opus-5-5", StartedAt: analyzedAt}, analysisEvent.ToEntity())
 
 	analysisEvent.Fail("AI 服務暫時無法使用", analyzedAt.Add(time.Minute), vo.AnalystUsageVo{InputTokens: 100, OutputTokens: 20})
 
 	finishedAt := analyzedAt.Add(time.Minute)
-	assert.Equal(t, entities.AnalysisEvent{ApiKeyID: 7, Symbol: "BTC", Category: "crypto", Status: "failed", FailureReason: "AI 服務暫時無法使用", Model: "claude-opus-5-5", InputTokens: 100, OutputTokens: 20, StartedAt: analyzedAt, FinishedAt: &finishedAt}, analysisEvent.ToEntity())
+	assert.Equal(t, entities.AnalysisEvent{ApiKeyID: 7, Symbol: "BTC", Category: "crypto", SymbolName: "Bitcoin", Status: "failed", FailureReason: "AI 服務暫時無法使用", Model: "claude-opus-5-5", InputTokens: 100, OutputTokens: 20, StartedAt: analyzedAt, FinishedAt: &finishedAt}, analysisEvent.ToEntity())
 	analysisEvent.Succeed(finishedAt, vo.AnalystUsageVo{InputTokens: 5, OutputTokens: 6})
 	assert.Equal(t, "succeeded", analysisEvent.ToEntity().Status)
 	assert.Empty(t, analysisEvent.ToEntity().FailureReason)
