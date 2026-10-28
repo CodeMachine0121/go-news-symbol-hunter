@@ -286,7 +286,6 @@ func TestAnalyzeSymbol_SearchesThenSavesTheNormalizedConclusion(t *testing.T) {
 		{Title: "Bitcoin ETF inflows", Link: "https://news/1", PublishedAt: analysisStartedAt.Add(-time.Hour), ProviderName: "CoinDesk"},
 		{Title: "Miners sell", Link: "https://news/2", PublishedAt: analysisStartedAt.Add(-2 * time.Hour), ProviderName: "CoinDesk"},
 	}, nil)
-	fixture.usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "MSTR").Return("Strategy", true, nil)
 	fixture.usStockNewsProxy.EXPECT().FetchNews(mock.Anything, "MSTR").Return([]vo.NewsVo{
 		{Title: "MicroStrategy buys", Link: "https://news/3", PublishedAt: analysisStartedAt.Add(-3 * time.Hour), ProviderName: "Yahoo 財經"},
 		{Title: "Bitcoin ETF inflows again", Link: "https://news/1", PublishedAt: analysisStartedAt.Add(-time.Hour), ProviderName: "Yahoo 財經"},
@@ -528,6 +527,18 @@ func TestStartSymbolAnalysis_SavesTheResolvedSymbolName(t *testing.T) {
 			<-analysisDone
 		})
 	}
+}
+
+func TestStartSymbolAnalysis_ReusingAUsAnalysisDoesNotAskForItsName(t *testing.T) {
+	fixture := createSymbolAnalysisFixture(t)
+	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "AAPL", "usStock").Return(&entities.AnalysisEvent{ID: 3, Symbol: "AAPL", Category: "usStock", SymbolName: "Apple Inc.", Status: "running", StartedAt: analysisStartedAt}, nil)
+
+	startedSymbolAnalysis, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: "AAPL", Category: "usStock"})
+
+	require.NoError(t, err)
+	assert.False(t, startedSymbolAnalysis.IsNew)
+	assert.Equal(t, "Apple Inc.", startedSymbolAnalysis.AnalysisEvent.SymbolName)
+	fixture.usStockCompanyProxy.AssertNotCalled(t, "FindCompanyShortName", mock.Anything, mock.Anything)
 }
 
 func TestStartSymbolAnalysis_WaitsAtMostFiveSecondsForAUsCompanyName(t *testing.T) {

@@ -25,7 +25,10 @@ func (trackedSymbolGradesDomain TrackedSymbolGradesDomain) ToDtos() []dto.Tracke
 		// administrators enter symbols by hand, so they are compared in the same normalized form grades are stored in
 		symbol, err := vo.NewSymbolVo(trackingSymbol.Symbol, vo.MarketCategoryVo{Value: trackingSymbol.Category})
 		if err == nil {
-			symbolNames[symbol] = trackingSymbol.SymbolName
+			// a duplicate row that normalizes to the same symbol must not blank out a registered name
+			if symbolName := vo.NewSymbolNameVo(trackingSymbol.SymbolName).Value; symbolName != "" || symbolNames[symbol] == "" {
+				symbolNames[symbol] = symbolName
+			}
 		}
 	}
 	isListed := map[vo.SymbolVo]bool{}

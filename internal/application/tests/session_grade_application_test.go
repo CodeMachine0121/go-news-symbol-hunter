@@ -516,6 +516,8 @@ func TestGetTrackedSymbolGrades_ShowsTheSymbolNameTheAdministratorRegistered(t *
 	}{
 		{name: "registered name", symbolName: "台積電", expectedName: "台積電"},
 		{name: "no name registered", symbolName: "", expectedName: ""},
+		{name: "only spaces registered", symbolName: "   ", expectedName: ""},
+		{name: "registered with stray spaces", symbolName: " 台積電 ", expectedName: "台積電"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := createSessionGradeFixture(t, wednesdayAt(14, 0))
@@ -528,6 +530,29 @@ func TestGetTrackedSymbolGrades_ShowsTheSymbolNameTheAdministratorRegistered(t *
 			require.NoError(t, err)
 			require.Len(t, trackedSymbolGrades, 1)
 			assert.Equal(t, testCase.expectedName, trackedSymbolGrades[0].SymbolName)
+		})
+	}
+}
+
+func TestGetTrackedSymbolGrades_KeepsTheRegisteredNameOfDuplicateRows(t *testing.T) {
+	for _, testCase := range []struct {
+		name           string
+		trackedSymbols []entities.TrackedSymbol
+	}{
+		{name: "named row first", trackedSymbols: []entities.TrackedSymbol{{Symbol: "aapl", Category: "usStock", SymbolName: "Apple", IsTracking: true}, {Symbol: "AAPL", Category: "usStock", IsTracking: true}}},
+		{name: "named row last", trackedSymbols: []entities.TrackedSymbol{{Symbol: "AAPL", Category: "usStock", IsTracking: true}, {Symbol: "aapl", Category: "usStock", SymbolName: "Apple", IsTracking: true}}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := createSessionGradeFixture(t, wednesdayAt(14, 0))
+			fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "", "").Return([]entities.CombinedGrade{{Symbol: "AAPL", Category: "usStock", TradingDay: "2026-10-07", Grade: "bullish"}}, nil)
+			fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return(testCase.trackedSymbols, nil)
+			fixture.sessionGradeRepository.EXPECT().FindByTradingDays(mock.Anything, []string{"2026-10-07"}).Return([]entities.SessionGrade{}, nil)
+
+			trackedSymbolGrades, err := fixture.sessionGradeApplication.GetTrackedSymbolGrades(context.Background(), dto.GetTrackedSymbolGradesDto{})
+
+			require.NoError(t, err)
+			require.Len(t, trackedSymbolGrades, 1)
+			assert.Equal(t, "Apple", trackedSymbolGrades[0].SymbolName)
 		})
 	}
 }

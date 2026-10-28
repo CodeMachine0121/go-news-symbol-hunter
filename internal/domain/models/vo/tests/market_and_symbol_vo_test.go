@@ -70,8 +70,7 @@ func TestResolvedSymbolVo_SearchKeywordsAndRelevanceTerms(t *testing.T) {
 
 	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: twStockSymbol, SymbolName: vo.SymbolNameVo{Value: "台積電"}, SearchKeyword: "台積電", RelevanceTerms: []string{"台積電", "2330"}}, vo.NewTwStockResolvedSymbolVo(twStockSymbol, "台積電"))
 	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: cryptoSymbol, SymbolName: vo.SymbolNameVo{Value: "Bitcoin"}, SearchKeyword: "Bitcoin", RelevanceTerms: []string{"Bitcoin", "BTC"}}, vo.NewCryptoResolvedSymbolVo(cryptoSymbol, "Bitcoin"))
-	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: usStockSymbol, SymbolName: vo.SymbolNameVo{Value: "Apple Inc."}, SearchKeyword: "AAPL", RelevanceTerms: []string{"AAPL"}}, vo.NewUsStockResolvedSymbolVo(usStockSymbol, "Apple Inc."))
-	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: usStockSymbol, SearchKeyword: "AAPL", RelevanceTerms: []string{"AAPL"}}, vo.NewUsStockResolvedSymbolVo(usStockSymbol, ""))
+	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: usStockSymbol, SearchKeyword: "AAPL", RelevanceTerms: []string{"AAPL"}}, vo.NewUsStockResolvedSymbolVo(usStockSymbol))
 }
 
 func TestSymbolNameVo_TrimsAndKeepsAtMostOneHundredCharacters(t *testing.T) {

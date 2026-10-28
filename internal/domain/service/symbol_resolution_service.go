@@ -71,13 +71,23 @@ func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx contex
 		}
 		return vo.NewCryptoResolvedSymbolVo(symbol, coinName), nil
 	default:
-		lookupContext, cancelLookup := context.WithTimeout(ctx, usStockCompanyNameLookupTimeout)
-		defer cancelLookup()
-		// an unknown or unreachable name leaves it empty; a US symbol is never rejected for it
-		companyName, found, err := symbolResolutionService.usStockListedCompanyProxy.FindCompanyShortName(lookupContext, symbol.Value)
-		if err != nil || !found {
-			companyName = ""
-		}
-		return vo.NewUsStockResolvedSymbolVo(symbol, companyName), nil
+		return vo.NewUsStockResolvedSymbolVo(symbol), nil
 	}
+}
+
+// only a new analysis keeps a US company name, so the quote source is asked here and not on every resolution
+func (symbolResolutionService *SymbolResolutionService) NameResolvedSymbol(ctx context.Context, resolvedSymbol vo.ResolvedSymbolVo) vo.ResolvedSymbolVo {
+	if resolvedSymbol.Symbol.Category.Value != vo.MarketCategoryUsStock || resolvedSymbol.SymbolName.Value != "" {
+		return resolvedSymbol
+	}
+	lookupContext, cancelLookup := context.WithTimeout(ctx, usStockCompanyNameLookupTimeout)
+	defer cancelLookup()
+	// an unknown or unreachable name leaves it empty; a US symbol is never rejected for it
+	companyName, found, err := symbolResolutionService.usStockListedCompanyProxy.FindCompanyShortName(lookupContext, resolvedSymbol.Symbol.Value)
+	if err != nil || !found {
+		return resolvedSymbol
+	}
+	namedSymbol := resolvedSymbol
+	namedSymbol.SymbolName = vo.NewSymbolNameVo(companyName)
+	return namedSymbol
 }
