@@ -61,8 +61,8 @@ func TestAnalysisEventDomain_StartsRunningAndFinishesWithUsage(t *testing.T) {
 func TestAnalysisEventDomain_ToDto(t *testing.T) {
 	finishedAt := analyzedAt.Add(time.Minute)
 	analysisEvent := domains.NewAnalysisEventDomain(entities.AnalysisEvent{ID: 3, Symbol: "BTC", Category: "crypto", Status: "succeeded", StartedAt: analyzedAt, FinishedAt: &finishedAt})
-	analysisResult := entities.AnalysisResult{
-		AnalysisEventID: 3, Symbol: "BTC", Category: "crypto", Grade: "bullish", Confidence: 70, TimeHorizon: "short", Reason: "理由",
+	analysisResult := entities.GradeRecord{
+		AnalysisEventID: new(uint(3)), Symbol: "BTC", Category: "crypto", Grade: "bullish", Confidence: 70, TimeHorizon: "short", Reason: "理由",
 		KeyEvents:   []entities.AnalysisKeyEvent{{Title: "t", Link: "l", PublishedAt: analyzedAt}},
 		RiskFactors: []string{"風險"},
 		Evidence:    []entities.AnalysisEvidence{{Title: "t", Link: "l", PublishedAt: analyzedAt, ProviderName: "CoinDesk"}},
@@ -89,10 +89,10 @@ func recordedEvidence(links ...string) *domains.AnalysisEvidenceDomain {
 	return analysisEvidence
 }
 
-func conclude(t *testing.T, rawConclusion vo.RawAnalysisConclusionVo, analysisEvidence *domains.AnalysisEvidenceDomain) entities.AnalysisResult {
+func conclude(t *testing.T, rawConclusion vo.RawAnalysisConclusionVo, analysisEvidence *domains.AnalysisEvidenceDomain) entities.GradeRecord {
 	conclusion, err := domains.NewAnalysisConclusionDomain(rawConclusion, analysisEvidence)
 	require.NoError(t, err)
-	return conclusion.ToResultEntity(entities.AnalysisEvent{ID: 9, Symbol: "BTC", Category: "crypto"}, analyzedAt, nil)
+	return conclusion.ToGradeRecordEntity(entities.AnalysisEvent{ID: 9, Symbol: "BTC", Category: "crypto"}, analyzedAt, nil)
 }
 
 func TestAnalysisConclusionDomain_NormalizesTheConclusion(t *testing.T) {
@@ -158,10 +158,11 @@ func TestAnalysisConclusionDomain_RequiresAReason(t *testing.T) {
 	assert.EqualError(t, err, "AI 未提供完整分析")
 }
 
-func TestAnalysisConclusionDomain_ToResultEntityCarriesTheEventAndEvidence(t *testing.T) {
+func TestAnalysisConclusionDomain_ToGradeRecordEntityCarriesTheEventAndEvidence(t *testing.T) {
 	analysisResult := conclude(t, vo.RawAnalysisConclusionVo{Grade: "bearish", Confidence: 30, TimeHorizon: "mid", Reason: " 理由 "}, recordedEvidence("a", "a", "b"))
 
-	assert.Equal(t, uint(9), analysisResult.AnalysisEventID)
+	assert.Equal(t, "manual", analysisResult.Source)
+	assert.Equal(t, new(uint(9)), analysisResult.AnalysisEventID)
 	assert.Equal(t, "BTC", analysisResult.Symbol)
 	assert.Equal(t, "crypto", analysisResult.Category)
 	assert.Equal(t, "理由", analysisResult.Reason)
@@ -192,14 +193,14 @@ func TestAnalysisEventDomain_IsStaleAt(t *testing.T) {
 	assert.False(t, domains.NewAnalysisEventDomain(entities.AnalysisEvent{Status: "failed", StartedAt: analyzedAt.Add(-time.Hour)}).IsStaleAt(analyzedAt))
 }
 
-func TestAnalysisConclusionDomain_ToResultEntityCarriesThePriceQuote(t *testing.T) {
+func TestAnalysisConclusionDomain_ToGradeRecordEntityCarriesThePriceQuote(t *testing.T) {
 	conclusion, err := domains.NewAnalysisConclusionDomain(vo.RawAnalysisConclusionVo{Grade: "bullish", Reason: "r"}, recordedEvidence("a"))
 	require.NoError(t, err)
 	priceQuote, err := vo.NewPriceQuoteVo(decimal.RequireFromString("0.00001234"), "USDT", analyzedAt, "Binance")
 	require.NoError(t, err)
 
-	analysisResult := conclusion.ToResultEntity(entities.AnalysisEvent{ID: 9}, analyzedAt, &priceQuote)
-	analysisResultWithoutPrice := conclusion.ToResultEntity(entities.AnalysisEvent{ID: 9}, analyzedAt, nil)
+	analysisResult := conclusion.ToGradeRecordEntity(entities.AnalysisEvent{ID: 9}, analyzedAt, &priceQuote)
+	analysisResultWithoutPrice := conclusion.ToGradeRecordEntity(entities.AnalysisEvent{ID: 9}, analyzedAt, nil)
 
 	assert.Equal(t, "0.00001234", analysisResult.Price.Decimal.String())
 	assert.True(t, analysisResult.Price.Valid)
@@ -212,8 +213,8 @@ func TestAnalysisConclusionDomain_ToResultEntityCarriesThePriceQuote(t *testing.
 
 func TestAnalysisEventDomain_ToDtoShowsThePriceAtAnalysisOrNull(t *testing.T) {
 	analysisEvent := domains.NewAnalysisEventDomain(entities.AnalysisEvent{ID: 3, Status: "succeeded"})
-	pricedResult := entities.AnalysisResult{AnalysisEventID: 3, Price: decimal.NewNullDecimal(decimal.RequireFromString("86607.62")), PriceCurrency: "USDT", PricedAt: &analyzedAt, PriceSource: "Binance"}
-	unpricedResult := entities.AnalysisResult{AnalysisEventID: 3}
+	pricedResult := entities.GradeRecord{AnalysisEventID: new(uint(3)), Price: decimal.NewNullDecimal(decimal.RequireFromString("86607.62")), PriceCurrency: "USDT", PricedAt: &analyzedAt, PriceSource: "Binance"}
+	unpricedResult := entities.GradeRecord{AnalysisEventID: new(uint(3))}
 
 	assert.Equal(t, &dto.PriceAtAnalysisDto{Price: decimal.RequireFromString("86607.62"), Currency: "USDT", PricedAt: analyzedAt, Source: "Binance"}, analysisEvent.ToDto(&pricedResult).Result.PriceAtAnalysis)
 	assert.Nil(t, analysisEvent.ToDto(&unpricedResult).Result.PriceAtAnalysis)

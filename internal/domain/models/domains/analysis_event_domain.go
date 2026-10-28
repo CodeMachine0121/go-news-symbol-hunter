@@ -71,7 +71,7 @@ func (analysisEventDomain *AnalysisEventDomain) Fail(failureReason string, finis
 	analysisEventDomain.finish(AnalysisStatusFailed, failureReason, finishedAt, usage)
 }
 
-func (analysisEventDomain AnalysisEventDomain) ToDto(analysisResult *entities.AnalysisResult) dto.AnalysisEventDto {
+func (analysisEventDomain AnalysisEventDomain) ToDto(gradeRecord *entities.GradeRecord) dto.AnalysisEventDto {
 	analysisEventDto := dto.AnalysisEventDto{
 		AnalysisEventID: analysisEventDomain.analysisEvent.ID,
 		Symbol:          analysisEventDomain.analysisEvent.Symbol,
@@ -82,35 +82,35 @@ func (analysisEventDomain AnalysisEventDomain) ToDto(analysisResult *entities.An
 		StartedAt:       analysisEventDomain.analysisEvent.StartedAt,
 		FinishedAt:      analysisEventDomain.analysisEvent.FinishedAt,
 	}
-	if analysisResult == nil {
+	if gradeRecord == nil {
 		return analysisEventDto
 	}
-	keyEvents := make([]dto.AnalysisKeyEventDto, 0, len(analysisResult.KeyEvents))
-	for _, keyEvent := range analysisResult.KeyEvents {
+	keyEvents := make([]dto.AnalysisKeyEventDto, 0, len(gradeRecord.KeyEvents))
+	for _, keyEvent := range gradeRecord.KeyEvents {
 		keyEvents = append(keyEvents, dto.AnalysisKeyEventDto{Title: keyEvent.Title, Link: keyEvent.Link, PublishedAt: keyEvent.PublishedAt})
 	}
-	evidence := make([]dto.AnalysisEvidenceDto, 0, len(analysisResult.Evidence))
-	for _, newsEvidence := range analysisResult.Evidence {
+	evidence := make([]dto.AnalysisEvidenceDto, 0, len(gradeRecord.Evidence))
+	for _, newsEvidence := range gradeRecord.Evidence {
 		evidence = append(evidence, dto.AnalysisEvidenceDto{Title: newsEvidence.Title, Link: newsEvidence.Link, PublishedAt: newsEvidence.PublishedAt, ProviderName: newsEvidence.ProviderName})
 	}
 	priceAtAnalysis := (*dto.PriceAtAnalysisDto)(nil)
-	if analysisResult.Price.Valid && analysisResult.PricedAt != nil {
-		priceAtAnalysis = &dto.PriceAtAnalysisDto{Price: analysisResult.Price.Decimal, Currency: analysisResult.PriceCurrency, PricedAt: *analysisResult.PricedAt, Source: analysisResult.PriceSource}
+	if gradeRecord.Price.Valid && gradeRecord.PricedAt != nil {
+		priceAtAnalysis = &dto.PriceAtAnalysisDto{Price: gradeRecord.Price.Decimal, Currency: gradeRecord.PriceCurrency, PricedAt: *gradeRecord.PricedAt, Source: gradeRecord.PriceSource}
 	}
 	analysisEventDto.Result = &dto.AnalysisResultDto{
-		AnalysisEventID: analysisResult.AnalysisEventID,
-		Symbol:          analysisResult.Symbol,
-		SymbolName:      analysisResult.SymbolName,
-		Category:        analysisResult.Category,
-		Grade:           analysisResult.Grade,
-		Confidence:      analysisResult.Confidence,
-		TimeHorizon:     analysisResult.TimeHorizon,
-		Reason:          analysisResult.Reason,
+		AnalysisEventID: analysisEventDomain.analysisEvent.ID,
+		Symbol:          gradeRecord.Symbol,
+		SymbolName:      gradeRecord.SymbolName,
+		Category:        gradeRecord.Category,
+		Grade:           gradeRecord.Grade,
+		Confidence:      gradeRecord.Confidence,
+		TimeHorizon:     gradeRecord.TimeHorizon,
+		Reason:          gradeRecord.Reason,
 		KeyEvents:       keyEvents,
-		RiskFactors:     append([]string{}, analysisResult.RiskFactors...),
+		RiskFactors:     append([]string{}, gradeRecord.RiskFactors...),
 		Evidence:        evidence,
 		PriceAtAnalysis: priceAtAnalysis,
-		CreatedAt:       analysisResult.CreatedAt,
+		CreatedAt:       gradeRecord.CreatedAt,
 	}
 	return analysisEventDto
 }

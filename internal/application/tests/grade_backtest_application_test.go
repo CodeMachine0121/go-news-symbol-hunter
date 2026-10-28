@@ -34,25 +34,25 @@ func clockAt(t *testing.T, now time.Time) *mocks.MockIClockProxy {
 
 type gradeBacktestFixture struct {
 	gradeBacktestApplication *application.GradeBacktestApplication
-	analysisResultRepository *mocks.MockIAnalysisResultRepository
+	gradeRecordRepository *mocks.MockIGradeRecordRepository
 	priceHistoryProxy        *mocks.MockIPriceHistoryProxy
 }
 
 func createGradeBacktestFixture(t *testing.T) gradeBacktestFixture {
 	fixture := gradeBacktestFixture{
-		analysisResultRepository: mocks.NewMockIAnalysisResultRepository(t),
+		gradeRecordRepository: mocks.NewMockIGradeRecordRepository(t),
 		priceHistoryProxy:        mocks.NewMockIPriceHistoryProxy(t),
 	}
 	fixture.gradeBacktestApplication = application.NewGradeBacktestApplication(service.NewGradeBacktestService(
-		fixture.analysisResultRepository,
+		fixture.gradeRecordRepository,
 		clockAt(t, backtestEvaluatedAt),
 		dto.PriceHistoryCatalogDto{TwStock: fixture.priceHistoryProxy, Crypto: fixture.priceHistoryProxy},
 	))
 	return fixture
 }
 
-func completedAnalysis(analysisEventID uint, symbol string, category string, grade string) entities.AnalysisResult {
-	return entities.AnalysisResult{AnalysisEventID: analysisEventID, Symbol: symbol, Category: category, Grade: grade, Confidence: 80, TimeHorizon: "short", CreatedAt: backtestCompletedAt}
+func completedAnalysis(analysisEventID uint, symbol string, category string, grade string) entities.GradeRecord {
+	return entities.GradeRecord{AnalysisEventID: new(uint(analysisEventID)), Symbol: symbol, Category: category, Grade: grade, Confidence: 80, TimeHorizon: "short", CreatedAt: backtestCompletedAt}
 }
 
 func priceCandle(openTime time.Time, close string) vo.PriceCandleVo {
@@ -72,8 +72,8 @@ func tenTradingDaysEndingAt(lastClose string) []vo.PriceCandleVo {
 	return dailyCandles
 }
 
-func (fixture gradeBacktestFixture) givenAnalyses(analysisResults ...entities.AnalysisResult) {
-	fixture.analysisResultRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return(analysisResults, nil).Once()
+func (fixture gradeBacktestFixture) givenAnalyses(analysisResults ...entities.GradeRecord) {
+	fixture.gradeRecordRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return(analysisResults, nil).Once()
 }
 
 func (fixture gradeBacktestFixture) givenCandles(symbol string, interval string, candles []vo.PriceCandleVo) {
@@ -125,9 +125,9 @@ func TestGetGradeBacktest_PassesThePeriodAndSymbolOn(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := createGradeBacktestFixture(t)
 			receivedFilter := vo.GradeBacktestFilterVo{}
-			fixture.analysisResultRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).RunAndReturn(func(_ context.Context, gradeBacktestFilter vo.GradeBacktestFilterVo, _ int) ([]entities.AnalysisResult, error) {
+			fixture.gradeRecordRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).RunAndReturn(func(_ context.Context, gradeBacktestFilter vo.GradeBacktestFilterVo, _ int) ([]entities.GradeRecord, error) {
 				receivedFilter = gradeBacktestFilter
-				return []entities.AnalysisResult{}, nil
+				return []entities.GradeRecord{}, nil
 			})
 
 			gradeBacktest, err := fixture.gradeBacktestApplication.GetGradeBacktest(context.Background(), testCase.getGradeBacktest)
@@ -178,7 +178,7 @@ func TestGetGradeBacktest_CoversAtMostFiveHundredAnalyses(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := createGradeBacktestFixture(t)
-			analysisResults := []entities.AnalysisResult{}
+			analysisResults := []entities.GradeRecord{}
 			for analysisEventID := range testCase.analysisCount {
 				analysisResults = append(analysisResults, completedAnalysis(uint(analysisEventID), "AAPL", "usStock", "bullish"))
 			}
@@ -277,7 +277,7 @@ func TestGetGradeBacktest_FailsWholeWhenThePriceServiceDoesNotAnswer(t *testing.
 
 func TestGetGradeBacktest_FailsWhenTheAnalysesCannotBeRead(t *testing.T) {
 	fixture := createGradeBacktestFixture(t)
-	fixture.analysisResultRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return(nil, errors.New("database down"))
+	fixture.gradeRecordRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return(nil, errors.New("database down"))
 
 	_, err := fixture.gradeBacktestApplication.GetGradeBacktest(context.Background(), dto.GetGradeBacktestDto{})
 
@@ -285,14 +285,14 @@ func TestGetGradeBacktest_FailsWhenTheAnalysesCannotBeRead(t *testing.T) {
 }
 
 func TestGetGradeBacktest_AsksEachMarketsOwnPriceSource(t *testing.T) {
-	analysisResultRepository := mocks.NewMockIAnalysisResultRepository(t)
+	gradeRecordRepository := mocks.NewMockIGradeRecordRepository(t)
 	priceHistoryProxiesByCategory := map[string]*mocks.MockIPriceHistoryProxy{"twStock": mocks.NewMockIPriceHistoryProxy(t), "usStock": mocks.NewMockIPriceHistoryProxy(t), "crypto": mocks.NewMockIPriceHistoryProxy(t)}
-	gradeBacktestApplication := application.NewGradeBacktestApplication(service.NewGradeBacktestService(analysisResultRepository, clockAt(t, backtestEvaluatedAt), dto.PriceHistoryCatalogDto{
+	gradeBacktestApplication := application.NewGradeBacktestApplication(service.NewGradeBacktestService(gradeRecordRepository, clockAt(t, backtestEvaluatedAt), dto.PriceHistoryCatalogDto{
 		TwStock: priceHistoryProxiesByCategory["twStock"],
 		UsStock: priceHistoryProxiesByCategory["usStock"],
 		Crypto:  priceHistoryProxiesByCategory["crypto"],
 	}))
-	analysisResultRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return([]entities.AnalysisResult{
+	gradeRecordRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return([]entities.GradeRecord{
 		completedAnalysis(1, "2330", "twStock", "bullish"), completedAnalysis(2, "AAPL", "usStock", "bullish"), completedAnalysis(3, "BTC", "crypto", "bullish"),
 	}, nil)
 	for category, priceHistoryProxy := range priceHistoryProxiesByCategory {
@@ -311,12 +311,12 @@ func TestGetGradeBacktest_AsksEachMarketsOwnPriceSource(t *testing.T) {
 }
 
 func TestGetGradeBacktest_ACheckpointDayStillTradingIsNotYetDue(t *testing.T) {
-	analysisResultRepository := mocks.NewMockIAnalysisResultRepository(t)
+	gradeRecordRepository := mocks.NewMockIGradeRecordRepository(t)
 	priceHistoryProxy := mocks.NewMockIPriceHistoryProxy(t)
 	// the tenth trading day is 2026-10-17 and it is still trading
 	duringTheCheckpointDay := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
-	gradeBacktestApplication := application.NewGradeBacktestApplication(service.NewGradeBacktestService(analysisResultRepository, clockAt(t, duringTheCheckpointDay), dto.PriceHistoryCatalogDto{Crypto: priceHistoryProxy}))
-	analysisResultRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return([]entities.AnalysisResult{completedAnalysis(1, "BTC", "crypto", "bullish")}, nil)
+	gradeBacktestApplication := application.NewGradeBacktestApplication(service.NewGradeBacktestService(gradeRecordRepository, clockAt(t, duringTheCheckpointDay), dto.PriceHistoryCatalogDto{Crypto: priceHistoryProxy}))
+	gradeRecordRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return([]entities.GradeRecord{completedAnalysis(1, "BTC", "crypto", "bullish")}, nil)
 	priceHistoryProxy.EXPECT().FetchCandles(mock.Anything, mock.MatchedBy(func(priceHistoryQuery vo.PriceHistoryQueryVo) bool { return priceHistoryQuery.Interval == "1m" })).
 		Return([]vo.PriceCandleVo{priceCandle(backtestCompletedAt, "100")}, nil)
 	priceHistoryProxy.EXPECT().FetchCandles(mock.Anything, mock.MatchedBy(func(priceHistoryQuery vo.PriceHistoryQueryVo) bool { return priceHistoryQuery.Interval == "1d" })).

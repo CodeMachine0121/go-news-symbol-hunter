@@ -50,7 +50,7 @@ func utcDay(day int) time.Time {
 }
 
 func backtestOf(grade string, timeHorizon string, completedAt time.Time) domains.AnalysisBacktestDomain {
-	return domains.NewAnalysisBacktestDomain(entities.AnalysisResult{AnalysisEventID: 42, Symbol: "2330", Category: "twStock", Grade: grade, Confidence: 60, TimeHorizon: timeHorizon, CreatedAt: completedAt})
+	return domains.NewAnalysisBacktestDomain(entities.GradeRecord{ID: 7, Source: "manual", AnalysisEventID: new(uint(42)), Symbol: "2330", Category: "twStock", Grade: grade, Confidence: 60, TimeHorizon: timeHorizon, CreatedAt: completedAt})
 }
 
 func decimalPointer(value string) *decimal.Decimal {
@@ -109,7 +109,9 @@ func TestAnalysisBacktestDomain_ReportsTheWholeAnalysis(t *testing.T) {
 	assert.True(t, decimal.RequireFromString("0.05").Equal(*analysisBacktest.PriceChangeRate))
 	analysisBacktest.PriceChangeRate = nil
 	assert.Equal(t, dto.AnalysisBacktestDto{
-		AnalysisEventID: 42,
+		GradeRecordID:   7,
+		Source:          "manual",
+		AnalysisEventID: new(uint(42)),
 		Symbol:          "2330",
 		Category:        "twStock",
 		Grade:           "bullish",
@@ -253,13 +255,13 @@ func TestAnalysisBacktestDomain_UnevaluableWhenTheMarketHasNoPriceSource(t *test
 	analysisBacktest := backtestOf("bullish", "short", taipeiAt(7, 10, 15)).Unevaluable()
 
 	assert.Equal(t, "unevaluable", analysisBacktest.Outcome)
-	assert.Equal(t, uint(42), analysisBacktest.AnalysisEventID)
+	assert.Equal(t, new(uint(42)), analysisBacktest.AnalysisEventID)
 	assert.Nil(t, analysisBacktest.EntryPrice)
 }
 
 func TestAnalysisBacktestDomain_IgnoresThePriceAtAnalysis(t *testing.T) {
 	completedAt := taipeiAt(7, 10, 15)
-	analysisResult := entities.AnalysisResult{Symbol: "2330", Category: "twStock", Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt, Price: decimal.NullDecimal{}}
+	analysisResult := entities.GradeRecord{Symbol: "2330", Category: "twStock", Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt, Price: decimal.NullDecimal{}}
 
 	analysisBacktest := domains.NewAnalysisBacktestDomain(analysisResult).Evaluate(vo.BacktestPricesVo{
 		MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")},
@@ -283,7 +285,7 @@ func TestAnalysisBacktestDomain_ConfidenceBands(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.expectedBand, func(t *testing.T) {
-			analysisResult := entities.AnalysisResult{Grade: "bullish", Confidence: testCase.confidence, TimeHorizon: "short"}
+			analysisResult := entities.GradeRecord{Grade: "bullish", Confidence: testCase.confidence, TimeHorizon: "short"}
 
 			analysisBacktest := domains.NewAnalysisBacktestDomain(analysisResult).Unevaluable()
 
@@ -304,7 +306,7 @@ func TestAnalysisBacktestDomain_PriceWindows(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.timeHorizon, func(t *testing.T) {
-			analysisResult := entities.AnalysisResult{Symbol: "BTC", Category: "crypto", TimeHorizon: testCase.timeHorizon, CreatedAt: completedAt}
+			analysisResult := entities.GradeRecord{Symbol: "BTC", Category: "crypto", TimeHorizon: testCase.timeHorizon, CreatedAt: completedAt}
 
 			priceWindows := domains.NewAnalysisBacktestDomain(analysisResult).PriceWindows()
 
@@ -365,7 +367,7 @@ func TestAnalysisBacktestDomain_ACheckpointDayStillTradingIsNotYetDue(t *testing
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			analysisResult := entities.AnalysisResult{Symbol: "X", Category: testCase.category, Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
+			analysisResult := entities.GradeRecord{Symbol: "X", Category: testCase.category, Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
 
 			analysisBacktest := domains.NewAnalysisBacktestDomain(analysisResult).Evaluate(prices, testCase.evaluatedAt)
 
@@ -427,7 +429,7 @@ func TestAnalysisBacktestDomain_OnlyAMarketThatClosesFallsBackToHourlyCandles(t 
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			analysisResult := entities.AnalysisResult{Symbol: "X", Category: testCase.category, Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
+			analysisResult := entities.GradeRecord{Symbol: "X", Category: testCase.category, Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
 
 			needsHourlyFallback := domains.NewAnalysisBacktestDomain(analysisResult).NeedsHourlyFallback(testCase.minuteCandles)
 
@@ -438,7 +440,7 @@ func TestAnalysisBacktestDomain_OnlyAMarketThatClosesFallsBackToHourlyCandles(t 
 
 func TestAnalysisBacktestDomain_CryptoWithAMinuteGapIsUnevaluableRatherThanStale(t *testing.T) {
 	completedAt := taipeiAt(7, 10, 15)
-	analysisResult := entities.AnalysisResult{Symbol: "BTC", Category: "crypto", Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
+	analysisResult := entities.GradeRecord{Symbol: "BTC", Category: "crypto", Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
 
 	analysisBacktest := domains.NewAnalysisBacktestDomain(analysisResult).Evaluate(vo.BacktestPricesVo{
 		HourlyCandles: []vo.PriceCandleVo{candleAt(taipeiAt(5, 10, 0), "86000")},
@@ -464,7 +466,7 @@ func TestAnalysisBacktestDomain_AnUnevaluableResultCarriesNoPrices(t *testing.T)
 
 func TestAnalysisBacktestDomain_ACryptoWindowEndsAnHourAfterItsLastUtcDay(t *testing.T) {
 	completedAt := taipeiAt(7, 10, 15)
-	analysisResult := entities.AnalysisResult{Symbol: "BTC", Category: "crypto", Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
+	analysisResult := entities.GradeRecord{Symbol: "BTC", Category: "crypto", Grade: "bullish", TimeHorizon: "short", CreatedAt: completedAt}
 	// the price service stopped after seven trading days; the short window's last day is 2026-11-20 UTC
 	prices := vo.BacktestPricesVo{MinuteCandles: []vo.PriceCandleVo{candleAt(completedAt, "100")}, DailyCandles: dailyCandlesEndingAt(utcDay(8), 7, "105")}
 	testCases := []struct {
@@ -481,4 +483,61 @@ func TestAnalysisBacktestDomain_ACryptoWindowEndsAnHourAfterItsLastUtcDay(t *tes
 			assert.Equal(t, testCase.expectedOutcome, analysisBacktest.Outcome)
 		})
 	}
+}
+
+func backgroundBacktestOf(createdAt time.Time) domains.AnalysisBacktestDomain {
+	return domains.NewAnalysisBacktestDomain(entities.GradeRecord{ID: 11, Source: "background", Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "bullish", Confidence: 55, TimeHorizon: "short", CreatedAt: createdAt})
+}
+
+func TestAnalysisBacktestDomain_BacktestsABackgroundRecordFromItsOwnCreationTime(t *testing.T) {
+	createdAt := taipeiAt(7, 10, 15)
+
+	analysisBacktest := backgroundBacktestOf(createdAt).Evaluate(vo.BacktestPricesVo{
+		MinuteCandles: []vo.PriceCandleVo{candleAt(createdAt, "100")},
+		DailyCandles:  dailyCandlesEndingAt(utcDay(8), 10, "105"),
+	}, longAfterwards)
+
+	tradingDay := "2026-10-07"
+	assert.Equal(t, "hit", analysisBacktest.Outcome)
+	assert.Equal(t, "background", analysisBacktest.Source)
+	assert.Equal(t, uint(11), analysisBacktest.GradeRecordID)
+	assert.Nil(t, analysisBacktest.AnalysisEventID)
+	assert.Equal(t, &tradingDay, analysisBacktest.TradingDay)
+	assert.Equal(t, createdAt, analysisBacktest.CompletedAt)
+}
+
+func TestAnalysisBacktestDomain_EachBackgroundRecordOfADayTakesItsOwnEntryPrice(t *testing.T) {
+	minuteCandles := []vo.PriceCandleVo{candleAt(taipeiAt(7, 8, 59), "90"), candleAt(taipeiAt(7, 12, 45), "110"), candleAt(taipeiAt(7, 13, 29), "120")}
+	testCases := []struct {
+		name               string
+		createdAt          time.Time
+		expectedEntryPrice string
+	}{
+		{name: "pre-market", createdAt: taipeiAt(7, 8, 59), expectedEntryPrice: "90"},
+		{name: "intraday", createdAt: taipeiAt(7, 12, 45), expectedEntryPrice: "110"},
+		{name: "after-market", createdAt: taipeiAt(7, 20, 30), expectedEntryPrice: "120"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			analysisBacktest := backgroundBacktestOf(testCase.createdAt).Evaluate(vo.BacktestPricesVo{
+				MinuteCandles: minuteCandles,
+				DailyCandles:  dailyCandlesEndingAt(utcDay(8), 10, "105"),
+			}, longAfterwards)
+
+			require.NotNil(t, analysisBacktest.EntryPrice)
+			assert.Equal(t, testCase.expectedEntryPrice, analysisBacktest.EntryPrice.String())
+			assert.Equal(t, testCase.createdAt, analysisBacktest.CompletedAt)
+		})
+	}
+}
+
+func TestAnalysisBacktestDomain_BackgroundRecordIsPendingBeforeItsTenthTradingDay(t *testing.T) {
+	createdAt := taipeiAt(7, 10, 15)
+
+	analysisBacktest := backgroundBacktestOf(createdAt).Evaluate(vo.BacktestPricesVo{
+		MinuteCandles: []vo.PriceCandleVo{candleAt(createdAt, "100")},
+		DailyCandles:  dailyCandlesEndingAt(utcDay(8), 7, "105"),
+	}, utcDay(16))
+
+	assert.Equal(t, "pending", analysisBacktest.Outcome)
 }

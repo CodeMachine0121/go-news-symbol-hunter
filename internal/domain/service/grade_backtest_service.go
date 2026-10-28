@@ -17,15 +17,15 @@ const (
 )
 
 type GradeBacktestService struct {
-	analysisResultRepository      interfaces.IAnalysisResultRepository
+	gradeRecordRepository         interfaces.IGradeRecordRepository
 	clockProxy                    interfaces.IClockProxy
 	priceHistoryProxiesByCategory map[string]interfaces.IPriceHistoryProxy
 }
 
-func NewGradeBacktestService(analysisResultRepository interfaces.IAnalysisResultRepository, clockProxy interfaces.IClockProxy, priceHistoryCatalog dto.PriceHistoryCatalogDto) *GradeBacktestService {
+func NewGradeBacktestService(gradeRecordRepository interfaces.IGradeRecordRepository, clockProxy interfaces.IClockProxy, priceHistoryCatalog dto.PriceHistoryCatalogDto) *GradeBacktestService {
 	return &GradeBacktestService{
-		analysisResultRepository: analysisResultRepository,
-		clockProxy:               clockProxy,
+		gradeRecordRepository: gradeRecordRepository,
+		clockProxy:            clockProxy,
 		priceHistoryProxiesByCategory: map[string]interfaces.IPriceHistoryProxy{
 			vo.MarketCategoryTwStock: priceHistoryCatalog.TwStock,
 			vo.MarketCategoryUsStock: priceHistoryCatalog.UsStock,
@@ -45,20 +45,20 @@ func (gradeBacktestService *GradeBacktestService) GetGradeBacktest(ctx context.C
 	}
 	gradeBacktestFilter := vo.GradeBacktestFilterVo{CompletedPeriod: completedPeriod, SymbolFilterVo: symbolFilter}
 	// one past the limit tells "exactly at the limit" apart from "over it"
-	analysisResults, err := gradeBacktestService.analysisResultRepository.FindForBacktest(ctx, gradeBacktestFilter, MaximumBacktestAnalysisCount+1)
+	gradeRecords, err := gradeBacktestService.gradeRecordRepository.FindForBacktest(ctx, gradeBacktestFilter, MaximumBacktestAnalysisCount+1)
 	if err != nil {
 		return dto.GradeBacktestDto{}, fmt.Errorf("%w: %v", ErrBacktestStorageUnavailable, err)
 	}
-	if len(analysisResults) > MaximumBacktestAnalysisCount {
+	if len(gradeRecords) > MaximumBacktestAnalysisCount {
 		return dto.GradeBacktestDto{}, ErrBacktestAnalysisLimitExceeded
 	}
 	evaluatedAt := gradeBacktestService.clockProxy.Now()
-	analysisBacktests := make([]dto.AnalysisBacktestDto, len(analysisResults))
+	analysisBacktests := make([]dto.AnalysisBacktestDto, len(gradeRecords))
 	priceFetchGroup, priceFetchContext := errgroup.WithContext(ctx)
 	priceFetchGroup.SetLimit(maximumConcurrentPriceHistoryFetches)
-	for index, analysisResult := range analysisResults {
-		analysisBacktest := domains.NewAnalysisBacktestDomain(analysisResult)
-		priceHistoryProxy := gradeBacktestService.priceHistoryProxiesByCategory[analysisResult.Category]
+	for index, gradeRecord := range gradeRecords {
+		analysisBacktest := domains.NewAnalysisBacktestDomain(gradeRecord)
+		priceHistoryProxy := gradeBacktestService.priceHistoryProxiesByCategory[gradeRecord.Category]
 		if priceHistoryProxy == nil {
 			analysisBacktests[index] = analysisBacktest.Unevaluable()
 			continue

@@ -84,7 +84,7 @@ func openDatabase(serverConfig ServerConfig) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := database.AutoMigrate(&entities.ApiKey{}, &entities.AnalysisEvent{}, &entities.AnalysisResult{}, &entities.TrackedSymbol{}, &entities.SessionGrade{}, &entities.CombinedGrade{}, &entities.SessionRun{}); err != nil {
+	if err := database.AutoMigrate(&entities.ApiKey{}, &entities.AnalysisEvent{}, &entities.GradeRecord{}, &entities.TrackedSymbol{}, &entities.SessionGrade{}, &entities.CombinedGrade{}, &entities.SessionRun{}); err != nil {
 		return nil, err
 	}
 	return database, nil
@@ -161,12 +161,12 @@ func buildControllers(database *gorm.DB, serverConfig ServerConfig) Controllers 
 		analystConsultationService,
 		service.NewPriceSnapshotService(buildPriceProviderCatalog(externalSourceProxies)),
 		persistence.NewAnalysisEventRepository(database),
-		persistence.NewAnalysisResultRepository(database),
+		persistence.NewGradeRecordRepository(database),
 		clockProxy,
 	)
 	symbolAnalysisApplication := application.NewSymbolAnalysisApplication(symbolAnalysisService, serverConfig.AiAnalysisMaximumConcurrency)
 	gradeBacktestService := service.NewGradeBacktestService(
-		persistence.NewAnalysisResultRepository(database),
+		persistence.NewGradeRecordRepository(database),
 		clockProxy,
 		buildPriceHistoryCatalog(gotrading.NewGoTradingPriceHistoryProxy(newExternalHttpClient(), serverConfig.PriceServiceAccount)),
 	)

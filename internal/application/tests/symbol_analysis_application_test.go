@@ -32,7 +32,7 @@ type symbolAnalysisFixture struct {
 	usStockNewsProxy          *mocks.MockINewsProxy
 	analystProxy              *mocks.MockIAnalystProxy
 	analysisEventRepository   *mocks.MockIAnalysisEventRepository
-	analysisResultRepository  *mocks.MockIAnalysisResultRepository
+	gradeRecordRepository  *mocks.MockIGradeRecordRepository
 	priceQuotesBySymbol       map[string]vo.PriceQuoteVo
 }
 
@@ -49,7 +49,7 @@ func createSymbolAnalysisFixtureWithCapacity(t *testing.T, maximumConcurrentAnal
 		usStockNewsProxy:         createNewsProxy(t, "Yahoo 財經"),
 		analystProxy:             mocks.NewMockIAnalystProxy(t),
 		analysisEventRepository:  mocks.NewMockIAnalysisEventRepository(t),
-		analysisResultRepository: mocks.NewMockIAnalysisResultRepository(t),
+		gradeRecordRepository: mocks.NewMockIGradeRecordRepository(t),
 		priceQuotesBySymbol:      map[string]vo.PriceQuoteVo{},
 	}
 	fixture.analystProxy.EXPECT().ModelName().Return("claude-opus-5-5").Maybe()
@@ -73,7 +73,7 @@ func createSymbolAnalysisFixtureWithCapacity(t *testing.T, maximumConcurrentAnal
 		UsStock: []dto.NewsProviderDto{{NewsProxy: fixture.usStockNewsProxy}},
 	})
 	fixture.symbolAnalysisApplication = application.NewSymbolAnalysisApplication(service.NewSymbolAnalysisService(
-		symbolResolutionService, service.NewAnalystConsultationService(fixture.analystProxy, newsSearchService), priceSnapshotService, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,
+		symbolResolutionService, service.NewAnalystConsultationService(fixture.analystProxy, newsSearchService), priceSnapshotService, fixture.analysisEventRepository, fixture.gradeRecordRepository, clockProxy,
 	), maximumConcurrentAnalyses)
 	return fixture
 }
@@ -136,7 +136,7 @@ func TestStartSymbolAnalysis_ReusesRecentOrRunningAnalyses(t *testing.T) {
 			fixture.givenBitcoin()
 			fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "crypto").Return(&testCase.latestEvent, nil)
 			if testCase.expectsResult {
-				fixture.analysisResultRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(3)).Return(&entities.AnalysisResult{AnalysisEventID: 3, Grade: "bullish"}, nil)
+				fixture.gradeRecordRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(3)).Return(&entities.GradeRecord{AnalysisEventID: new(uint(3)), Grade: "bullish"}, nil)
 			}
 
 			startedSymbolAnalysis, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: "BTC", Category: "crypto"})
@@ -243,7 +243,7 @@ func TestStartSymbolAnalysis_Rejections(t *testing.T) {
 		{name: "reused result unavailable", symbol: "BTC", category: "crypto", given: func(fixture symbolAnalysisFixture) {
 			fixture.givenBitcoin()
 			fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "crypto").Return(&entities.AnalysisEvent{ID: 3, Status: "succeeded", FinishedAt: finishedAgo(time.Hour)}, nil)
-			fixture.analysisResultRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(3)).Return(nil, errDatabaseDown)
+			fixture.gradeRecordRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(3)).Return(nil, errDatabaseDown)
 		}, expectedError: service.ErrAnalysisStorageUnavailable},
 	}
 	for _, testCase := range testCases {
@@ -305,8 +305,8 @@ func TestAnalyzeSymbol_SearchesThenSavesTheNormalizedConclusion(t *testing.T) {
 			KeyEventLinks: []string{"https://news/1", "https://invented"}, RiskFactors: []string{"礦工賣壓"},
 		}}, nil
 	})
-	savedAnalysisResult := entities.AnalysisResult{}
-	fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.AnalysisResult) error {
+	savedAnalysisResult := entities.GradeRecord{}
+	fixture.gradeRecordRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.GradeRecord) error {
 		savedAnalysisResult = *analysisResult
 		return nil
 	})
@@ -325,8 +325,8 @@ func TestAnalyzeSymbol_SearchesThenSavesTheNormalizedConclusion(t *testing.T) {
 	assert.Equal(t, "BTC", searchResult.Symbol)
 	assert.Len(t, searchResult.News, 2)
 	assert.Equal(t, vo.AnalystToolResultVo{ToolCallID: "search-bad", Content: "市場類別只能是 crypto、twStock、usStock", IsError: true}, toolResults[2])
-	assert.Equal(t, entities.AnalysisResult{
-		AnalysisEventID: 21, Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Grade: "bullish", Confidence: 72, TimeHorizon: "short", Reason: "ETF 資金流入",
+	assert.Equal(t, entities.GradeRecord{
+		Source: "manual", AnalysisEventID: new(uint(21)), Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Grade: "bullish", Confidence: 72, TimeHorizon: "short", Reason: "ETF 資金流入",
 		KeyEvents:   []entities.AnalysisKeyEvent{{Title: "Bitcoin ETF inflows", Link: "https://news/1", PublishedAt: analysisStartedAt.Add(-time.Hour)}},
 		RiskFactors: []string{"礦工賣壓"},
 		Evidence: []entities.AnalysisEvidence{
@@ -367,7 +367,7 @@ func TestAnalyzeSymbol_RecordsWhyAnAnalysisFailed(t *testing.T) {
 		{name: "result could not be saved", respond: func([]vo.AnalystExchangeVo) (vo.AnalystTurnVo, error) {
 			return vo.AnalystTurnVo{Conclusion: &vo.RawAnalysisConclusionVo{Grade: "bullish", Reason: "r"}}, nil
 		}, givenResultStorage: func(fixture symbolAnalysisFixture) {
-			fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(errDatabaseDown)
+			fixture.gradeRecordRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(errDatabaseDown)
 		}, expectedFailureReason: "分析結果保存失敗", expectedRounds: 1},
 	}
 	for _, testCase := range testCases {
@@ -397,8 +397,8 @@ func TestAnalyzeSymbol_WithoutNewsConcludesNeutralWithZeroConfidence(t *testing.
 	fixture := createSymbolAnalysisFixture(t)
 	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
 	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).Return(vo.AnalystTurnVo{Conclusion: &vo.RawAnalysisConclusionVo{Grade: "bullish", Confidence: 80, TimeHorizon: "short", Reason: "r"}}, nil)
-	savedAnalysisResult := entities.AnalysisResult{}
-	fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.AnalysisResult) error {
+	savedAnalysisResult := entities.GradeRecord{}
+	fixture.gradeRecordRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.GradeRecord) error {
 		savedAnalysisResult = *analysisResult
 		return nil
 	})
@@ -442,14 +442,14 @@ func TestGetAnalysisEvent(t *testing.T) {
 	testCases := []struct {
 		name           string
 		storedEvent    *entities.AnalysisEvent
-		storedResult   *entities.AnalysisResult
+		storedResult   *entities.GradeRecord
 		expectedStatus string
 		expectsResult  bool
 		expectedReason string
 		expectedName   string
 		expectedError  error
 	}{
-		{name: "succeeded", storedEvent: &entities.AnalysisEvent{ID: 4, SymbolName: "台積電", Status: "succeeded", FinishedAt: &finishedAt}, storedResult: &entities.AnalysisResult{AnalysisEventID: 4, SymbolName: "台積電", Grade: "bearish"}, expectedStatus: "succeeded", expectsResult: true, expectedName: "台積電"},
+		{name: "succeeded", storedEvent: &entities.AnalysisEvent{ID: 4, SymbolName: "台積電", Status: "succeeded", FinishedAt: &finishedAt}, storedResult: &entities.GradeRecord{AnalysisEventID: new(uint(4)), SymbolName: "台積電", Grade: "bearish"}, expectedStatus: "succeeded", expectsResult: true, expectedName: "台積電"},
 		{name: "running", storedEvent: &entities.AnalysisEvent{ID: 4, SymbolName: "台積電", Status: "running"}, expectedStatus: "running", expectedName: "台積電"},
 		{name: "failed", storedEvent: &entities.AnalysisEvent{ID: 4, SymbolName: "台積電", Status: "failed", FailureReason: "AI 服務暫時無法使用", FinishedAt: &finishedAt}, expectedStatus: "failed", expectedReason: "AI 服務暫時無法使用", expectedName: "台積電"},
 		{name: "started before symbol names existed", storedEvent: &entities.AnalysisEvent{ID: 4, Status: "failed", FinishedAt: &finishedAt}, expectedStatus: "failed", expectedName: ""},
@@ -460,7 +460,7 @@ func TestGetAnalysisEvent(t *testing.T) {
 			fixture := createSymbolAnalysisFixture(t)
 			fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(4)).Return(testCase.storedEvent, nil)
 			if testCase.storedResult != nil {
-				fixture.analysisResultRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(4)).Return(testCase.storedResult, nil)
+				fixture.gradeRecordRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(4)).Return(testCase.storedResult, nil)
 			}
 
 			analysisEvent, err := fixture.symbolAnalysisApplication.GetAnalysisEvent(context.Background(), 4)
@@ -647,7 +647,7 @@ func TestAnalyzeSymbol_TellsTheAnalystWhenASearchFailsAndContinues(t *testing.T)
 		receivedToolResults = exchanges[0].ToolResults
 		return vo.AnalystTurnVo{Conclusion: &vo.RawAnalysisConclusionVo{Grade: "bullish", Confidence: 60, TimeHorizon: "short", Reason: "r"}}, nil
 	})
-	fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(nil)
+	fixture.gradeRecordRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(nil)
 	finishedAnalysisEvent := fixture.captureFinishedEvent()
 
 	fixture.symbolAnalysisApplication.AnalyzeSymbol(context.Background(), dto.AnalyzeSymbolDto{AnalysisEventID: 21})
@@ -663,7 +663,7 @@ func TestAnalyzeSymbol_RecordsTheModelThatActuallyAnswered(t *testing.T) {
 	fixture := createSymbolAnalysisFixture(t)
 	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
 	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).Return(vo.AnalystTurnVo{ModelName: "claude-opus-4-8", Conclusion: &vo.RawAnalysisConclusionVo{Grade: "neutral", Reason: "r"}}, nil)
-	fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(nil)
+	fixture.gradeRecordRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(nil)
 	finishedAnalysisEvent := fixture.captureFinishedEvent()
 
 	fixture.symbolAnalysisApplication.AnalyzeSymbol(context.Background(), dto.AnalyzeSymbolDto{AnalysisEventID: 21})
@@ -869,8 +869,8 @@ func TestAnalyzeSymbol_RunsTheSearchesOfOneTurnConcurrently(t *testing.T) {
 		}
 		return vo.AnalystTurnVo{Conclusion: &vo.RawAnalysisConclusionVo{Grade: "neutral", Reason: "r"}}, nil
 	})
-	savedAnalysisResult := entities.AnalysisResult{}
-	fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.AnalysisResult) error {
+	savedAnalysisResult := entities.GradeRecord{}
+	fixture.gradeRecordRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.GradeRecord) error {
 		savedAnalysisResult = *analysisResult
 		return nil
 	})
@@ -890,8 +890,8 @@ func TestAnalyzeSymbol_SavesThePriceAtAnalysis(t *testing.T) {
 	fixture.priceQuotesBySymbol["BTC"] = priceQuote
 	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
 	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).Return(vo.AnalystTurnVo{Conclusion: &vo.RawAnalysisConclusionVo{Grade: "bullish", Reason: "r"}}, nil)
-	savedAnalysisResult := entities.AnalysisResult{}
-	fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.AnalysisResult) error {
+	savedAnalysisResult := entities.GradeRecord{}
+	fixture.gradeRecordRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.GradeRecord) error {
 		savedAnalysisResult = *analysisResult
 		return nil
 	})
@@ -908,8 +908,8 @@ func TestAnalyzeSymbol_CompletesWithoutAPrice(t *testing.T) {
 	fixture := createSymbolAnalysisFixture(t)
 	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
 	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).Return(vo.AnalystTurnVo{Conclusion: &vo.RawAnalysisConclusionVo{Grade: "bullish", Reason: "r"}}, nil)
-	savedAnalysisResult := entities.AnalysisResult{}
-	fixture.analysisResultRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.AnalysisResult) error {
+	savedAnalysisResult := entities.GradeRecord{}
+	fixture.gradeRecordRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisResult *entities.GradeRecord) error {
 		savedAnalysisResult = *analysisResult
 		return nil
 	})
