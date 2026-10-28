@@ -11,6 +11,12 @@ import (
 const (
 	RandomGuessHitRate = 0.5
 	hitRatePrecision   = 10000
+
+	groupingOverall        = "overall"
+	groupingCategory       = "category"
+	groupingGrade          = "grade"
+	groupingConfidenceBand = "confidenceBand"
+	groupingSource         = "source"
 )
 
 var (
@@ -18,6 +24,7 @@ var (
 	backtestOutcomes  = []string{BacktestOutcomeHit, BacktestOutcomeMiss, BacktestOutcomeNeutral, BacktestOutcomePending, BacktestOutcomeUnevaluable}
 	marketCategories  = []string{vo.MarketCategoryTwStock, vo.MarketCategoryUsStock, vo.MarketCategoryCrypto}
 	confidenceBands   = []string{ConfidenceBandLow, ConfidenceBandMedium, ConfidenceBandHigh}
+	gradeSources      = []string{vo.GradeSourceManual, vo.GradeSourceBackground}
 )
 
 // every grouping always lists all of its groups, so an empty group reads as "no data" instead of going missing
@@ -30,10 +37,18 @@ func NewGradeBacktestSummaryDomain(analysisBacktests []dto.AnalysisBacktestDto) 
 }
 
 func (gradeBacktestSummaryDomain GradeBacktestSummaryDomain) ToDto() dto.GradeBacktestDto {
-	tallies := map[string]*dto.HitRateDto{"": {}}
-	for _, groups := range [][]string{marketCategories, directionalGrades, confidenceBands} {
+	// each grouping keeps its own tallies, so a value shared by two groupings can never be counted twice
+	groupings := map[string][]string{
+		groupingCategory:       marketCategories,
+		groupingGrade:          directionalGrades,
+		groupingConfidenceBand: confidenceBands,
+		groupingSource:         gradeSources,
+	}
+	tallies := map[string]map[string]*dto.HitRateDto{groupingOverall: {"": {}}}
+	for grouping, groups := range groupings {
+		tallies[grouping] = map[string]*dto.HitRateDto{}
 		for _, group := range groups {
-			tallies[group] = &dto.HitRateDto{}
+			tallies[grouping][group] = &dto.HitRateDto{}
 		}
 	}
 	outcomeCounts := map[string]int{}
@@ -51,34 +66,43 @@ func (gradeBacktestSummaryDomain GradeBacktestSummaryDomain) ToDto() dto.GradeBa
 		if analysisBacktest.Outcome != BacktestOutcomeHit && analysisBacktest.Outcome != BacktestOutcomeMiss {
 			continue
 		}
-		// the overall tally sits under the empty key so it is counted the same way as every group
-		for _, group := range []string{"", analysisBacktest.Category, analysisBacktest.Grade, analysisBacktest.ConfidenceBand} {
+		groupOf := map[string]string{
+			groupingOverall:        "",
+			groupingCategory:       analysisBacktest.Category,
+			groupingGrade:          analysisBacktest.Grade,
+			groupingConfidenceBand: analysisBacktest.ConfidenceBand,
+			groupingSource:         analysisBacktest.Source,
+		}
+		for grouping, group := range groupOf {
+			tally, isListed := tallies[grouping][group]
+			if !isListed {
+				continue
+			}
 			if analysisBacktest.Outcome == BacktestOutcomeHit {
-				tallies[group].HitCount++
+				tally.HitCount++
 			} else {
-				tallies[group].MissCount++
+				tally.MissCount++
 			}
 		}
 	}
-	for _, tally := range tallies {
-		if judgedCount := tally.HitCount + tally.MissCount; judgedCount > 0 {
-			hitRate := math.Round(float64(tally.HitCount)/float64(judgedCount)*hitRatePrecision) / hitRatePrecision
-			tally.HitRate = &hitRate
-		}
-	}
-	groupTallies := func(groups []string) map[string]dto.HitRateDto {
+	groupTallies := func(grouping string) map[string]dto.HitRateDto {
 		groupedTallies := map[string]dto.HitRateDto{}
-		for _, group := range groups {
-			groupedTallies[group] = *tallies[group]
+		for group, tally := range tallies[grouping] {
+			if judgedCount := tally.HitCount + tally.MissCount; judgedCount > 0 {
+				hitRate := math.Round(float64(tally.HitCount)/float64(judgedCount)*hitRatePrecision) / hitRatePrecision
+				tally.HitRate = &hitRate
+			}
+			groupedTallies[group] = *tally
 		}
 		return groupedTallies
 	}
 	gradeBacktest := dto.GradeBacktestDto{
 		RandomBaseline:   RandomGuessHitRate,
-		Overall:          *tallies[""],
-		ByCategory:       groupTallies(marketCategories),
-		ByGrade:          groupTallies(directionalGrades),
-		ByConfidenceBand: groupTallies(confidenceBands),
+		Overall:          groupTallies(groupingOverall)[""],
+		ByCategory:       groupTallies(groupingCategory),
+		ByGrade:          groupTallies(groupingGrade),
+		ByConfidenceBand: groupTallies(groupingConfidenceBand),
+		BySource:         groupTallies(groupingSource),
 		OutcomeCounts:    outcomeCounts,
 		Analyses:         append([]dto.AnalysisBacktestDto{}, gradeBacktestSummaryDomain.analysisBacktests...),
 	}

@@ -25,12 +25,12 @@ import (
 var analysisStartedAt = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 
 type analysisRouterFixture struct {
-	router                   *gin.Engine
-	apiKeyRepository         *mocks.MockIApiKeyRepository
-	cryptocurrencyProxy      *mocks.MockICryptocurrencyProxy
-	analystProxy             *mocks.MockIAnalystProxy
-	analysisEventRepository  *mocks.MockIAnalysisEventRepository
-	gradeRecordRepository *mocks.MockIGradeRecordRepository
+	router                  *gin.Engine
+	apiKeyRepository        *mocks.MockIApiKeyRepository
+	cryptocurrencyProxy     *mocks.MockICryptocurrencyProxy
+	analystProxy            *mocks.MockIAnalystProxy
+	analysisEventRepository *mocks.MockIAnalysisEventRepository
+	gradeRecordRepository   *mocks.MockIGradeRecordRepository
 }
 
 func createAnalysisRouter(t *testing.T) analysisRouterFixture {
@@ -38,11 +38,11 @@ func createAnalysisRouter(t *testing.T) analysisRouterFixture {
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(analysisStartedAt).Maybe()
 	fixture := analysisRouterFixture{
-		apiKeyRepository:         mocks.NewMockIApiKeyRepository(t),
-		cryptocurrencyProxy:      mocks.NewMockICryptocurrencyProxy(t),
-		analystProxy:             mocks.NewMockIAnalystProxy(t),
-		analysisEventRepository:  mocks.NewMockIAnalysisEventRepository(t),
-		gradeRecordRepository: mocks.NewMockIGradeRecordRepository(t),
+		apiKeyRepository:        mocks.NewMockIApiKeyRepository(t),
+		cryptocurrencyProxy:     mocks.NewMockICryptocurrencyProxy(t),
+		analystProxy:            mocks.NewMockIAnalystProxy(t),
+		analysisEventRepository: mocks.NewMockIAnalysisEventRepository(t),
+		gradeRecordRepository:   mocks.NewMockIGradeRecordRepository(t),
 	}
 	fixture.analystProxy.EXPECT().ModelName().Return("claude-opus-5-5").Maybe()
 	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{mocks.NewMockIListedCompanyProxy(t)}, Crypto: fixture.cryptocurrencyProxy})

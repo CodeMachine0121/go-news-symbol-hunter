@@ -44,6 +44,14 @@ func (gradeBacktestService *GradeBacktestService) GetGradeBacktest(ctx context.C
 		return dto.GradeBacktestDto{}, err
 	}
 	gradeBacktestFilter := vo.GradeBacktestFilterVo{CompletedPeriod: completedPeriod, SymbolFilterVo: symbolFilter}
+	// a blank source covers both
+	if getGradeBacktestDto.Source != "" {
+		gradeSource, err := vo.NewGradeSourceVo(getGradeBacktestDto.Source)
+		if err != nil {
+			return dto.GradeBacktestDto{}, err
+		}
+		gradeBacktestFilter.Source = gradeSource.Value
+	}
 	// one past the limit tells "exactly at the limit" apart from "over it"
 	gradeRecords, err := gradeBacktestService.gradeRecordRepository.FindForBacktest(ctx, gradeBacktestFilter, MaximumBacktestAnalysisCount+1)
 	if err != nil {

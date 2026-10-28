@@ -20,10 +20,10 @@ import (
 )
 
 type gradeBacktestRouterFixture struct {
-	router                   *gin.Engine
-	apiKeyRepository         *mocks.MockIApiKeyRepository
+	router                *gin.Engine
+	apiKeyRepository      *mocks.MockIApiKeyRepository
 	gradeRecordRepository *mocks.MockIGradeRecordRepository
-	priceHistoryProxy        *mocks.MockIPriceHistoryProxy
+	priceHistoryProxy     *mocks.MockIPriceHistoryProxy
 }
 
 func createGradeBacktestRouter(t *testing.T) gradeBacktestRouterFixture {
@@ -32,9 +32,9 @@ func createGradeBacktestRouter(t *testing.T) gradeBacktestRouterFixture {
 	// after every checkpoint below, so their days have closed
 	clockProxy.EXPECT().Now().Return(time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)).Maybe()
 	fixture := gradeBacktestRouterFixture{
-		apiKeyRepository:         mocks.NewMockIApiKeyRepository(t),
+		apiKeyRepository:      mocks.NewMockIApiKeyRepository(t),
 		gradeRecordRepository: mocks.NewMockIGradeRecordRepository(t),
-		priceHistoryProxy:        mocks.NewMockIPriceHistoryProxy(t),
+		priceHistoryProxy:     mocks.NewMockIPriceHistoryProxy(t),
 	}
 	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(fixture.apiKeyRepository, clockProxy, mocks.NewMockIRandomProxy(t))))
 	gradeBacktestController := controller.NewGradeBacktestController(application.NewGradeBacktestApplication(service.NewGradeBacktestService(
@@ -72,6 +72,7 @@ func TestGetGradeBacktest_ReturnsTheSummaryAndEveryAnalysisAsJson(t *testing.T) 
 		"byCategory":{"twStock":{"hitCount":1,"missCount":0,"hitRate":1},"usStock":{"hitCount":0,"missCount":0,"hitRate":null},"crypto":{"hitCount":0,"missCount":0,"hitRate":null}},
 		"byGrade":{"strongBullish":{"hitCount":0,"missCount":0,"hitRate":null},"bullish":{"hitCount":1,"missCount":0,"hitRate":1},"bearish":{"hitCount":0,"missCount":0,"hitRate":null},"strongBearish":{"hitCount":0,"missCount":0,"hitRate":null}},
 		"byConfidenceBand":{"low":{"hitCount":0,"missCount":0,"hitRate":null},"medium":{"hitCount":0,"missCount":0,"hitRate":null},"high":{"hitCount":1,"missCount":0,"hitRate":1}},
+		"bySource":{"manual":{"hitCount":1,"missCount":0,"hitRate":1},"background":{"hitCount":0,"missCount":0,"hitRate":null}},
 		"neutralAverageChangeRate":null,
 		"outcomeCounts":{"hit":1,"miss":0,"neutral":0,"pending":0,"unevaluable":0},
 		"analyses":[{"gradeRecordId":4,"source":"manual","analysisEventId":9,"tradingDay":null,"symbol":"2330","category":"twStock","grade":"bullish","confidence":75,"confidenceBand":"high","timeHorizon":"short",
@@ -92,10 +93,11 @@ func TestGetGradeBacktest_ErrorResponses(t *testing.T) {
 		{name: "period backwards", query: "?completedFrom=2026-10-31&completedTo=2026-10-01", expectedStatus: http.StatusBadRequest, expectedCode: "backtest_period_invalid", expectedMessage: "期間不正確"},
 		{name: "symbol without category", query: "?symbol=2330", expectedStatus: http.StatusBadRequest, expectedCode: "symbol_and_category_required_together", expectedMessage: "標的與市場類別需一起提供"},
 		{name: "unsupported category", query: "?symbol=2330&category=futures", expectedStatus: http.StatusBadRequest, expectedCode: "market_category_unsupported", expectedMessage: "市場類別只能是 crypto、twStock、usStock"},
+		{name: "unknown source", query: "?source=other", expectedStatus: http.StatusBadRequest, expectedCode: "grade_source_invalid", expectedMessage: "來源不正確"},
 		{name: "blank symbol", query: "?symbol=%20&category=twStock", expectedStatus: http.StatusBadRequest, expectedCode: "symbol_required", expectedMessage: "標的為必填"},
 		{name: "more than five hundred analyses", given: func(fixture gradeBacktestRouterFixture) {
 			fixture.gradeRecordRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return(make([]entities.GradeRecord, 501), nil)
-		}, expectedStatus: http.StatusBadRequest, expectedCode: "backtest_analysis_limit_exceeded", expectedMessage: "涵蓋分析超過 500 筆，請縮小期間"},
+		}, expectedStatus: http.StatusBadRequest, expectedCode: "backtest_analysis_limit_exceeded", expectedMessage: "涵蓋評等紀錄超過 500 筆，請縮小期間"},
 		{name: "price service unreachable", given: func(fixture gradeBacktestRouterFixture) {
 			fixture.gradeRecordRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return([]entities.GradeRecord{{Symbol: "2330", Category: "twStock", Grade: "bullish", TimeHorizon: "short"}}, nil)
 			fixture.priceHistoryProxy.EXPECT().FetchCandles(mock.Anything, mock.Anything).Return(nil, errors.New("connection refused")).Maybe()

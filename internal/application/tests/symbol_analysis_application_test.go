@@ -32,7 +32,7 @@ type symbolAnalysisFixture struct {
 	usStockNewsProxy          *mocks.MockINewsProxy
 	analystProxy              *mocks.MockIAnalystProxy
 	analysisEventRepository   *mocks.MockIAnalysisEventRepository
-	gradeRecordRepository  *mocks.MockIGradeRecordRepository
+	gradeRecordRepository     *mocks.MockIGradeRecordRepository
 	priceQuotesBySymbol       map[string]vo.PriceQuoteVo
 }
 
@@ -42,15 +42,15 @@ func createSymbolAnalysisFixture(t *testing.T) symbolAnalysisFixture {
 
 func createSymbolAnalysisFixtureWithCapacity(t *testing.T, maximumConcurrentAnalyses int) symbolAnalysisFixture {
 	fixture := symbolAnalysisFixture{
-		listedCompanyProxy:       mocks.NewMockIListedCompanyProxy(t),
-		usStockCompanyProxy:      mocks.NewMockIListedCompanyProxy(t),
-		cryptocurrencyProxy:      mocks.NewMockICryptocurrencyProxy(t),
-		cryptoNewsProxy:          createNewsProxy(t, "CoinDesk"),
-		usStockNewsProxy:         createNewsProxy(t, "Yahoo 財經"),
-		analystProxy:             mocks.NewMockIAnalystProxy(t),
-		analysisEventRepository:  mocks.NewMockIAnalysisEventRepository(t),
-		gradeRecordRepository: mocks.NewMockIGradeRecordRepository(t),
-		priceQuotesBySymbol:      map[string]vo.PriceQuoteVo{},
+		listedCompanyProxy:      mocks.NewMockIListedCompanyProxy(t),
+		usStockCompanyProxy:     mocks.NewMockIListedCompanyProxy(t),
+		cryptocurrencyProxy:     mocks.NewMockICryptocurrencyProxy(t),
+		cryptoNewsProxy:         createNewsProxy(t, "CoinDesk"),
+		usStockNewsProxy:        createNewsProxy(t, "Yahoo 財經"),
+		analystProxy:            mocks.NewMockIAnalystProxy(t),
+		analysisEventRepository: mocks.NewMockIAnalysisEventRepository(t),
+		gradeRecordRepository:   mocks.NewMockIGradeRecordRepository(t),
+		priceQuotesBySymbol:     map[string]vo.PriceQuoteVo{},
 	}
 	fixture.analystProxy.EXPECT().ModelName().Return("claude-opus-5-5").Maybe()
 	newPriceProxy := func() *mocks.MockIPriceProxy {
