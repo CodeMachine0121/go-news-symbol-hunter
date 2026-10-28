@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
 	"testing"
@@ -255,6 +256,9 @@ func TestStartSymbolAnalysis_Rejections(t *testing.T) {
 			_, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: testCase.symbol, Category: testCase.category})
 
 			assert.ErrorIs(t, err, testCase.expectedError)
+			if errors.Is(testCase.expectedError, service.ErrSymbolNotFound) {
+				fixture.analysisEventRepository.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+			}
 		})
 	}
 }
@@ -533,15 +537,29 @@ func TestStartSymbolAnalysis_WaitsAtMostFiveSecondsForAUsCompanyName(t *testing.
 		deadline, hasDeadline := ctx.Deadline()
 		require.True(t, hasDeadline)
 		lookupBudget = time.Until(deadline)
+		// stands in for a lookup that ran out of its budget
 		return "", false, context.DeadlineExceeded
 	})
-	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "AAPL", "usStock").Return(&entities.AnalysisEvent{ID: 3, Symbol: "AAPL", Category: "usStock", Status: "running", StartedAt: analysisStartedAt}, nil)
+	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "AAPL", "usStock").Return(nil, nil)
+	createdAnalysisEvent := entities.AnalysisEvent{}
+	fixture.analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisEvent *entities.AnalysisEvent) error {
+		createdAnalysisEvent = *analysisEvent
+		return nil
+	})
+	analysisDone := make(chan struct{})
+	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(0)).RunAndReturn(func(context.Context, uint) (*entities.AnalysisEvent, error) {
+		close(analysisDone)
+		return nil, nil
+	})
 
-	_, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: "AAPL", Category: "usStock"})
+	startedSymbolAnalysis, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: "AAPL", Category: "usStock"})
 
 	require.NoError(t, err)
 	assert.LessOrEqual(t, lookupBudget, 5*time.Second)
 	assert.Greater(t, lookupBudget, 4*time.Second)
+	assert.True(t, startedSymbolAnalysis.IsNew)
+	assert.Equal(t, "", createdAnalysisEvent.SymbolName)
+	<-analysisDone
 }
 
 func TestGetAnalysisEvent_StorageUnavailable(t *testing.T) {
