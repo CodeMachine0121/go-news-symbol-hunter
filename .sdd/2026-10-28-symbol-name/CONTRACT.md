@@ -38,11 +38,13 @@ Oracle: Acceptance Criteria + business rules + NFR（16 clauses）
 - **AC-10**：原本靠 strict mock「沒有設定 Create」間接保證不產生分析事件；已補上明確的 `AssertNotCalled(Create)`。
 - **AC-1 / AC-6 / AC-10**（Jev code 信心低）：重讀程式路徑——AC-1 `ToDtos` 由追蹤標的取名稱寫入 DTO；AC-6 `NewCryptoResolvedSymbolVo` 以幣種名稱建 `SymbolNameVo` 再存入分析事件；AC-10 `ResolveSymbol` 回 `ErrSymbolNotFound` 後 `StartSymbolAnalysis` 在建立分析事件前即返回。三者路徑單純，且已有突變測試驗證（拿掉對應那一行測試即失敗）。
 
+> Code review 後修正：美股名稱查詢由 `ResolveSymbol` 移到 `NameResolvedSymbol`（只在建立新分析事件時呼叫）。AC-7/8/9、NFR-1 的程式位置改為 `symbol_resolution_service.go` 的 `NameResolvedSymbol` 與 `symbol_analysis_service.go` 建立前的呼叫；測試不變並新增「重用不查名稱」「重複登記列保留名稱」「只有空白視為空」，皆經突變驗證。
+
 ## Orphans (code with no clause)
 
 | Code | Description | Verdict |
 |------|-------------|---------|
-| `symbol_resolution_service.go:72-81`（經 `NewsSearchService`） | 搜尋美股新聞時也會查一次公司名稱（最多 5 秒），但結果不被使用 | undocumented — ARCH §8 已記為已知取捨，非 Out of Scope 違反 |
+| — | 原列「搜尋美股新聞時也查公司名稱」已於 code review 後修正：名稱查詢移到 `NameResolvedSymbol`，只在建立新分析事件時呼叫；新聞搜尋測試以無預期的 strict mock 鎖住不再查詢 | resolved |
 
 ## Summary
 
@@ -52,6 +54,6 @@ Oracle: Acceptance Criteria + business rules + NFR（16 clauses）
 - Partial: —
 - Gaps: —
 - Unclear: —
-- Orphans: 1（已知取捨）
+- Orphans: 0（原 1 筆已修正）
 - Jev: ran on 16 clauses（NFR-1、AC-10 修正後重跑）
 - Needs James: AC-1、AC-6、AC-10（Jev 程式碼判讀信心低；Claude 重讀並以突變測試佐證，判定 conforms）
