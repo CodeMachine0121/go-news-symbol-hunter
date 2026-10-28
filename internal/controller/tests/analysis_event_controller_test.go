@@ -233,14 +233,18 @@ func TestStartSymbolAnalysis_RejectsWhenAnalysisCapacityIsReached(t *testing.T) 
 	})
 	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, mock.Anything, "crypto").Return(nil, nil)
 	fixture.analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(nil).Once()
+	analysisBegun := make(chan struct{})
 	releaseAnalysis := make(chan struct{})
 	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(0)).RunAndReturn(func(context.Context, uint) (*entities.AnalysisEvent, error) {
+		close(analysisBegun)
 		<-releaseAnalysis
 		return nil, nil
 	})
 
 	firstRecorder := send(fixture.router, http.MethodPost, "/analysis-events", presentedApiKey, `{"symbol":"BTC","category":"crypto"}`)
 	saturatedRecorder := send(fixture.router, http.MethodPost, "/analysis-events", presentedApiKey, `{"symbol":"ETH","category":"crypto"}`)
+	// the test must not end before the background analysis it started has asked for its event
+	<-analysisBegun
 	close(releaseAnalysis)
 
 	assert.Equal(t, http.StatusAccepted, firstRecorder.Code)
