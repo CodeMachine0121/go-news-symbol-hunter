@@ -22,6 +22,5 @@ packages:
       IPriceHistoryProxy: {}
       ITrackedSymbolRepository: {}
       ISessionGradeRepository: {}
-      ICombinedGradeRepository: {}
       ISessionRunRepository: {}
       IBackgroundJob: {}

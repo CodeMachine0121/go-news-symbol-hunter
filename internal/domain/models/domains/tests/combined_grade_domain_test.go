@@ -30,9 +30,11 @@ func TestCombinedGradeDomain_WeightsTheSessionsTheSymbolAlreadyHas(t *testing.T)
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			combinedGrade := domains.NewCombinedGradeDomain(testCase.sessionGrades, defaultWeights).ToEntity(vo.SymbolVo{Value: "2330", Category: vo.MarketCategoryVo{Value: "twStock"}}, "2026-10-07", combinedAt)
+			gradeRecord := domains.NewCombinedGradeDomain(testCase.sessionGrades, defaultWeights).ToGradeRecordEntity(vo.SymbolVo{Value: "2330", Category: vo.MarketCategoryVo{Value: "twStock"}}, vo.NewSymbolNameVo("台積電"), "2026-10-07", combinedAt)
 
-			assert.Equal(t, entities.CombinedGrade{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: testCase.expectedGrade, CombinedScore: testCase.expectedScore, Confidence: testCase.expectedConfidence, UpdatedAt: combinedAt}, combinedGrade)
+			assert.Equal(t, testCase.expectedGrade, gradeRecord.Grade)
+			assert.Equal(t, &testCase.expectedScore, gradeRecord.CombinedScore)
+			assert.Equal(t, testCase.expectedConfidence, gradeRecord.Confidence)
 		})
 	}
 }
@@ -54,9 +56,37 @@ func TestCombinedGradeDomain_ScoreThresholds(t *testing.T) {
 		{score: -1.5, preMarket: "strongBearish", afterMarket: "bearish", weights: equalWeights, expectedGrade: "strongBearish"},
 	}
 	for _, testCase := range testCases {
-		combinedGrade := domains.NewCombinedGradeDomain([]entities.SessionGrade{{Session: "preMarket", Grade: testCase.preMarket}, {Session: "afterMarket", Grade: testCase.afterMarket}}, testCase.weights).ToEntity(vo.SymbolVo{}, "", combinedAt)
+		gradeRecord := domains.NewCombinedGradeDomain([]entities.SessionGrade{{Session: "preMarket", Grade: testCase.preMarket}, {Session: "afterMarket", Grade: testCase.afterMarket}}, testCase.weights).ToGradeRecordEntity(vo.SymbolVo{}, vo.SymbolNameVo{}, "", combinedAt)
 
-		assert.Equal(t, testCase.score, combinedGrade.CombinedScore)
-		assert.Equal(t, testCase.expectedGrade, combinedGrade.Grade, "score %v", testCase.score)
+		assert.Equal(t, testCase.score, *gradeRecord.CombinedScore)
+		assert.Equal(t, testCase.expectedGrade, gradeRecord.Grade, "score %v", testCase.score)
+	}
+}
+
+func TestCombinedGradeDomain_BecomesABackgroundGradeRecord(t *testing.T) {
+	testCases := []struct {
+		name               string
+		symbolName         vo.SymbolNameVo
+		expectedSymbolName string
+	}{
+		{name: "carries the registered name", symbolName: vo.NewSymbolNameVo("台積電"), expectedSymbolName: "台積電"},
+		{name: "no registered name", symbolName: vo.NewSymbolNameVo(""), expectedSymbolName: ""},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			sessionGrades := []entities.SessionGrade{{Session: "preMarket", Grade: "bullish", Confidence: 60}}
+
+			gradeRecord := domains.NewCombinedGradeDomain(sessionGrades, vo.NewSessionWeightsVo(0.3, 0.2, 0.5)).ToGradeRecordEntity(vo.SymbolVo{Value: "2330", Category: vo.MarketCategoryVo{Value: "twStock"}}, testCase.symbolName, "2026-10-07", combinedAt)
+
+			combinedScore := 1.0
+			assert.Equal(t, entities.GradeRecord{
+				Source: "background", Symbol: "2330", Category: "twStock", SymbolName: testCase.expectedSymbolName, TradingDay: "2026-10-07",
+				Grade: "bullish", Confidence: 60, TimeHorizon: "short", CombinedScore: &combinedScore,
+				KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{}, CreatedAt: combinedAt,
+			}, gradeRecord)
+			assert.Nil(t, gradeRecord.AnalysisEventID)
+			assert.Empty(t, gradeRecord.Reason)
+			assert.False(t, gradeRecord.Price.Valid)
+		})
 	}
 }

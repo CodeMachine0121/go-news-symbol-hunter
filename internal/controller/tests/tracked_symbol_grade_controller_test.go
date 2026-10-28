@@ -22,7 +22,7 @@ type trackedSymbolGradeRouterFixture struct {
 	router                  *gin.Engine
 	apiKeyRepository        *mocks.MockIApiKeyRepository
 	sessionGradeRepository  *mocks.MockISessionGradeRepository
-	combinedGradeRepository *mocks.MockICombinedGradeRepository
+	gradeRecordRepository   *mocks.MockIGradeRecordRepository
 	trackedSymbolRepository *mocks.MockITrackedSymbolRepository
 }
 
@@ -33,7 +33,7 @@ func createTrackedSymbolGradeRouter(t *testing.T) trackedSymbolGradeRouterFixtur
 	fixture := trackedSymbolGradeRouterFixture{
 		apiKeyRepository:        mocks.NewMockIApiKeyRepository(t),
 		sessionGradeRepository:  mocks.NewMockISessionGradeRepository(t),
-		combinedGradeRepository: mocks.NewMockICombinedGradeRepository(t),
+		gradeRecordRepository:   mocks.NewMockIGradeRecordRepository(t),
 		trackedSymbolRepository: mocks.NewMockITrackedSymbolRepository(t),
 	}
 	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{}})
@@ -42,7 +42,7 @@ func createTrackedSymbolGradeRouter(t *testing.T) trackedSymbolGradeRouterFixtur
 		service.NewAnalystConsultationService(mocks.NewMockIAnalystProxy(t), service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})),
 		fixture.trackedSymbolRepository,
 		fixture.sessionGradeRepository,
-		fixture.combinedGradeRepository,
+		fixture.gradeRecordRepository,
 		mocks.NewMockISessionRunRepository(t),
 		clockProxy,
 		vo.NewSessionWeightsVo(0, 0, 0),
@@ -58,8 +58,9 @@ func TestGetTrackedSymbolGrades_ReturnsTheGradesAsJson(t *testing.T) {
 	fixture := createTrackedSymbolGradeRouter(t)
 	fixture.apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 12, IsActive: true}, nil)
 	updatedAt := time.Date(2026, 10, 7, 4, 31, 0, 0, time.UTC)
-	fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "2330", "twStock").Return([]entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "bullish", CombinedScore: 1, Confidence: 60, UpdatedAt: updatedAt}}, nil)
+	combinedScore := 1.0
 	fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return([]entities.TrackedSymbol{{Symbol: "2330", Category: "twStock", SymbolName: "台積電", IsTracking: true}}, nil)
+	fixture.gradeRecordRepository.EXPECT().FindLatestBackground(mock.Anything, []vo.SymbolVo{{Value: "2330", Category: vo.MarketCategoryVo{Value: "twStock"}}}).Return([]entities.GradeRecord{{Source: "background", Symbol: "2330", Category: "twStock", SymbolName: "台積電", TradingDay: "2026-10-07", Grade: "bullish", CombinedScore: &combinedScore, Confidence: 60, TimeHorizon: "short", CreatedAt: updatedAt}}, nil)
 	fixture.sessionGradeRepository.EXPECT().FindByTradingDays(mock.Anything, []string{"2026-10-07"}).Return([]entities.SessionGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Session: "preMarket", Grade: "bullish", Confidence: 60, Reason: "法說會", CreatedAt: updatedAt}}, nil)
 
 	recorder := send(fixture.router, http.MethodGet, "/tracked-symbol-grades?symbol=2330&category=twStock", presentedApiKey, "")
@@ -72,7 +73,8 @@ func TestGetTrackedSymbolGrades_ReturnsTheGradesAsJson(t *testing.T) {
 func TestGetTrackedSymbolGrades_ReturnsAnEmptyListWhenNothingIsGraded(t *testing.T) {
 	fixture := createTrackedSymbolGradeRouter(t)
 	fixture.apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 12, IsActive: true}, nil)
-	fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "", "").Return([]entities.CombinedGrade{}, nil)
+	fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return([]entities.TrackedSymbol{}, nil)
+	fixture.gradeRecordRepository.EXPECT().FindLatestBackground(mock.Anything, []vo.SymbolVo{}).Return([]entities.GradeRecord{}, nil)
 
 	recorder := send(fixture.router, http.MethodGet, "/tracked-symbol-grades", presentedApiKey, "")
 
@@ -95,7 +97,7 @@ func TestGetTrackedSymbolGrades_ErrorResponses(t *testing.T) {
 		{name: "blank symbol", query: "?symbol=%20&category=twStock", expectedStatus: http.StatusBadRequest, expectedCode: "symbol_required", expectedMessage: "標的為必填"},
 		{name: "inactive key", isInactiveKey: true, expectedStatus: http.StatusForbidden, expectedCode: "api_key_inactive", expectedMessage: "API key 尚未啟用"},
 		{name: "storage unavailable", given: func(fixture trackedSymbolGradeRouterFixture) {
-			fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "", "").Return(nil, errDatabaseDown)
+			fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return(nil, errDatabaseDown)
 		}, expectedStatus: http.StatusServiceUnavailable, expectedCode: "service_unavailable", expectedMessage: "服務暫時無法使用"},
 	}
 	for _, testCase := range testCases {

@@ -1,27 +1,22 @@
 package domains
 
 import (
+	"cmp"
+	"slices"
+
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 )
 
 type TrackedSymbolGradesDomain struct {
-	trackingSymbols []entities.TrackedSymbol
-	combinedGrades  []entities.CombinedGrade
-	sessionGrades   []entities.SessionGrade
-}
-
-// combinedGrades must be ordered newest trading day first
-func NewTrackedSymbolGradesDomain(trackingSymbols []entities.TrackedSymbol, combinedGrades []entities.CombinedGrade, sessionGrades []entities.SessionGrade) TrackedSymbolGradesDomain {
-	return TrackedSymbolGradesDomain{trackingSymbols: trackingSymbols, combinedGrades: combinedGrades, sessionGrades: sessionGrades}
-}
-
-// each still-tracked symbol appears once, with its newest trading day; paused or removed symbols are left out
-func (trackedSymbolGradesDomain TrackedSymbolGradesDomain) ToDtos() []dto.TrackedSymbolGradeDto {
 	// a symbol is tracking exactly when it has an entry, even an empty name
+	symbolNames map[vo.SymbolVo]string
+}
+
+func NewTrackedSymbolGradesDomain(trackingSymbols []entities.TrackedSymbol) TrackedSymbolGradesDomain {
 	symbolNames := map[vo.SymbolVo]string{}
-	for _, trackingSymbol := range trackedSymbolGradesDomain.trackingSymbols {
+	for _, trackingSymbol := range trackingSymbols {
 		// administrators enter symbols by hand, so they are compared in the same normalized form grades are stored in
 		symbol, err := vo.NewSymbolVo(trackingSymbol.Symbol, vo.MarketCategoryVo{Value: trackingSymbol.Category})
 		if err == nil {
@@ -31,18 +26,32 @@ func (trackedSymbolGradesDomain TrackedSymbolGradesDomain) ToDtos() []dto.Tracke
 			}
 		}
 	}
-	isListed := map[vo.SymbolVo]bool{}
-	trackedSymbolGrades := []dto.TrackedSymbolGradeDto{}
-	for _, combinedGrade := range trackedSymbolGradesDomain.combinedGrades {
-		symbol := vo.SymbolVo{Value: combinedGrade.Symbol, Category: vo.MarketCategoryVo{Value: combinedGrade.Category}}
-		symbolName, isTracking := symbolNames[symbol]
-		if !isTracking || isListed[symbol] {
-			continue
+	return TrackedSymbolGradesDomain{symbolNames: symbolNames}
+}
+
+// each still-tracked symbol once in a stable order, narrowed to the filter when it names one; paused or removed symbols are left out
+func (trackedSymbolGradesDomain TrackedSymbolGradesDomain) TrackingSymbols(symbolFilter vo.SymbolFilterVo) []vo.SymbolVo {
+	trackingSymbols := []vo.SymbolVo{}
+	for symbol := range trackedSymbolGradesDomain.symbolNames {
+		if symbolFilter.Symbol == "" || (symbol.Value == symbolFilter.Symbol && symbol.Category.Value == symbolFilter.Category) {
+			trackingSymbols = append(trackingSymbols, symbol)
 		}
-		isListed[symbol] = true
+	}
+	slices.SortFunc(trackingSymbols, func(left vo.SymbolVo, right vo.SymbolVo) int {
+		return cmp.Or(cmp.Compare(left.Category.Value, right.Category.Value), cmp.Compare(left.Value, right.Value))
+	})
+	return trackingSymbols
+}
+
+// latestGradeRecords holds at most one background record for each of TrackingSymbols; the result lists the newest trading day first
+func (trackedSymbolGradesDomain TrackedSymbolGradesDomain) ToDtos(latestGradeRecords []entities.GradeRecord, sessionGrades []entities.SessionGrade) []dto.TrackedSymbolGradeDto {
+	trackedSymbolGrades := []dto.TrackedSymbolGradeDto{}
+	for _, latestGradeRecord := range latestGradeRecords {
+		symbol := vo.SymbolVo{Value: latestGradeRecord.Symbol, Category: vo.MarketCategoryVo{Value: latestGradeRecord.Category}}
+		symbolName := trackedSymbolGradesDomain.symbolNames[symbol]
 		sessionGradeDtos := []dto.SessionGradeDto{}
-		for _, sessionGrade := range trackedSymbolGradesDomain.sessionGrades {
-			if sessionGrade.Symbol != combinedGrade.Symbol || sessionGrade.Category != combinedGrade.Category || sessionGrade.TradingDay != combinedGrade.TradingDay {
+		for _, sessionGrade := range sessionGrades {
+			if sessionGrade.Symbol != latestGradeRecord.Symbol || sessionGrade.Category != latestGradeRecord.Category || sessionGrade.TradingDay != latestGradeRecord.TradingDay {
 				continue
 			}
 			keyEvents := make([]dto.AnalysisKeyEventDto, 0, len(sessionGrade.KeyEvents))
@@ -64,17 +73,24 @@ func (trackedSymbolGradesDomain TrackedSymbolGradesDomain) ToDtos() []dto.Tracke
 				CreatedAt:   sessionGrade.CreatedAt,
 			})
 		}
+		combinedScore := 0.0
+		if latestGradeRecord.CombinedScore != nil {
+			combinedScore = *latestGradeRecord.CombinedScore
+		}
 		trackedSymbolGrades = append(trackedSymbolGrades, dto.TrackedSymbolGradeDto{
-			Symbol:        combinedGrade.Symbol,
+			Symbol:        latestGradeRecord.Symbol,
 			SymbolName:    symbolName,
-			Category:      combinedGrade.Category,
-			TradingDay:    combinedGrade.TradingDay,
-			Grade:         combinedGrade.Grade,
-			CombinedScore: combinedGrade.CombinedScore,
-			Confidence:    combinedGrade.Confidence,
-			UpdatedAt:     combinedGrade.UpdatedAt,
+			Category:      latestGradeRecord.Category,
+			TradingDay:    latestGradeRecord.TradingDay,
+			Grade:         latestGradeRecord.Grade,
+			CombinedScore: combinedScore,
+			Confidence:    latestGradeRecord.Confidence,
+			UpdatedAt:     latestGradeRecord.CreatedAt,
 			SessionGrades: sessionGradeDtos,
 		})
 	}
+	slices.SortFunc(trackedSymbolGrades, func(left dto.TrackedSymbolGradeDto, right dto.TrackedSymbolGradeDto) int {
+		return cmp.Or(cmp.Compare(right.TradingDay, left.TradingDay), cmp.Compare(left.Symbol, right.Symbol), cmp.Compare(left.Category, right.Category))
+	})
 	return trackedSymbolGrades
 }
