@@ -19,17 +19,17 @@ type SymbolAnalysisService struct {
 	analystConsultationService *AnalystConsultationService
 	priceSnapshotService       *PriceSnapshotService
 	analysisEventRepository    interfaces.IAnalysisEventRepository
-	analysisResultRepository   interfaces.IAnalysisResultRepository
+	gradeRecordRepository      interfaces.IGradeRecordRepository
 	clockProxy                 interfaces.IClockProxy
 }
 
-func NewSymbolAnalysisService(symbolResolutionService *SymbolResolutionService, analystConsultationService *AnalystConsultationService, priceSnapshotService *PriceSnapshotService, analysisEventRepository interfaces.IAnalysisEventRepository, analysisResultRepository interfaces.IAnalysisResultRepository, clockProxy interfaces.IClockProxy) *SymbolAnalysisService {
+func NewSymbolAnalysisService(symbolResolutionService *SymbolResolutionService, analystConsultationService *AnalystConsultationService, priceSnapshotService *PriceSnapshotService, analysisEventRepository interfaces.IAnalysisEventRepository, gradeRecordRepository interfaces.IGradeRecordRepository, clockProxy interfaces.IClockProxy) *SymbolAnalysisService {
 	return &SymbolAnalysisService{
 		symbolResolutionService:    symbolResolutionService,
 		analystConsultationService: analystConsultationService,
 		priceSnapshotService:       priceSnapshotService,
 		analysisEventRepository:    analysisEventRepository,
-		analysisResultRepository:   analysisResultRepository,
+		gradeRecordRepository:      gradeRecordRepository,
 		clockProxy:                 clockProxy,
 	}
 }
@@ -94,9 +94,9 @@ func (symbolAnalysisService *SymbolAnalysisService) AnalyzeSymbol(ctx context.Co
 	failureReason := analystConsultation.FailureReason()
 	if conclusion, isConcluded := analystConsultation.Conclusion(); isConcluded {
 		priceQuote := symbolAnalysisService.priceSnapshotService.CapturePrice(analysisContext, dto.CapturePriceDto{Symbol: storedAnalysisEvent.Symbol, Category: storedAnalysisEvent.Category})
-		analysisResult := conclusion.ToResultEntity(*storedAnalysisEvent, symbolAnalysisService.clockProxy.Now(), priceQuote)
+		gradeRecord := conclusion.ToGradeRecordEntity(*storedAnalysisEvent, symbolAnalysisService.clockProxy.Now(), priceQuote)
 		failureReason = ""
-		if saveError := symbolAnalysisService.analysisResultRepository.Create(context.WithoutCancel(ctx), &analysisResult); saveError != nil {
+		if saveError := symbolAnalysisService.gradeRecordRepository.Create(context.WithoutCancel(ctx), &gradeRecord); saveError != nil {
 			failureReason = FailureReasonResultNotSaved
 		}
 	}
@@ -136,9 +136,9 @@ func (symbolAnalysisService *SymbolAnalysisService) toDtoWithResult(ctx context.
 	if !analysisEventDomain.IsSucceeded() {
 		return analysisEventDomain.ToDto(nil), nil
 	}
-	analysisResult, err := symbolAnalysisService.analysisResultRepository.FindByAnalysisEventID(ctx, analysisEvent.ID)
+	gradeRecord, err := symbolAnalysisService.gradeRecordRepository.FindByAnalysisEventID(ctx, analysisEvent.ID)
 	if err != nil {
 		return dto.AnalysisEventDto{}, fmt.Errorf("%w: %v", ErrAnalysisStorageUnavailable, err)
 	}
-	return analysisEventDomain.ToDto(analysisResult), nil
+	return analysisEventDomain.ToDto(gradeRecord), nil
 }

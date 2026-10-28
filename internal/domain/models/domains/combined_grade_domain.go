@@ -58,14 +58,21 @@ func NewCombinedGradeDomain(sessionGrades []entities.SessionGrade, sessionWeight
 	return CombinedGradeDomain{combinedScore: combinedScore, grade: grade, confidence: int(math.Round(weightedConfidence / totalWeight))}
 }
 
-func (combinedGradeDomain CombinedGradeDomain) ToEntity(symbol vo.SymbolVo, tradingDay string, updatedAt time.Time) entities.CombinedGrade {
-	return entities.CombinedGrade{
+// a background record has no reason, evidence or price of its own; its session grades carry the detail
+func (combinedGradeDomain CombinedGradeDomain) ToGradeRecordEntity(symbol vo.SymbolVo, symbolName vo.SymbolNameVo, tradingDay string, createdAt time.Time) entities.GradeRecord {
+	return entities.GradeRecord{
+		Source:        vo.GradeSourceBackground,
 		Symbol:        symbol.Value,
 		Category:      symbol.Category.Value,
+		SymbolName:    symbolName.Value,
 		TradingDay:    tradingDay,
 		Grade:         combinedGradeDomain.grade,
-		CombinedScore: combinedGradeDomain.combinedScore,
 		Confidence:    combinedGradeDomain.confidence,
-		UpdatedAt:     updatedAt,
+		TimeHorizon:   TimeHorizonShort,
+		CombinedScore: &combinedGradeDomain.combinedScore,
+		KeyEvents:     []entities.AnalysisKeyEvent{},
+		RiskFactors:   []string{},
+		Evidence:      []entities.AnalysisEvidence{},
+		CreatedAt:     createdAt,
 	}
 }

@@ -437,7 +437,9 @@
                 "exec": [
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
                   "pm.test('compared with random guessing', () => pm.expect(pm.response.json().randomBaseline).to.eql(0.5));",
-                  "pm.test('every confidence band is listed', () => pm.expect(pm.response.json().byConfidenceBand).to.have.all.keys('low', 'medium', 'high'));"
+                  "pm.test('every confidence band is listed', () => pm.expect(pm.response.json().byConfidenceBand).to.have.all.keys('low', 'medium', 'high'));",
+                  "pm.test('both grade sources are listed', () => pm.expect(pm.response.json().bySource).to.have.all.keys('manual', 'background'));",
+                  "pm.test('every row names its source', () => pm.response.json().analyses.forEach(analysis => pm.expect(['manual', 'background']).to.include(analysis.source)));"
                 ]
               }
             }
@@ -454,7 +456,7 @@
                 "grade-backtest"
               ]
             },
-            "description": "回測所有使用者發起、已完成的分析：起點價格是分析完成那一分鐘的價格（已收盤則為收盤前最後一筆），短期看之後第 10 個交易日、中期看第 60 個交易日的收盤價。看多漲了 / 看空跌了算命中；中性不計命中率，只列平均漲跌幅。\n\n命中率為 `null` 代表該組沒有可評估的分析（不是 0%）。尚未到期、無法評估（美股、或價格服務沒有登錄的代號）列在 `outcomeCounts` 與逐筆明細，不計入命中率。\n\n價格來自 go-trading，需在 `.env` 設定 `GO_TRADING_BASE_URL`、`GO_TRADING_EMAIL`、`GO_TRADING_PASSWORD`；連不上時回 503 `price_service_unavailable`。一次最多 500 筆分析，超過回 400。"
+            "description": "回測所有評等紀錄：使用者發起且已完成的分析（來源 `manual`），以及追蹤標的每次重算的綜合評等（來源 `background`，時間範圍一律短期）。起點為評等紀錄的建立時間，起點價格是分析完成那一分鐘的價格（已收盤則為收盤前最後一筆），短期看之後第 10 個交易日、中期看第 60 個交易日的收盤價。看多漲了 / 看空跌了算命中；中性不計命中率，只列平均漲跌幅。\n\n命中率為 `null` 代表該組沒有可評估的分析（不是 0%）。尚未到期、無法評估（美股、或價格服務沒有登錄的代號）列在 `outcomeCounts` 與逐筆明細，不計入命中率。\n\n價格來自 go-trading，需在 `.env` 設定 `GO_TRADING_BASE_URL`、`GO_TRADING_EMAIL`、`GO_TRADING_PASSWORD`；連不上時回 503 `price_service_unavailable`。一次最多 500 筆評等紀錄（兩種來源合計），超過回 400。`bySource` 依來源分組；手動紀錄附 `analysisEventId`，背景紀錄附 `tradingDay`。"
           }
         },
         {
@@ -502,6 +504,42 @@
               ]
             },
             "description": "`symbol` 與 `category` 需一起提供；`completedFrom` / `completedTo` 為台北時間的日期（`yyyy-MM-dd`），頭尾兩天都算，可只給其中一個。"
+          }
+        },
+        {
+          "name": "Get grade backtest - background records only",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('only background records', () => pm.response.json().analyses.forEach(analysis => pm.expect(analysis.source).to.eql('background')));",
+                  "pm.test('background records have no analysis event', () => pm.response.json().analyses.forEach(analysis => pm.expect(analysis.analysisEventId).to.be.null));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/grade-backtest?source=background",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "grade-backtest"
+              ],
+              "query": [
+                {
+                  "key": "source",
+                  "value": "background"
+                }
+              ]
+            },
+            "description": "`source` 只能是 `manual`（使用者發起的分析）或 `background`（追蹤標的的綜合評等）；不給則兩種都算。"
           }
         }
       ]
@@ -826,6 +864,41 @@
               ]
             },
             "description": "起日晚於迄日（或日期看不懂）→ 400「期間不正確」。"
+          }
+        },
+        {
+          "name": "Get grade backtest - unknown source",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('error code', () => pm.expect(pm.response.json().error.code).to.eql('grade_source_invalid'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/grade-backtest?source=other",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "grade-backtest"
+              ],
+              "query": [
+                {
+                  "key": "source",
+                  "value": "other"
+                }
+              ]
+            },
+            "description": "來源不是 `manual` 或 `background` → 400「來源不正確」。"
           }
         }
       ]

@@ -25,12 +25,12 @@ import (
 var analysisStartedAt = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 
 type analysisRouterFixture struct {
-	router                   *gin.Engine
-	apiKeyRepository         *mocks.MockIApiKeyRepository
-	cryptocurrencyProxy      *mocks.MockICryptocurrencyProxy
-	analystProxy             *mocks.MockIAnalystProxy
-	analysisEventRepository  *mocks.MockIAnalysisEventRepository
-	analysisResultRepository *mocks.MockIAnalysisResultRepository
+	router                  *gin.Engine
+	apiKeyRepository        *mocks.MockIApiKeyRepository
+	cryptocurrencyProxy     *mocks.MockICryptocurrencyProxy
+	analystProxy            *mocks.MockIAnalystProxy
+	analysisEventRepository *mocks.MockIAnalysisEventRepository
+	gradeRecordRepository   *mocks.MockIGradeRecordRepository
 }
 
 func createAnalysisRouter(t *testing.T) analysisRouterFixture {
@@ -38,11 +38,11 @@ func createAnalysisRouter(t *testing.T) analysisRouterFixture {
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(analysisStartedAt).Maybe()
 	fixture := analysisRouterFixture{
-		apiKeyRepository:         mocks.NewMockIApiKeyRepository(t),
-		cryptocurrencyProxy:      mocks.NewMockICryptocurrencyProxy(t),
-		analystProxy:             mocks.NewMockIAnalystProxy(t),
-		analysisEventRepository:  mocks.NewMockIAnalysisEventRepository(t),
-		analysisResultRepository: mocks.NewMockIAnalysisResultRepository(t),
+		apiKeyRepository:        mocks.NewMockIApiKeyRepository(t),
+		cryptocurrencyProxy:     mocks.NewMockICryptocurrencyProxy(t),
+		analystProxy:            mocks.NewMockIAnalystProxy(t),
+		analysisEventRepository: mocks.NewMockIAnalysisEventRepository(t),
+		gradeRecordRepository:   mocks.NewMockIGradeRecordRepository(t),
 	}
 	fixture.analystProxy.EXPECT().ModelName().Return("claude-opus-5-5").Maybe()
 	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{mocks.NewMockIListedCompanyProxy(t)}, Crypto: fixture.cryptocurrencyProxy})
@@ -52,7 +52,7 @@ func createAnalysisRouter(t *testing.T) analysisRouterFixture {
 	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: []interfaces.IPriceProxy{unavailablePriceProxy}, UsStock: []interfaces.IPriceProxy{unavailablePriceProxy}, Crypto: []interfaces.IPriceProxy{unavailablePriceProxy}})
 	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(fixture.apiKeyRepository, clockProxy, mocks.NewMockIRandomProxy(t))))
 	analysisEventController := controller.NewAnalysisEventController(application.NewSymbolAnalysisApplication(service.NewSymbolAnalysisService(
-		symbolResolutionService, service.NewAnalystConsultationService(fixture.analystProxy, newsSearchService), priceSnapshotService, fixture.analysisEventRepository, fixture.analysisResultRepository, clockProxy,
+		symbolResolutionService, service.NewAnalystConsultationService(fixture.analystProxy, newsSearchService), priceSnapshotService, fixture.analysisEventRepository, fixture.gradeRecordRepository, clockProxy,
 	), 1))
 	fixture.router = gin.New()
 	protectedRoutes := fixture.router.Group("/", apiKeyController.RequireActiveApiKey())
@@ -157,8 +157,8 @@ func TestGetAnalysisEvent_ReturnsTheResultOfASucceededAnalysis(t *testing.T) {
 	fixture.givenActiveKey()
 	finishedAt := analysisStartedAt.Add(time.Minute)
 	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(30)).Return(&entities.AnalysisEvent{ID: 30, ApiKeyID: 99, Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Status: "succeeded", StartedAt: analysisStartedAt, FinishedAt: &finishedAt}, nil)
-	fixture.analysisResultRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(30)).Return(&entities.AnalysisResult{
-		AnalysisEventID: 30, Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Grade: "bullish", Confidence: 70, TimeHorizon: "short", Reason: "理由",
+	fixture.gradeRecordRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(30)).Return(&entities.GradeRecord{
+		AnalysisEventID: new(uint(30)), Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Grade: "bullish", Confidence: 70, TimeHorizon: "short", Reason: "理由",
 		KeyEvents:   []entities.AnalysisKeyEvent{{Title: "t", Link: "https://news/1", PublishedAt: analysisStartedAt}},
 		RiskFactors: []string{"風險"},
 		Evidence:    []entities.AnalysisEvidence{{Title: "t", Link: "https://news/1", PublishedAt: analysisStartedAt, ProviderName: "CoinDesk"}},
@@ -241,7 +241,7 @@ func TestGetAnalysisEvent_ShowsAMissingPriceAsNull(t *testing.T) {
 	fixture.givenActiveKey()
 	finishedAt := analysisStartedAt.Add(time.Minute)
 	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(33)).Return(&entities.AnalysisEvent{ID: 33, Status: "succeeded", StartedAt: analysisStartedAt, FinishedAt: &finishedAt}, nil)
-	fixture.analysisResultRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(33)).Return(&entities.AnalysisResult{AnalysisEventID: 33, Grade: "neutral"}, nil)
+	fixture.gradeRecordRepository.EXPECT().FindByAnalysisEventID(mock.Anything, uint(33)).Return(&entities.GradeRecord{AnalysisEventID: new(uint(33)), Grade: "neutral"}, nil)
 
 	recorder := send(fixture.router, http.MethodGet, "/analysis-events/33", presentedApiKey, "")
 

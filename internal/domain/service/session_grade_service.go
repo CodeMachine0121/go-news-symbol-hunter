@@ -18,19 +18,19 @@ type SessionGradeService struct {
 	analystConsultationService *AnalystConsultationService
 	trackedSymbolRepository    interfaces.ITrackedSymbolRepository
 	sessionGradeRepository     interfaces.ISessionGradeRepository
-	combinedGradeRepository    interfaces.ICombinedGradeRepository
+	gradeRecordRepository      interfaces.IGradeRecordRepository
 	sessionRunRepository       interfaces.ISessionRunRepository
 	clockProxy                 interfaces.IClockProxy
 	sessionWeights             vo.SessionWeightsVo
 }
 
-func NewSessionGradeService(symbolResolutionService *SymbolResolutionService, analystConsultationService *AnalystConsultationService, trackedSymbolRepository interfaces.ITrackedSymbolRepository, sessionGradeRepository interfaces.ISessionGradeRepository, combinedGradeRepository interfaces.ICombinedGradeRepository, sessionRunRepository interfaces.ISessionRunRepository, clockProxy interfaces.IClockProxy, sessionWeights vo.SessionWeightsVo) *SessionGradeService {
+func NewSessionGradeService(symbolResolutionService *SymbolResolutionService, analystConsultationService *AnalystConsultationService, trackedSymbolRepository interfaces.ITrackedSymbolRepository, sessionGradeRepository interfaces.ISessionGradeRepository, gradeRecordRepository interfaces.IGradeRecordRepository, sessionRunRepository interfaces.ISessionRunRepository, clockProxy interfaces.IClockProxy, sessionWeights vo.SessionWeightsVo) *SessionGradeService {
 	return &SessionGradeService{
 		symbolResolutionService:    symbolResolutionService,
 		analystConsultationService: analystConsultationService,
 		trackedSymbolRepository:    trackedSymbolRepository,
 		sessionGradeRepository:     sessionGradeRepository,
-		combinedGradeRepository:    combinedGradeRepository,
+		gradeRecordRepository:      gradeRecordRepository,
 		sessionRunRepository:       sessionRunRepository,
 		clockProxy:                 clockProxy,
 		sessionWeights:             sessionWeights,
@@ -55,10 +55,8 @@ func (sessionGradeService *SessionGradeService) RunDueTradingSession(ctx context
 	sessionRun := domains.NewSessionRunDomain(createdSessionRun)
 	failureReason := ""
 	if session == domains.TradingSessionPreMarket {
-		if err := errors.Join(
-			sessionGradeService.sessionGradeRepository.DeleteExceptTradingDay(ctx, tradingDay.Value()),
-			sessionGradeService.combinedGradeRepository.DeleteExceptTradingDay(ctx, tradingDay.Value()),
-		); err != nil {
+		// background grade records are kept for backtesting; only the session grades last a day
+		if err := sessionGradeService.sessionGradeRepository.DeleteExceptTradingDay(ctx, tradingDay.Value()); err != nil {
 			failureReason = FailureReasonStaleGradesNotPurged
 		}
 	}
@@ -117,8 +115,8 @@ func (sessionGradeService *SessionGradeService) gradeTrackedSymbol(ctx context.C
 		symbolGradingOutcome.FailureReason = FailureReasonCombinedGradeNotSaved
 		return symbolGradingOutcome
 	}
-	combinedGrade := domains.NewCombinedGradeDomain(sessionGrades, sessionGradeService.sessionWeights).ToEntity(symbol, tradingDay.Value(), sessionGradeService.clockProxy.Now())
-	if err := sessionGradeService.combinedGradeRepository.Save(storageContext, &combinedGrade); err != nil {
+	backgroundGradeRecord := domains.NewCombinedGradeDomain(sessionGrades, sessionGradeService.sessionWeights).ToGradeRecordEntity(symbol, vo.NewSymbolNameVo(trackedSymbol.SymbolName), tradingDay.Value(), sessionGradeService.clockProxy.Now())
+	if err := sessionGradeService.gradeRecordRepository.Create(storageContext, &backgroundGradeRecord); err != nil {
 		symbolGradingOutcome.FailureReason = FailureReasonCombinedGradeNotSaved
 	}
 	return symbolGradingOutcome
@@ -129,28 +127,29 @@ func (sessionGradeService *SessionGradeService) GetTrackedSymbolGrades(ctx conte
 	if err != nil {
 		return nil, err
 	}
-	combinedGrades, err := sessionGradeService.combinedGradeRepository.FindAll(ctx, symbolFilter.Symbol, symbolFilter.Category)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrSessionGradeStorageUnavailable, err)
-	}
-	if len(combinedGrades) == 0 {
-		return []dto.TrackedSymbolGradeDto{}, nil
-	}
 	trackingSymbols, err := sessionGradeService.trackedSymbolRepository.FindAllTracking(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSessionGradeStorageUnavailable, err)
 	}
+	trackedSymbolGrades := domains.NewTrackedSymbolGradesDomain(trackingSymbols)
+	latestGradeRecords, err := sessionGradeService.gradeRecordRepository.FindLatestBackground(ctx, trackedSymbolGrades.TrackingSymbols(symbolFilter))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrSessionGradeStorageUnavailable, err)
+	}
+	if len(latestGradeRecords) == 0 {
+		return []dto.TrackedSymbolGradeDto{}, nil
+	}
 	tradingDays := []string{}
-	for _, combinedGrade := range combinedGrades {
-		if !slices.Contains(tradingDays, combinedGrade.TradingDay) {
-			tradingDays = append(tradingDays, combinedGrade.TradingDay)
+	for _, latestGradeRecord := range latestGradeRecords {
+		if !slices.Contains(tradingDays, latestGradeRecord.TradingDay) {
+			tradingDays = append(tradingDays, latestGradeRecord.TradingDay)
 		}
 	}
 	sessionGrades, err := sessionGradeService.sessionGradeRepository.FindByTradingDays(ctx, tradingDays)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSessionGradeStorageUnavailable, err)
 	}
-	return domains.NewTrackedSymbolGradesDomain(trackingSymbols, combinedGrades, sessionGrades).ToDtos(), nil
+	return trackedSymbolGrades.ToDtos(latestGradeRecords, sessionGrades), nil
 }
 
 func (sessionGradeService *SessionGradeService) FailInterruptedSessionRuns(ctx context.Context) error {

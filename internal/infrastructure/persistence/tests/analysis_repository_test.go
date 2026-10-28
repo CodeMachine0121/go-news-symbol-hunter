@@ -89,20 +89,20 @@ func TestAnalysisEventRepository_FailAllRunningLeavesFinishedEventsAlone(t *test
 	assert.Equal(t, "succeeded", untouchedEvent.Status)
 }
 
-func TestAnalysisResultRepository_StoresStructuredFields(t *testing.T) {
-	analysisResultRepository := persistence.NewAnalysisResultRepository(openTestDatabase(t))
+func TestGradeRecordRepository_StoresStructuredFields(t *testing.T) {
+	gradeRecordRepository := persistence.NewGradeRecordRepository(openTestDatabase(t))
 	ctx := context.Background()
-	analysisResult := entities.AnalysisResult{
-		AnalysisEventID: 7, Symbol: "BTC", Category: "crypto", Grade: "bullish", Confidence: 70, TimeHorizon: "short", Reason: "理由",
+	analysisResult := entities.GradeRecord{
+		AnalysisEventID: new(uint(7)), Symbol: "BTC", Category: "crypto", Grade: "bullish", Confidence: 70, TimeHorizon: "short", Reason: "理由",
 		KeyEvents:   []entities.AnalysisKeyEvent{{Title: "t", Link: "https://news/1", PublishedAt: analysisStartedAt}},
 		RiskFactors: []string{"風險"},
 		Evidence:    []entities.AnalysisEvidence{{Title: "t", Link: "https://news/1", PublishedAt: analysisStartedAt, ProviderName: "CoinDesk"}},
 	}
 
-	require.NoError(t, analysisResultRepository.Create(ctx, &analysisResult))
-	foundAnalysisResult, err := analysisResultRepository.FindByAnalysisEventID(ctx, 7)
-	missingAnalysisResult, missingError := analysisResultRepository.FindByAnalysisEventID(ctx, 8)
-	duplicateError := analysisResultRepository.Create(ctx, &entities.AnalysisResult{AnalysisEventID: 7, Symbol: "BTC", Category: "crypto", Grade: "neutral", TimeHorizon: "short", Reason: "r", KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{}})
+	require.NoError(t, gradeRecordRepository.Create(ctx, &analysisResult))
+	foundAnalysisResult, err := gradeRecordRepository.FindByAnalysisEventID(ctx, 7)
+	missingAnalysisResult, missingError := gradeRecordRepository.FindByAnalysisEventID(ctx, 8)
+	duplicateError := gradeRecordRepository.Create(ctx, &entities.GradeRecord{AnalysisEventID: new(uint(7)), Symbol: "BTC", Category: "crypto", Grade: "neutral", TimeHorizon: "short", Reason: "r", KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{}})
 
 	require.NoError(t, err)
 	assert.Equal(t, "bullish", foundAnalysisResult.Grade)
@@ -122,11 +122,11 @@ func TestAnalysisRepositories_ReportStorageFailures(t *testing.T) {
 	require.NoError(t, sqlDatabase.Close())
 	ctx := context.Background()
 	analysisEventRepository := persistence.NewAnalysisEventRepository(database)
-	analysisResultRepository := persistence.NewAnalysisResultRepository(database)
+	gradeRecordRepository := persistence.NewGradeRecordRepository(database)
 
 	_, findError := analysisEventRepository.FindByID(ctx, 1)
 	_, latestError := analysisEventRepository.FindLatestReusable(ctx, "BTC", "crypto")
-	_, resultError := analysisResultRepository.FindByAnalysisEventID(ctx, 1)
+	_, resultError := gradeRecordRepository.FindByAnalysisEventID(ctx, 1)
 	createError := analysisEventRepository.Create(ctx, &entities.AnalysisEvent{Symbol: "BTC", Category: "crypto", Status: "running", StartedAt: analysisStartedAt})
 
 	assert.Error(t, findError)
@@ -136,23 +136,23 @@ func TestAnalysisRepositories_ReportStorageFailures(t *testing.T) {
 	assert.NotErrorIs(t, createError, service.ErrAnalysisAlreadyRunning)
 }
 
-func TestAnalysisResultRepository_StoresThePriceAtAnalysisExactly(t *testing.T) {
-	analysisResultRepository := persistence.NewAnalysisResultRepository(openTestDatabase(t))
+func TestGradeRecordRepository_StoresThePriceAtAnalysisExactly(t *testing.T) {
+	gradeRecordRepository := persistence.NewGradeRecordRepository(openTestDatabase(t))
 	ctx := context.Background()
-	pricedResult := entities.AnalysisResult{
-		AnalysisEventID: 1, Symbol: "SHIB", Category: "crypto", Grade: "neutral", TimeHorizon: "short", Reason: "r",
+	pricedResult := entities.GradeRecord{
+		AnalysisEventID: new(uint(1)), Symbol: "SHIB", Category: "crypto", Grade: "neutral", TimeHorizon: "short", Reason: "r",
 		KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{},
 		Price: decimal.NewNullDecimal(decimal.RequireFromString("123456789.123456789012345678")), PriceCurrency: "USDT", PricedAt: &analysisStartedAt, PriceSource: "Binance",
 	}
-	unpricedResult := entities.AnalysisResult{
-		AnalysisEventID: 2, Symbol: "XYZ", Category: "crypto", Grade: "neutral", TimeHorizon: "short", Reason: "r",
+	unpricedResult := entities.GradeRecord{
+		AnalysisEventID: new(uint(2)), Symbol: "XYZ", Category: "crypto", Grade: "neutral", TimeHorizon: "short", Reason: "r",
 		KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{},
 	}
-	require.NoError(t, analysisResultRepository.Create(ctx, &pricedResult))
-	require.NoError(t, analysisResultRepository.Create(ctx, &unpricedResult))
+	require.NoError(t, gradeRecordRepository.Create(ctx, &pricedResult))
+	require.NoError(t, gradeRecordRepository.Create(ctx, &unpricedResult))
 
-	foundPricedResult, err := analysisResultRepository.FindByAnalysisEventID(ctx, 1)
-	foundUnpricedResult, unpricedError := analysisResultRepository.FindByAnalysisEventID(ctx, 2)
+	foundPricedResult, err := gradeRecordRepository.FindByAnalysisEventID(ctx, 1)
+	foundUnpricedResult, unpricedError := gradeRecordRepository.FindByAnalysisEventID(ctx, 2)
 
 	require.NoError(t, err)
 	require.NoError(t, unpricedError)

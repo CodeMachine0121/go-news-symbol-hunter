@@ -15,6 +15,7 @@ var gradeBacktestErrorResponseTable = ErrorResponseTable{
 	{Err: service.ErrSymbolAndCategoryRequiredTogether, Status: http.StatusBadRequest, Code: "symbol_and_category_required_together"},
 	{Err: service.ErrMarketCategoryUnsupported, Status: http.StatusBadRequest, Code: "market_category_unsupported"},
 	{Err: service.ErrSymbolRequired, Status: http.StatusBadRequest, Code: "symbol_required"},
+	{Err: service.ErrGradeSourceInvalid, Status: http.StatusBadRequest, Code: "grade_source_invalid"},
 	{Err: service.ErrPriceServiceUnavailable, Status: http.StatusServiceUnavailable, Code: "price_service_unavailable"},
 }
 
@@ -32,6 +33,7 @@ func (gradeBacktestController *GradeBacktestController) GetGradeBacktest(context
 		CompletedTo:   context.Query("completedTo"),
 		Symbol:        context.Query("symbol"),
 		Category:      context.Query("category"),
+		Source:        context.Query("source"),
 	})
 	if err != nil {
 		gradeBacktestErrorResponseTable.Respond(context, err)

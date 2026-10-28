@@ -87,9 +87,10 @@ func NewAnalysisConclusionDomain(rawConclusion vo.RawAnalysisConclusionVo, analy
 	}, nil
 }
 
-func (analysisConclusionDomain AnalysisConclusionDomain) ToResultEntity(analysisEvent entities.AnalysisEvent, createdAt time.Time, priceQuote *vo.PriceQuoteVo) entities.AnalysisResult {
-	analysisResult := entities.AnalysisResult{
-		AnalysisEventID: analysisEvent.ID,
+func (analysisConclusionDomain AnalysisConclusionDomain) ToGradeRecordEntity(analysisEvent entities.AnalysisEvent, createdAt time.Time, priceQuote *vo.PriceQuoteVo) entities.GradeRecord {
+	gradeRecord := entities.GradeRecord{
+		Source:          vo.GradeSourceManual,
+		AnalysisEventID: &analysisEvent.ID,
 		Symbol:          analysisEvent.Symbol,
 		SymbolName:      analysisEvent.SymbolName,
 		Category:        analysisEvent.Category,
@@ -103,12 +104,12 @@ func (analysisConclusionDomain AnalysisConclusionDomain) ToResultEntity(analysis
 		CreatedAt:       createdAt,
 	}
 	if priceQuote != nil {
-		analysisResult.Price = decimal.NewNullDecimal(priceQuote.Price)
-		analysisResult.PriceCurrency = priceQuote.Currency
-		analysisResult.PricedAt = &priceQuote.PricedAt
-		analysisResult.PriceSource = priceQuote.Source
+		gradeRecord.Price = decimal.NewNullDecimal(priceQuote.Price)
+		gradeRecord.PriceCurrency = priceQuote.Currency
+		gradeRecord.PricedAt = &priceQuote.PricedAt
+		gradeRecord.PriceSource = priceQuote.Source
 	}
-	return analysisResult
+	return gradeRecord
 }
 
 func (analysisConclusionDomain AnalysisConclusionDomain) ToSessionGradeEntity(symbol vo.SymbolVo, tradingDay string, session string, createdAt time.Time) entities.SessionGrade {

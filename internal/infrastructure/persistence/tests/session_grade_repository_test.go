@@ -77,44 +77,6 @@ func TestSessionGradeRepository_DeleteExceptTradingDayKeepsOnlyThatDay(t *testin
 	assert.Len(t, today, 1)
 }
 
-func TestCombinedGradeRepository_SaveReplacesTheDayAndFindAllFilters(t *testing.T) {
-	combinedGradeRepository := persistence.NewCombinedGradeRepository(openTestDatabase(t))
-	ctx := context.Background()
-	require.NoError(t, combinedGradeRepository.Save(ctx, &entities.CombinedGrade{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "bullish", CombinedScore: 1, Confidence: 60, UpdatedAt: gradedAt}))
-	require.NoError(t, combinedGradeRepository.Save(ctx, &entities.CombinedGrade{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "neutral", CombinedScore: 0.2, Confidence: 52, UpdatedAt: gradedAt.Add(time.Hour)}))
-	require.NoError(t, combinedGradeRepository.Save(ctx, &entities.CombinedGrade{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-06", Grade: "bearish", CombinedScore: -1, UpdatedAt: gradedAt}))
-	require.NoError(t, combinedGradeRepository.Save(ctx, &entities.CombinedGrade{Symbol: "2317", Category: "twStock", TradingDay: "2026-10-07", Grade: "neutral", UpdatedAt: gradedAt}))
-
-	all, err := combinedGradeRepository.FindAll(ctx, "", "")
-	require.NoError(t, err)
-	only2330, err := combinedGradeRepository.FindAll(ctx, "2330", "twStock")
-	require.NoError(t, err)
-	otherCategory, err := combinedGradeRepository.FindAll(ctx, "2330", "usStock")
-	require.NoError(t, err)
-
-	require.Len(t, all, 3)
-	assert.Equal(t, []string{"2317 2026-10-07", "2330 2026-10-07", "2330 2026-10-06"}, []string{all[0].Symbol + " " + all[0].TradingDay, all[1].Symbol + " " + all[1].TradingDay, all[2].Symbol + " " + all[2].TradingDay})
-	assert.Equal(t, "neutral", all[1].Grade)
-	assert.Equal(t, 0.2, all[1].CombinedScore)
-	assert.Equal(t, 52, all[1].Confidence)
-	assert.Len(t, only2330, 2)
-	assert.Empty(t, otherCategory)
-}
-
-func TestCombinedGradeRepository_DeleteExceptTradingDayKeepsOnlyThatDay(t *testing.T) {
-	combinedGradeRepository := persistence.NewCombinedGradeRepository(openTestDatabase(t))
-	ctx := context.Background()
-	require.NoError(t, combinedGradeRepository.Save(ctx, &entities.CombinedGrade{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-02", Grade: "neutral", UpdatedAt: gradedAt}))
-	require.NoError(t, combinedGradeRepository.Save(ctx, &entities.CombinedGrade{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-05", Grade: "neutral", UpdatedAt: gradedAt}))
-
-	require.NoError(t, combinedGradeRepository.DeleteExceptTradingDay(ctx, "2026-10-05"))
-
-	remaining, err := combinedGradeRepository.FindAll(ctx, "", "")
-	require.NoError(t, err)
-	require.Len(t, remaining, 1)
-	assert.Equal(t, "2026-10-05", remaining[0].TradingDay)
-}
-
 func TestSessionRunRepository_RecordsEachTradingSessionOnce(t *testing.T) {
 	database := openTestDatabase(t)
 	sessionRunRepository := persistence.NewSessionRunRepository(database)

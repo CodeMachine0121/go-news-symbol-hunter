@@ -20,10 +20,10 @@ import (
 )
 
 type gradeBacktestRouterFixture struct {
-	router                   *gin.Engine
-	apiKeyRepository         *mocks.MockIApiKeyRepository
-	analysisResultRepository *mocks.MockIAnalysisResultRepository
-	priceHistoryProxy        *mocks.MockIPriceHistoryProxy
+	router                *gin.Engine
+	apiKeyRepository      *mocks.MockIApiKeyRepository
+	gradeRecordRepository *mocks.MockIGradeRecordRepository
+	priceHistoryProxy     *mocks.MockIPriceHistoryProxy
 }
 
 func createGradeBacktestRouter(t *testing.T) gradeBacktestRouterFixture {
@@ -32,13 +32,13 @@ func createGradeBacktestRouter(t *testing.T) gradeBacktestRouterFixture {
 	// after every checkpoint below, so their days have closed
 	clockProxy.EXPECT().Now().Return(time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)).Maybe()
 	fixture := gradeBacktestRouterFixture{
-		apiKeyRepository:         mocks.NewMockIApiKeyRepository(t),
-		analysisResultRepository: mocks.NewMockIAnalysisResultRepository(t),
-		priceHistoryProxy:        mocks.NewMockIPriceHistoryProxy(t),
+		apiKeyRepository:      mocks.NewMockIApiKeyRepository(t),
+		gradeRecordRepository: mocks.NewMockIGradeRecordRepository(t),
+		priceHistoryProxy:     mocks.NewMockIPriceHistoryProxy(t),
 	}
 	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(fixture.apiKeyRepository, clockProxy, mocks.NewMockIRandomProxy(t))))
 	gradeBacktestController := controller.NewGradeBacktestController(application.NewGradeBacktestApplication(service.NewGradeBacktestService(
-		fixture.analysisResultRepository,
+		fixture.gradeRecordRepository,
 		clockProxy,
 		dto.PriceHistoryCatalogDto{TwStock: fixture.priceHistoryProxy, Crypto: fixture.priceHistoryProxy},
 	)))
@@ -52,9 +52,9 @@ func TestGetGradeBacktest_ReturnsTheSummaryAndEveryAnalysisAsJson(t *testing.T) 
 	fixture.apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 12, IsActive: true}, nil)
 	// Wednesday 2026-10-07 10:15 in Taipei
 	completedAt := time.Date(2026, 10, 7, 2, 15, 0, 0, time.UTC)
-	fixture.analysisResultRepository.EXPECT().FindForBacktest(mock.Anything, mock.MatchedBy(func(gradeBacktestFilter vo.GradeBacktestFilterVo) bool {
+	fixture.gradeRecordRepository.EXPECT().FindForBacktest(mock.Anything, mock.MatchedBy(func(gradeBacktestFilter vo.GradeBacktestFilterVo) bool {
 		return gradeBacktestFilter.Symbol == "2330" && gradeBacktestFilter.Category == "twStock" && !gradeBacktestFilter.CompletedPeriod.From.IsZero() && !gradeBacktestFilter.CompletedPeriod.Before.IsZero()
-	}), 501).Return([]entities.AnalysisResult{{AnalysisEventID: 9, Symbol: "2330", Category: "twStock", Grade: "bullish", Confidence: 75, TimeHorizon: "short", CreatedAt: completedAt}}, nil)
+	}), 501).Return([]entities.GradeRecord{{ID: 4, Source: "manual", AnalysisEventID: new(uint(9)), Symbol: "2330", Category: "twStock", Grade: "bullish", Confidence: 75, TimeHorizon: "short", CreatedAt: completedAt}}, nil)
 	fixture.priceHistoryProxy.EXPECT().FetchCandles(mock.Anything, mock.MatchedBy(func(priceHistoryQuery vo.PriceHistoryQueryVo) bool { return priceHistoryQuery.Interval == "1m" })).
 		Return([]vo.PriceCandleVo{{OpenTime: completedAt, Close: decimal.RequireFromString("100")}}, nil)
 	dailyCandles := []vo.PriceCandleVo{}
@@ -72,9 +72,10 @@ func TestGetGradeBacktest_ReturnsTheSummaryAndEveryAnalysisAsJson(t *testing.T) 
 		"byCategory":{"twStock":{"hitCount":1,"missCount":0,"hitRate":1},"usStock":{"hitCount":0,"missCount":0,"hitRate":null},"crypto":{"hitCount":0,"missCount":0,"hitRate":null}},
 		"byGrade":{"strongBullish":{"hitCount":0,"missCount":0,"hitRate":null},"bullish":{"hitCount":1,"missCount":0,"hitRate":1},"bearish":{"hitCount":0,"missCount":0,"hitRate":null},"strongBearish":{"hitCount":0,"missCount":0,"hitRate":null}},
 		"byConfidenceBand":{"low":{"hitCount":0,"missCount":0,"hitRate":null},"medium":{"hitCount":0,"missCount":0,"hitRate":null},"high":{"hitCount":1,"missCount":0,"hitRate":1}},
+		"bySource":{"manual":{"hitCount":1,"missCount":0,"hitRate":1},"background":{"hitCount":0,"missCount":0,"hitRate":null}},
 		"neutralAverageChangeRate":null,
 		"outcomeCounts":{"hit":1,"miss":0,"neutral":0,"pending":0,"unevaluable":0},
-		"analyses":[{"analysisEventId":9,"symbol":"2330","category":"twStock","grade":"bullish","confidence":75,"confidenceBand":"high","timeHorizon":"short",
+		"analyses":[{"gradeRecordId":4,"source":"manual","analysisEventId":9,"tradingDay":null,"symbol":"2330","category":"twStock","grade":"bullish","confidence":75,"confidenceBand":"high","timeHorizon":"short",
 			"completedAt":"2026-10-07T02:15:00Z","entryPrice":"100","checkpointDate":"2026-10-17","checkpointPrice":"105","priceChangeRate":"0.05","outcome":"hit"}]
 	}`, recorder.Body.String())
 }
@@ -92,16 +93,17 @@ func TestGetGradeBacktest_ErrorResponses(t *testing.T) {
 		{name: "period backwards", query: "?completedFrom=2026-10-31&completedTo=2026-10-01", expectedStatus: http.StatusBadRequest, expectedCode: "backtest_period_invalid", expectedMessage: "期間不正確"},
 		{name: "symbol without category", query: "?symbol=2330", expectedStatus: http.StatusBadRequest, expectedCode: "symbol_and_category_required_together", expectedMessage: "標的與市場類別需一起提供"},
 		{name: "unsupported category", query: "?symbol=2330&category=futures", expectedStatus: http.StatusBadRequest, expectedCode: "market_category_unsupported", expectedMessage: "市場類別只能是 crypto、twStock、usStock"},
+		{name: "unknown source", query: "?source=other", expectedStatus: http.StatusBadRequest, expectedCode: "grade_source_invalid", expectedMessage: "來源不正確"},
 		{name: "blank symbol", query: "?symbol=%20&category=twStock", expectedStatus: http.StatusBadRequest, expectedCode: "symbol_required", expectedMessage: "標的為必填"},
 		{name: "more than five hundred analyses", given: func(fixture gradeBacktestRouterFixture) {
-			fixture.analysisResultRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return(make([]entities.AnalysisResult, 501), nil)
-		}, expectedStatus: http.StatusBadRequest, expectedCode: "backtest_analysis_limit_exceeded", expectedMessage: "涵蓋分析超過 500 筆，請縮小期間"},
+			fixture.gradeRecordRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return(make([]entities.GradeRecord, 501), nil)
+		}, expectedStatus: http.StatusBadRequest, expectedCode: "backtest_analysis_limit_exceeded", expectedMessage: "涵蓋評等紀錄超過 500 筆，請縮小期間"},
 		{name: "price service unreachable", given: func(fixture gradeBacktestRouterFixture) {
-			fixture.analysisResultRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return([]entities.AnalysisResult{{Symbol: "2330", Category: "twStock", Grade: "bullish", TimeHorizon: "short"}}, nil)
+			fixture.gradeRecordRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return([]entities.GradeRecord{{Symbol: "2330", Category: "twStock", Grade: "bullish", TimeHorizon: "short"}}, nil)
 			fixture.priceHistoryProxy.EXPECT().FetchCandles(mock.Anything, mock.Anything).Return(nil, errors.New("connection refused")).Maybe()
 		}, expectedStatus: http.StatusServiceUnavailable, expectedCode: "price_service_unavailable", expectedMessage: "價格服務暫時無法使用"},
 		{name: "storage unavailable", given: func(fixture gradeBacktestRouterFixture) {
-			fixture.analysisResultRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return(nil, errDatabaseDown)
+			fixture.gradeRecordRepository.EXPECT().FindForBacktest(mock.Anything, mock.Anything, 501).Return(nil, errDatabaseDown)
 		}, expectedStatus: http.StatusServiceUnavailable, expectedCode: "service_unavailable", expectedMessage: "服務暫時無法使用"},
 		{name: "inactive key", isInactiveKey: true, expectedStatus: http.StatusForbidden, expectedCode: "api_key_inactive", expectedMessage: "API key 尚未啟用"},
 	}

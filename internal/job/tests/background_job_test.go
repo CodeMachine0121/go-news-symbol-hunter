@@ -30,7 +30,7 @@ func createSessionGradeApplication(t *testing.T, sessionRunRepository *mocks.Moc
 		service.NewAnalystConsultationService(mocks.NewMockIAnalystProxy(t), service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})),
 		mocks.NewMockITrackedSymbolRepository(t),
 		mocks.NewMockISessionGradeRepository(t),
-		mocks.NewMockICombinedGradeRepository(t),
+		mocks.NewMockIGradeRecordRepository(t),
 		sessionRunRepository,
 		clockProxy,
 		vo.NewSessionWeightsVo(0, 0, 0),

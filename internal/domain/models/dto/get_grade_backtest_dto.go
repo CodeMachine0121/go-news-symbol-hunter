@@ -5,4 +5,5 @@ type GetGradeBacktestDto struct {
 	CompletedTo   string
 	Symbol        string
 	Category      string
+	Source        string
 }

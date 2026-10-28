@@ -52,7 +52,7 @@ func TestSessionGradeService_RunDueTradingSession_ReportsWhetherTheRunWasRecorde
 				service.NewAnalystConsultationService(mocks.NewMockIAnalystProxy(t), service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})),
 				trackedSymbolRepository,
 				mocks.NewMockISessionGradeRepository(t),
-				mocks.NewMockICombinedGradeRepository(t),
+				mocks.NewMockIGradeRecordRepository(t),
 				sessionRunRepository,
 				clockProxy,
 				vo.NewSessionWeightsVo(0, 0, 0),

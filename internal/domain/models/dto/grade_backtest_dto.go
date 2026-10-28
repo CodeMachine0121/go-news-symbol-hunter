@@ -8,6 +8,7 @@ type GradeBacktestDto struct {
 	ByCategory               map[string]HitRateDto `json:"byCategory"`
 	ByGrade                  map[string]HitRateDto `json:"byGrade"`
 	ByConfidenceBand         map[string]HitRateDto `json:"byConfidenceBand"`
+	BySource                 map[string]HitRateDto `json:"bySource"`
 	NeutralAverageChangeRate *decimal.Decimal      `json:"neutralAverageChangeRate"`
 	OutcomeCounts            map[string]int        `json:"outcomeCounts"`
 	Analyses                 []AnalysisBacktestDto `json:"analyses"`

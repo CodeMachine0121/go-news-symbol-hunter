@@ -15,12 +15,12 @@ func TestRepositories_StoreTheSymbolName(t *testing.T) {
 	ctx := context.Background()
 	analysisEvent := entities.AnalysisEvent{Symbol: "2330", Category: "twStock", SymbolName: "台積電", Status: "succeeded", StartedAt: analysisStartedAt}
 	require.NoError(t, persistence.NewAnalysisEventRepository(database).Create(ctx, &analysisEvent))
-	require.NoError(t, persistence.NewAnalysisResultRepository(database).Create(ctx, &entities.AnalysisResult{AnalysisEventID: analysisEvent.ID, Symbol: "2330", Category: "twStock", SymbolName: "台積電", Grade: "bullish", Reason: "理由", KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{}}))
+	require.NoError(t, persistence.NewGradeRecordRepository(database).Create(ctx, &entities.GradeRecord{AnalysisEventID: new(uint(analysisEvent.ID)), Symbol: "2330", Category: "twStock", SymbolName: "台積電", Grade: "bullish", Reason: "理由", KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{}}))
 	require.NoError(t, database.Create(&entities.TrackedSymbol{Symbol: "2330", Category: "twStock", SymbolName: "台積電", IsTracking: true}).Error)
 
 	storedAnalysisEvent, err := persistence.NewAnalysisEventRepository(database).FindByID(ctx, analysisEvent.ID)
 	require.NoError(t, err)
-	storedAnalysisResult, err := persistence.NewAnalysisResultRepository(database).FindByAnalysisEventID(ctx, analysisEvent.ID)
+	storedAnalysisResult, err := persistence.NewGradeRecordRepository(database).FindByAnalysisEventID(ctx, analysisEvent.ID)
 	require.NoError(t, err)
 	trackingSymbols, err := persistence.NewTrackedSymbolRepository(database).FindAllTracking(ctx)
 	require.NoError(t, err)

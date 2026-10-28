@@ -34,23 +34,23 @@ const (
 	dailyCandleSettleTime = time.Hour
 )
 
-// the backtest of one completed user analysis: where its entry price comes from, which trading day
+// the backtest of one grade record, manual or background: where its entry price comes from, which trading day
 // is its checkpoint, and whether the price moved the way its grade said
 type AnalysisBacktestDomain struct {
-	analysisResult entities.AnalysisResult
+	gradeRecord entities.GradeRecord
 }
 
-func NewAnalysisBacktestDomain(analysisResult entities.AnalysisResult) AnalysisBacktestDomain {
-	return AnalysisBacktestDomain{analysisResult: analysisResult}
+func NewAnalysisBacktestDomain(gradeRecord entities.GradeRecord) AnalysisBacktestDomain {
+	return AnalysisBacktestDomain{gradeRecord: gradeRecord}
 }
 
 // the minute window stays under the price service's 1000-candle limit; the hourly one is only asked for
 // when the minute one has no entry price, see NeedsHourlyFallback
 func (analysisBacktestDomain AnalysisBacktestDomain) PriceWindows() vo.BacktestPriceWindowsVo {
-	analysisResult := analysisBacktestDomain.analysisResult
-	completedAt := analysisResult.CreatedAt
+	gradeRecord := analysisBacktestDomain.gradeRecord
+	completedAt := gradeRecord.CreatedAt
 	priceHistoryQuery := func(interval string, since time.Time, until time.Time) vo.PriceHistoryQueryVo {
-		return vo.PriceHistoryQueryVo{Symbol: analysisResult.Symbol, Category: analysisResult.Category, Interval: interval, Since: since, Until: until}
+		return vo.PriceHistoryQueryVo{Symbol: gradeRecord.Symbol, Category: gradeRecord.Category, Interval: interval, Since: since, Until: until}
 	}
 	return vo.BacktestPriceWindowsVo{
 		Minute:         priceHistoryQuery(vo.PriceCandleIntervalMinute, completedAt.Add(-entryMinuteLookback), completedAt),
@@ -65,7 +65,7 @@ func (analysisBacktestDomain AnalysisBacktestDomain) PriceWindows() vo.BacktestP
 // market trading around the clock is missing data and would hand over a stale price
 func (analysisBacktestDomain AnalysisBacktestDomain) NeedsHourlyFallback(minuteCandles []vo.PriceCandleVo) bool {
 	_, hasEntry := analysisBacktestDomain.entryCandleIn(minuteCandles)
-	return !hasEntry && analysisBacktestDomain.analysisResult.Category == vo.MarketCategoryTwStock
+	return !hasEntry && analysisBacktestDomain.gradeRecord.Category == vo.MarketCategoryTwStock
 }
 
 // evaluatedAt decides which daily candles are finished: the price service also returns the day still trading
@@ -83,7 +83,7 @@ func (analysisBacktestDomain AnalysisBacktestDomain) Evaluate(backtestPrices vo.
 	// a day is complete once it has closed and its last minutes have reached the price service;
 	// Taiwan's daily candle, cut at UTC midnight, carries the Taipei date of its session
 	daySettlesAt := func(candleDay time.Time) time.Time {
-		if analysisBacktestDomain.analysisResult.Category != vo.MarketCategoryTwStock {
+		if analysisBacktestDomain.gradeRecord.Category != vo.MarketCategoryTwStock {
 			// crypto trades around the clock, so its day closes only when the UTC day ends
 			return candleDay.Add(dailyCandleLength + dailyCandleSettleTime)
 		}
@@ -103,7 +103,7 @@ func (analysisBacktestDomain AnalysisBacktestDomain) Evaluate(backtestPrices vo.
 		tradingDaysAfterEntry++
 		if tradingDaysAfterEntry == analysisBacktestDomain.requiredTradingDays() {
 			outcome := BacktestOutcomeNeutral
-			switch analysisBacktestDomain.analysisResult.Grade {
+			switch analysisBacktestDomain.gradeRecord.Grade {
 			case GradeStrongBullish, GradeBullish:
 				outcome = BacktestOutcomeMiss
 				if dailyCandle.Close.GreaterThan(entryCandle.Close) {
@@ -132,7 +132,7 @@ func (analysisBacktestDomain AnalysisBacktestDomain) Unevaluable() dto.AnalysisB
 }
 
 func (analysisBacktestDomain AnalysisBacktestDomain) requiredTradingDays() int {
-	if analysisBacktestDomain.analysisResult.TimeHorizon == TimeHorizonMid {
+	if analysisBacktestDomain.gradeRecord.TimeHorizon == TimeHorizonMid {
 		return midHorizonTradingDays
 	}
 	return shortHorizonTradingDays
@@ -141,14 +141,14 @@ func (analysisBacktestDomain AnalysisBacktestDomain) requiredTradingDays() int {
 // roughly five trading days a week plus room for long holidays; returned as the start of that UTC day,
 // in UTC so the windows read as the UTC days the price service cuts its daily candles on
 func (analysisBacktestDomain AnalysisBacktestDomain) dailyWindowLastDay() time.Time {
-	lastDay := analysisBacktestDomain.analysisResult.CreatedAt.AddDate(0, 0, analysisBacktestDomain.requiredTradingDays()*7/5+dailyHolidayAllowanceDays)
+	lastDay := analysisBacktestDomain.gradeRecord.CreatedAt.AddDate(0, 0, analysisBacktestDomain.requiredTradingDays()*7/5+dailyHolidayAllowanceDays)
 	return lastDay.UTC().Truncate(dailyCandleLength)
 }
 
 // the last candle opened by completion, latest first
 func (analysisBacktestDomain AnalysisBacktestDomain) entryCandleIn(candles []vo.PriceCandleVo) (vo.PriceCandleVo, bool) {
 	for index := len(candles) - 1; index >= 0; index-- {
-		if !candles[index].OpenTime.After(analysisBacktestDomain.analysisResult.CreatedAt) {
+		if !candles[index].OpenTime.After(analysisBacktestDomain.gradeRecord.CreatedAt) {
 			return candles[index], true
 		}
 	}
@@ -156,23 +156,28 @@ func (analysisBacktestDomain AnalysisBacktestDomain) entryCandleIn(candles []vo.
 }
 
 func (analysisBacktestDomain AnalysisBacktestDomain) toDto(outcome string, entryCandle *vo.PriceCandleVo, checkpointCandle *vo.PriceCandleVo) dto.AnalysisBacktestDto {
-	analysisResult := analysisBacktestDomain.analysisResult
+	gradeRecord := analysisBacktestDomain.gradeRecord
 	confidenceBand := ConfidenceBandHigh
-	if analysisResult.Confidence < mediumConfidenceFloor {
+	if gradeRecord.Confidence < mediumConfidenceFloor {
 		confidenceBand = ConfidenceBandLow
-	} else if analysisResult.Confidence < highConfidenceFloor {
+	} else if gradeRecord.Confidence < highConfidenceFloor {
 		confidenceBand = ConfidenceBandMedium
 	}
 	analysisBacktest := dto.AnalysisBacktestDto{
-		AnalysisEventID: analysisResult.AnalysisEventID,
-		Symbol:          analysisResult.Symbol,
-		Category:        analysisResult.Category,
-		Grade:           analysisResult.Grade,
-		Confidence:      analysisResult.Confidence,
+		GradeRecordID:   gradeRecord.ID,
+		Source:          gradeRecord.Source,
+		AnalysisEventID: gradeRecord.AnalysisEventID,
+		Symbol:          gradeRecord.Symbol,
+		Category:        gradeRecord.Category,
+		Grade:           gradeRecord.Grade,
+		Confidence:      gradeRecord.Confidence,
 		ConfidenceBand:  confidenceBand,
-		TimeHorizon:     analysisResult.TimeHorizon,
-		CompletedAt:     analysisResult.CreatedAt,
+		TimeHorizon:     gradeRecord.TimeHorizon,
+		CompletedAt:     gradeRecord.CreatedAt,
 		Outcome:         outcome,
+	}
+	if gradeRecord.TradingDay != "" {
+		analysisBacktest.TradingDay = &gradeRecord.TradingDay
 	}
 	if entryCandle != nil {
 		analysisBacktest.EntryPrice = &entryCandle.Close

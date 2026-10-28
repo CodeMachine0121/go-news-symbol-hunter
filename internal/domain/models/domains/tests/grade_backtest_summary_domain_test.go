@@ -108,3 +108,20 @@ func TestGradeBacktestSummaryDomain_NothingToBacktest(t *testing.T) {
 		}
 	}
 }
+
+func TestGradeBacktestSummaryDomain_GroupsBySource(t *testing.T) {
+	analysisBacktests := []dto.AnalysisBacktestDto{
+		{Outcome: "hit", Source: "manual", Category: "twStock", Grade: "bullish", ConfidenceBand: "high"},
+		{Outcome: "miss", Source: "background", Category: "twStock", Grade: "bullish", ConfidenceBand: "high"},
+		{Outcome: "hit", Source: "background", Category: "twStock", Grade: "bullish", ConfidenceBand: "high"},
+		{Outcome: "miss", Source: "background", Category: "twStock", Grade: "bullish", ConfidenceBand: "high"},
+	}
+
+	gradeBacktest := domains.NewGradeBacktestSummaryDomain(analysisBacktests).ToDto()
+
+	assert.Equal(t, map[string]dto.HitRateDto{
+		"manual":     hitRateOf(1, 0, 1),
+		"background": hitRateOf(1, 2, 0.3333),
+	}, gradeBacktest.BySource)
+	assert.Equal(t, hitRateOf(2, 2, 0.5), gradeBacktest.Overall)
+}

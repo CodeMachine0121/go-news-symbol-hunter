@@ -17,11 +17,10 @@ packages:
       ICryptocurrencyProxy: {}
       IAnalystProxy: {}
       IAnalysisEventRepository: {}
-      IAnalysisResultRepository: {}
+      IGradeRecordRepository: {}
       IPriceProxy: {}
       IPriceHistoryProxy: {}
       ITrackedSymbolRepository: {}
       ISessionGradeRepository: {}
-      ICombinedGradeRepository: {}
       ISessionRunRepository: {}
       IBackgroundJob: {}
