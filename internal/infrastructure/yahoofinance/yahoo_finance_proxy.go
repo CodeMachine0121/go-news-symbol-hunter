@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,6 +25,9 @@ var errYahooFinanceQuoteMissing = errors.New("yahoo finance returned no usable q
 var usExchangeCodes = map[string]bool{"NMS": true, "NGM": true, "NCM": true, "NAS": true, "NYQ": true, "NYS": true, "ASE": true, "PCX": true, "BTS": true}
 
 var usStockQuoteTypes = map[string]bool{"EQUITY": true, "ETF": true}
+
+// a share class such as BRK.B is only found by search in Yahoo's BRK-B form
+var shareClassSymbolPattern = regexp.MustCompile(`^[A-Za-z]{1,5}\.[A-Za-z]{1,2}$`)
 
 type YahooFinanceUrls struct {
 	HeadlineFeed string
@@ -89,7 +93,7 @@ func (yahooFinanceProxy *YahooFinanceProxy) FetchPrice(ctx context.Context, symb
 }
 
 func (yahooFinanceProxy *YahooFinanceProxy) SearchSymbolListings(ctx context.Context, query string) ([]vo.SymbolListingVo, error) {
-	searchQuery := url.Values{"q": {query}, "quotesCount": {"20"}, "newsCount": {"0"}}
+	searchQuery := url.Values{"q": {yahooFinanceSymbol(query).toSearchQuery()}, "quotesCount": {"20"}, "newsCount": {"0"}}
 	responseBody, err := yahooFinanceProxy.httpBodyReader.Read(ctx, yahooFinanceProxy.urls.Search+"?"+searchQuery.Encode())
 	if err != nil {
 		return nil, err
@@ -129,6 +133,13 @@ func (yahooFinanceProxy *YahooFinanceProxy) readChart(ctx context.Context, symbo
 // Yahoo writes share classes with a dash: BRK.B is BRK-B
 func (symbol yahooFinanceSymbol) toTicker() string {
 	return strings.ReplaceAll(string(symbol), ".", "-")
+}
+
+func (symbol yahooFinanceSymbol) toSearchQuery() string {
+	if shareClassSymbolPattern.MatchString(string(symbol)) {
+		return symbol.toTicker()
+	}
+	return string(symbol)
 }
 
 // symbols are kept the way users write share classes: BRK-B is BRK.B

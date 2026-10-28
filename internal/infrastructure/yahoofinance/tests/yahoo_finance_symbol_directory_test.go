@@ -45,6 +45,25 @@ func TestYahooFinanceProxy_ListsOnlyUsStocksAndEtfsInSearchOrder(t *testing.T) {
 	}, listings)
 }
 
+func TestYahooFinanceProxy_SearchesShareClassesInYahooForm(t *testing.T) {
+	testCases := []struct {
+		query           string
+		expectedRequest string
+	}{
+		{query: "BRK.B", expectedRequest: "/v1/finance/search?newsCount=0&q=BRK-B&quotesCount=20"},
+		{query: "Apple Inc.", expectedRequest: "/v1/finance/search?newsCount=0&q=Apple+Inc.&quotesCount=20"},
+		{query: "AMAZON.COM", expectedRequest: "/v1/finance/search?newsCount=0&q=AMAZON.COM&quotesCount=20"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.query, func(t *testing.T) {
+			_, receivedRequest, err := searchListingsFrom(t, testCase.query, http.StatusOK, `{"quotes":[]}`)
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.expectedRequest, receivedRequest)
+		})
+	}
+}
+
 func TestYahooFinanceProxy_FailsToSearchWhenTheDirectoryCannotBeRead(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
