@@ -130,6 +130,7 @@ func buildExternalSourceProxies(httpBodyReader *httpfetch.HttpBodyReader, clockP
 func buildSymbolDirectoryCatalog(externalSourceProxies ExternalSourceProxies, cryptocurrencyProxy interfaces.ICryptocurrencyProxy) dto.SymbolDirectoryCatalogDto {
 	return dto.SymbolDirectoryCatalogDto{
 		TwStock: []interfaces.IListedCompanyProxy{externalSourceProxies.twseOpenDataProxy, externalSourceProxies.tpexOpenDataProxy},
+		UsStock: externalSourceProxies.yahooFinanceProxy,
 		Crypto:  cryptocurrencyProxy,
 	}
 }

@@ -202,6 +202,25 @@ func TestBuildSymbolDirectoryCatalog_AsksTwseBeforeTpex(t *testing.T) {
 	assert.Equal(t, "/tpex", tpexPath)
 }
 
+func TestBuildSymbolDirectoryCatalog_NamesUsStocksFromTheYahooChart(t *testing.T) {
+	requestedPaths := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestedPaths <- request.URL.Path
+		_, _ = writer.Write([]byte(`{"chart":{"result":[{"meta":{"shortName":"Apple Inc."}}]}}`))
+	}))
+	defer server.Close()
+	symbolDirectoryCatalog := buildSymbolDirectoryCatalog(buildExternalSourceProxies(httpfetch.NewHttpBodyReader(server.Client()), system.NewSystemClockProxy(), ExternalSourceUrls{
+		YahooFinanceChart: server.URL + "/yahoo",
+	}), nil)
+
+	companyName, found, err := symbolDirectoryCatalog.UsStock.FindCompanyShortName(context.Background(), "AAPL")
+
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "Apple Inc.", companyName)
+	assert.Equal(t, "/yahoo/AAPL", <-requestedPaths)
+}
+
 func TestOpenDatabase_CreatesEveryTableAndPreparesTheRouter(t *testing.T) {
 	databaseUrl := os.Getenv("TEST_POSTGRES_DSN")
 	if databaseUrl == "" {
