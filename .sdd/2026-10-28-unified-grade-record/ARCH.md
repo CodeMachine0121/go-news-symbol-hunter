@@ -64,7 +64,7 @@
 | `SessionGradeService.RunDueTradingSession` | 盤前刪前一天的時段評等與綜合評等 | 只刪時段評等（`sessionGradeRepository.DeleteExceptTradingDay`） |
 | `SessionGradeService.gradeTrackedSymbol` | 重算綜合評等並 upsert | `NewCombinedGradeDomain(...).ToGradeRecordEntity(symbol, vo.NewSymbolNameVo(trackedSymbol.SymbolName).Value, day, now)` → `gradeRecordRepository.Create`；失敗仍記 `FailureReasonCombinedGradeNotSaved` |
 | `SessionGradeService.GetTrackedSymbolGrades` | 讀全部綜合評等再比對追蹤中標的 | 驗證篩選 → `FindAllTracking` → `TrackedSymbolGradesDomain.TrackingSymbols(filter)` → `FindLatestBackground` → 取這些交易日的時段評等 → `ToDtos` |
-| `TrackedSymbolGradesDomain` | 由追蹤標的 + 綜合評等 + 時段評等組 DTO | `NewTrackedSymbolGradesDomain(trackingSymbols)`；`TrackingSymbols(vo.SymbolFilterVo) []vo.SymbolVo`（正規化、去重、套篩選）；`ToDtos(latestGradeRecords, sessionGrades)`（名稱取追蹤標的登記名，排序交易日新到舊、標的字母序） |
+| `TrackedSymbolGradesDomain` | 由追蹤標的 + 綜合評等 + 時段評等組 DTO | `NewTrackedSymbolGradesDomain(trackingSymbols)`；`TrackingSymbols(vo.SymbolFilterVo) []vo.SymbolVo`（正規化、去重、套篩選）；`ToDtos(latestGradeRecords, sessionGrades)`（名稱取追蹤標的登記名，排序交易日新到舊、標的字母序；該交易日已沒有時段評等的紀錄不列出，比照舊行為：綜合評等原本與時段評等一起在盤前刪除） |
 | `AnalysisBacktestDomain` | 一筆分析結果的回測規則 | 包 `GradeRecord`；規則不變（起點 = `CreatedAt`、時間範圍決定 N）；`toDto` 帶 `GradeRecordID`、`Source`、`AnalysisEventID`（*uint）、`TradingDay`（*string，背景才有） |
 | `GradeBacktestSummaryDomain.ToDto` | 整體 / 市場 / 評等 / 信心分組 | 多 `BySource`（`manual`、`background`） |
 | `GradeBacktestService.GetGradeBacktest` | 建立篩選、讀分析結果、取價、彙總 | 多驗證 `Source`（非空才驗）；讀 `gradeRecordRepository.FindForBacktest` |

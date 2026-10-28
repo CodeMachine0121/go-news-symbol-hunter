@@ -53,7 +53,7 @@
 | 交易日 | `TradingDay` / `trading_day` | tradingDay | 週一到週五（台北時間）的日期；不判斷國定假日。「前一個交易日」= 往前最近的週一到週五 | Confirmed |
 | 時段新聞範圍 | `NewsPublishedWindowVo`（`TradingDayDomain.NewsPublishedWindow`） | — | 時段評等只採用的新聞發布時間範圍（起點含、終點不含）：盤前 = 前一個交易日 13:30 起至當天 09:00；盤中 = 當天 09:00 至 13:30；盤後 = 當天 13:30 至 24:00 | Confirmed |
 | 時段評等 | `SessionGrade` / table `session_grades` | sessionGrades | 追蹤標的在某交易日某時段的分析結論（評等、信心指數、分析理由、關鍵事件、風險因子、AI 用量）；每標的每交易日每時段最多一筆；只保留當天 | Confirmed |
-| 綜合評等 | `CombinedGradeDomain`（自 unified-grade-record 起存為來源為背景的評等紀錄；table `combined_grades` 已移除） | combinedGrade | 追蹤標的當天已有時段評等的加權平均；每次新時段評等產生時重算，並新增一筆背景評等紀錄（不覆蓋、永久保留，時間範圍一律短期）；查詢追蹤標的評等時取最新交易日的最新一筆 | Confirmed |
+| 綜合評等 | `CombinedGradeDomain`（自 unified-grade-record 起存為來源為背景的評等紀錄；table `combined_grades` 已移除） | combinedGrade | 追蹤標的當天已有時段評等的加權平均；每次新時段評等產生時重算，並新增一筆背景評等紀錄（不覆蓋、永久保留，時間範圍一律短期）；查詢追蹤標的評等時取最新交易日的最新一筆，且只在該交易日的時段評等仍在時顯示（盤前刪除前一天時段評等後即不顯示） | Confirmed |
 | 評等分數 | `GradeScore` | — | 評等換成的數字：強烈看多 +2、看多 +1、中性 0、看空 −1、強烈看空 −2 | Confirmed |
 | 時段權重 | `SessionWeight` | — | 計算綜合評等時各時段的權重；預設盤後 0.5、盤前 0.3、盤中 0.2，可由設定調整，不是正數時用預設值 | Confirmed |
 | 綜合分數 | `CombinedScore` | combinedScore | Σ(評等分數 × 時段權重) ÷ Σ(已有時段權重)；≥1.5 強烈看多、≥0.5 看多、>−0.5 中性、>−1.5 看空、其餘強烈看空 | Confirmed |
