@@ -508,6 +508,62 @@ func TestGetTrackedSymbolGrades_ShowsOnlyTheNewestDayOfSymbolsStillTracked(t *te
 	assert.Equal(t, []dto.TrackedSymbolGradeDto{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "neutral", SessionGrades: []dto.SessionGradeDto{}}}, trackedSymbolGrades)
 }
 
+func TestGetTrackedSymbolGrades_ShowsTheSymbolNameTheAdministratorRegistered(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		symbolName   string
+		expectedName string
+	}{
+		{name: "registered name", symbolName: "台積電", expectedName: "台積電"},
+		{name: "no name registered", symbolName: "", expectedName: ""},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := createSessionGradeFixture(t, wednesdayAt(14, 0))
+			fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "", "").Return([]entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "bullish"}}, nil)
+			fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return([]entities.TrackedSymbol{{Symbol: "2330", Category: "twStock", SymbolName: testCase.symbolName, IsTracking: true}}, nil)
+			fixture.sessionGradeRepository.EXPECT().FindByTradingDays(mock.Anything, []string{"2026-10-07"}).Return([]entities.SessionGrade{}, nil)
+
+			trackedSymbolGrades, err := fixture.sessionGradeApplication.GetTrackedSymbolGrades(context.Background(), dto.GetTrackedSymbolGradesDto{})
+
+			require.NoError(t, err)
+			require.Len(t, trackedSymbolGrades, 1)
+			assert.Equal(t, testCase.expectedName, trackedSymbolGrades[0].SymbolName)
+		})
+	}
+}
+
+func TestGetTrackedSymbolGrades_ShowsTheNameRegisteredAtQueryTime(t *testing.T) {
+	fixture := createSessionGradeFixture(t, wednesdayAt(14, 0))
+	fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "", "").Return([]entities.CombinedGrade{{Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "bullish"}}, nil)
+	fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return([]entities.TrackedSymbol{{Symbol: "2330", Category: "twStock", IsTracking: true}}, nil).Once()
+	fixture.trackedSymbolRepository.EXPECT().FindAllTracking(mock.Anything).Return([]entities.TrackedSymbol{{Symbol: "2330", Category: "twStock", SymbolName: "台積電", IsTracking: true}}, nil).Once()
+	fixture.sessionGradeRepository.EXPECT().FindByTradingDays(mock.Anything, []string{"2026-10-07"}).Return([]entities.SessionGrade{}, nil)
+
+	beforeRegistering, err := fixture.sessionGradeApplication.GetTrackedSymbolGrades(context.Background(), dto.GetTrackedSymbolGradesDto{})
+	require.NoError(t, err)
+	afterRegistering, err := fixture.sessionGradeApplication.GetTrackedSymbolGrades(context.Background(), dto.GetTrackedSymbolGradesDto{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "", beforeRegistering[0].SymbolName)
+	assert.Equal(t, "台積電", afterRegistering[0].SymbolName)
+}
+
+func TestRunDueTradingSession_SearchesByCompanyShortNameNotTheRegisteredName(t *testing.T) {
+	fixture := createSessionGradeFixture(t, wednesdayAt(12, 30))
+	fixture.givenSessionRunStarts("2026-10-07", "intraday")
+	fixture.trackedSymbolRepository.EXPECT().FindTracking(mock.Anything, "twStock").Return([]entities.TrackedSymbol{{Symbol: "2330", Category: "twStock", SymbolName: "台積", IsTracking: true}}, nil).Once()
+	fixture.givenCompany("2330", "台積電")
+	fixture.givenNews("台積電", vo.NewsVo{Title: "盤中新聞", Link: "https://news/2330/1", PublishedAt: wednesdayAt(10, 0), ProviderName: "鉅亨網"})
+	fixture.givenAnalystConcludes("2330", "bullish", 60)
+	fixture.storeSessionGrades()
+	fixture.storeCombinedGrades()
+	fixture.expectFinishedSessionRun()
+
+	fixture.sessionGradeApplication.RunDueTradingSession(context.Background())
+
+	assert.Equal(t, "台積電", fixture.analystProxy.Calls[0].Arguments.Get(1).(vo.AnalystRequestVo).SearchKeyword)
+}
+
 func TestGetTrackedSymbolGrades_FiltersByANormalizedSymbol(t *testing.T) {
 	fixture := createSessionGradeFixture(t, wednesdayAt(14, 0))
 	fixture.combinedGradeRepository.EXPECT().FindAll(mock.Anything, "2603", "twStock").Return([]entities.CombinedGrade{}, nil)

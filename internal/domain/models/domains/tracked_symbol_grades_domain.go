@@ -19,19 +19,21 @@ func NewTrackedSymbolGradesDomain(trackingSymbols []entities.TrackedSymbol, comb
 
 // each still-tracked symbol appears once, with its newest trading day; paused or removed symbols are left out
 func (trackedSymbolGradesDomain TrackedSymbolGradesDomain) ToDtos() []dto.TrackedSymbolGradeDto {
-	isTracking := map[vo.SymbolVo]bool{}
+	// a symbol is tracking exactly when it has an entry, even an empty name
+	symbolNames := map[vo.SymbolVo]string{}
 	for _, trackingSymbol := range trackedSymbolGradesDomain.trackingSymbols {
 		// administrators enter symbols by hand, so they are compared in the same normalized form grades are stored in
 		symbol, err := vo.NewSymbolVo(trackingSymbol.Symbol, vo.MarketCategoryVo{Value: trackingSymbol.Category})
 		if err == nil {
-			isTracking[symbol] = true
+			symbolNames[symbol] = trackingSymbol.SymbolName
 		}
 	}
 	isListed := map[vo.SymbolVo]bool{}
 	trackedSymbolGrades := []dto.TrackedSymbolGradeDto{}
 	for _, combinedGrade := range trackedSymbolGradesDomain.combinedGrades {
 		symbol := vo.SymbolVo{Value: combinedGrade.Symbol, Category: vo.MarketCategoryVo{Value: combinedGrade.Category}}
-		if !isTracking[symbol] || isListed[symbol] {
+		symbolName, isTracking := symbolNames[symbol]
+		if !isTracking || isListed[symbol] {
 			continue
 		}
 		isListed[symbol] = true
@@ -61,6 +63,7 @@ func (trackedSymbolGradesDomain TrackedSymbolGradesDomain) ToDtos() []dto.Tracke
 		}
 		trackedSymbolGrades = append(trackedSymbolGrades, dto.TrackedSymbolGradeDto{
 			Symbol:        combinedGrade.Symbol,
+			SymbolName:    symbolName,
 			Category:      combinedGrade.Category,
 			TradingDay:    combinedGrade.TradingDay,
 			Grade:         combinedGrade.Grade,

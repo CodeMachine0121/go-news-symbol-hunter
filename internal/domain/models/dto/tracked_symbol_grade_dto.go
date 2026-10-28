@@ -4,6 +4,7 @@ import "time"
 
 type TrackedSymbolGradeDto struct {
 	Symbol        string            `json:"symbol"`
+	SymbolName    string            `json:"symbolName"`
 	Category      string            `json:"category"`
 	TradingDay    string            `json:"tradingDay"`
 	Grade         string            `json:"grade"`
