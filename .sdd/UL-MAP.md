@@ -17,7 +17,9 @@
 | 市場類別 | `Category` / `category` | category | 決定要爬哪些新聞來源。只允許 `crypto`、`twStock`、`usStock` 三種（見 §4） | Confirmed |
 | 標的名稱 | `SymbolName` / `symbol_name` | symbolName | 標的給人看的名字，只用於保存與顯示、不影響搜尋字。追蹤標的由 administrator 登記（可為空）；使用者發起的分析於辨識標的時自動帶入並保存在分析事件與分析結果：台股為公司簡稱、加密貨幣為幣種名稱、美股為美股報價來源提供的公司英文名稱（查不到為空，不影響分析）。最長 100 字；既有資料為空、不回補 | Confirmed |
 | 分析事件 | `AnalysisEvent` / table `analysis_events` | analysisEventId | 記錄「什麼時候執行了一次分析」：發起的 API key、標的、市場類別、狀態、失敗原因、開始 / 結束時間、AI 模型與用量；不含分析結論 | Confirmed |
-| 分析結果 | `AnalysisResult` / table `analysis_results` | result | 一次分析事件的標準化產出，以 `analysis_event_id` 關聯所屬分析事件（一對一）；含 `created_at` | Confirmed |
+| 分析結果 | `AnalysisResult` / table `analysis_results`（自 unified-grade-record 起併入評等紀錄 `GradeRecord`，來源為手動） | result | 一次分析事件的標準化產出，以 `analysis_event_id` 關聯所屬分析事件（一對一）；含 `created_at`。自 unified-grade-record 起即「來源為手動的評等紀錄」，對外內容不變 | Confirmed |
+| 評等紀錄 | `GradeRecord` / table `grade_records` | gradeRecord | 一筆評等結論的統一形狀，合併使用者發起的分析結果與追蹤標的的綜合評等。共通：來源、標的、市場類別、標的名稱、評等、信心指數、時間範圍、建立時間。手動另有所屬分析事件、分析理由、關鍵事件、風險因子、分析佐證、分析時價格；背景另有交易日、綜合分數。每筆都保留、不覆蓋 | Confirmed |
+| 評等來源 | `GradeSource` / `source` | source | 評等紀錄怎麼產生的：手動（使用者發起的分析）或背景（追蹤標的的綜合評等），見 §4 | Confirmed |
 | 評等 | `Grade` / `grade` | grade | AI 對標的資訊面的結論評等，值域見 §4，非法值正規化為中性 | Confirmed |
 | 分析理由 | `Reason` / `reason` | reason | 支撐評等的文字說明 | Confirmed |
 | 新聞來源 | `NewsProvider`（介面 `INewsProxy`，實作 `{Provider}NewsProxy`） | — | 可爬取新聞的外部平台。依市場類別選用，由程式決定，不交給 AI 選擇 | Confirmed |
@@ -31,7 +33,7 @@
 | 時間範圍 | `TimeHorizon` / `time_horizon` | time_horizon | 評等適用的持有期間（候選 `short`/`mid`） | Confirmed |
 | 關鍵事件 | `KeyEvent` / `key_events` | key_events | 支撐評等的 3–5 則重點事件，每則附來源 URL 與發布時間 | Confirmed |
 | 風險因子 | `RiskFactor` / `risk_factors` | risk_factors | 與主結論方向相反的訊號 | Confirmed |
-| 分析時價格 | `PriceAtAnalysis`（`Price`、`PriceCurrency`、`PricedAt`、`PriceSource`） | priceAtAnalysis | 分析完成時依市場類別取得的價格；精確小數；必須大於 0，取不到時為「未取得」（null），不影響分析完成。專案成功指標「評等可回測驗證」的基準點（只適用使用者發起的分析） | Confirmed |
+| 分析時價格 | `PriceAtAnalysis`（`Price`、`PriceCurrency`、`PricedAt`、`PriceSource`） | priceAtAnalysis | 分析完成時依市場類別取得的價格；精確小數；必須大於 0，取不到時為「未取得」（null），不影響分析完成。只適用使用者發起的分析；背景評等紀錄不取分析時價格 | Confirmed |
 | 價格來源 | `PriceSource` | priceSource | 加密貨幣 Binance（對 USDT）、美股 Yahoo 財經、台股上市為證交所、上櫃為櫃買中心（皆為最近交易日收盤） | Confirmed |
 | 價格時間 | `PricedAt` | pricedAt | 報價所屬的時間：Binance 為取得時間、Yahoo 財經為來源報價時間、證交所為收盤日期（台北時間） | Confirmed |
 | 分析佐證 | `Evidence` / `evidence` | — | 當次餵給 AI 的新聞清單快照（JSON），存於分析結果，供稽核 AI 為何如此評等 | Confirmed |
@@ -51,12 +53,12 @@
 | 交易日 | `TradingDay` / `trading_day` | tradingDay | 週一到週五（台北時間）的日期；不判斷國定假日。「前一個交易日」= 往前最近的週一到週五 | Confirmed |
 | 時段新聞範圍 | `NewsPublishedWindowVo`（`TradingDayDomain.NewsPublishedWindow`） | — | 時段評等只採用的新聞發布時間範圍（起點含、終點不含）：盤前 = 前一個交易日 13:30 起至當天 09:00；盤中 = 當天 09:00 至 13:30；盤後 = 當天 13:30 至 24:00 | Confirmed |
 | 時段評等 | `SessionGrade` / table `session_grades` | sessionGrades | 追蹤標的在某交易日某時段的分析結論（評等、信心指數、分析理由、關鍵事件、風險因子、AI 用量）；每標的每交易日每時段最多一筆；只保留當天 | Confirmed |
-| 綜合評等 | `CombinedGrade` / table `combined_grades` | combinedGrade | 追蹤標的當天已有時段評等的加權平均；每標的每交易日一筆，每次新時段評等產生時重算覆蓋；只保留當天 | Confirmed |
+| 綜合評等 | `CombinedGradeDomain`（自 unified-grade-record 起存為來源為背景的評等紀錄；table `combined_grades` 已移除） | combinedGrade | 追蹤標的當天已有時段評等的加權平均；每次新時段評等產生時重算，並新增一筆背景評等紀錄（不覆蓋、永久保留，時間範圍一律短期）；查詢追蹤標的評等時取最新交易日的最新一筆 | Confirmed |
 | 評等分數 | `GradeScore` | — | 評等換成的數字：強烈看多 +2、看多 +1、中性 0、看空 −1、強烈看空 −2 | Confirmed |
 | 時段權重 | `SessionWeight` | — | 計算綜合評等時各時段的權重；預設盤後 0.5、盤前 0.3、盤中 0.2，可由設定調整，不是正數時用預設值 | Confirmed |
 | 綜合分數 | `CombinedScore` | combinedScore | Σ(評等分數 × 時段權重) ÷ Σ(已有時段權重)；≥1.5 強烈看多、≥0.5 看多、>−0.5 中性、>−1.5 看空、其餘強烈看空 | Confirmed |
 | 時段執行紀錄 | `SessionRun` / table `session_runs` | — | 某交易日某時段的一次自動執行：狀態、開始 / 結束時間、成功 / 失敗檔數、失敗標的與各自原因（`FailedSymbols`）、AI 用量合計、失敗原因；同交易日同時段只有一筆；永久保留 | Confirmed |
-| 評等回測 | `GradeBacktest` | backtest | 拿使用者發起且已完成的分析，比較起點價格與檢查點收盤價，判斷評等方向是否命中，並彙總成命中率總表；查詢時當場計算、不保存結果。時段評等與綜合評等不回測 | Confirmed |
+| 評等回測 | `GradeBacktest` | backtest | 拿評等紀錄（手動：分析已完成者；背景：全部），以建立時間為起點比較起點價格與檢查點收盤價，判斷評等方向是否命中，並彙總成命中率總表（含依來源分組）；查詢時當場計算、不保存結果。時段評等不回測 | Confirmed |
 | 價格服務 | `IPriceHistoryProxy`（實作 `GoTradingPriceHistoryProxy`） | — | 提供台股與加密貨幣每分鐘、每日價格的自家交易服務；沒有美股；代號須先在價格服務登錄才查得到 | Archeology |
 | 起點價格 | `EntryPrice` | entryPrice | 回測的比較基準：分析完成那一分鐘的價格；該市場當下不在交易中時，用分析完成前最後一筆價格。一律取自價格服務，與分析時價格無關 | Confirmed |
 | 檢查點 | `Checkpoint` | checkpoint | 依時間範圍決定的回測檢查日：短期為分析後第 10 個交易日、中期為第 60 個交易日；取該日收盤價。「分析後第 1 個交易日」是起點價格所屬那一天之後的第一個交易日（台股開盤前完成的分析，完成當天即為第 1 個交易日） | Confirmed |
@@ -65,7 +67,7 @@
 | 回測結果 | `BacktestOutcome` | outcome | 單筆分析的回測結論：命中 / 沒命中 / 中性 / 尚未到期 / 無法評估（見 §4） | Confirmed |
 | 命中率 | `HitRate` | hitRate | 命中筆數 ÷ 有方向且可評估的筆數；分母為 0 時為「沒有資料」，不是 0%；並列隨機猜測 50% 作比較 | Confirmed |
 | 信心分組 | `ConfidenceBand` | confidenceBand | 依信心指數分組：0–49 低、50–74 中、75–100 高 | Confirmed |
-| 回測筆數上限 | — | — | 一次回測查詢最多涵蓋 500 筆分析，超過即拒絕並請使用者縮小期間 | Confirmed |
+| 回測筆數上限 | — | — | 一次回測查詢最多涵蓋 500 筆評等紀錄（手動與背景合計），超過即拒絕並請使用者縮小期間 | Confirmed |
 
 ---
 
@@ -88,11 +90,11 @@
 | 重用分析結果 | 待定 | 分析標的時，重用時間窗內已有同標的分析結果 | 直接回傳既有分析結果，不建立新的 AI 分析 | 控制 AI 成本 |
 | 標準化分析輸出 | 待定 | AI 回傳後 | AI 原始 JSON 經 Domain Model 建構子正規化（非法 enum → 安全預設值、數值 clamp）後成為分析結果 | 不信任 AI 原始值 |
 | 執行時段分析 | `RunTradingSession` | 系統定期檢查，進入某時段的執行時段且該交易日該時段尚未執行 | 建立時段執行紀錄 → （盤前）刪除前一天結果 → 依序分析追蹤中的台股追蹤標的 → 保存時段評等並重算綜合評等 | 不建立分析事件；不受重用與同時分析上限限制；單一標的失敗不影響其他 |
-| 刪除前一天結果 | `PurgeStaleGrades` | 盤前開始執行時 | 刪除所有不是今天交易日的時段評等與綜合評等 | 只有盤前會刪除 |
-| 重新計算綜合評等 | `RecalculateCombinedGrade` | 某追蹤標的產生新的時段評等後 | 以當天已有的時段評等加權平均，覆蓋該標的當天的綜合評等 | |
-| 查詢追蹤標的評等 | `GetTrackedSymbolGrades` | 使用者以已啟用 API key 查詢（可指定標的 + 市場類別） | 回傳仍追蹤中標的的最新一天綜合評等與該天各時段評等；沒有則回傳空結果 | 標的與市場類別需一起提供 |
+| 刪除前一天結果 | `PurgeStaleGrades` | 盤前開始執行時 | 刪除所有不是今天交易日的時段評等 | 只有盤前會刪除；背景評等紀錄不刪除（自 unified-grade-record 起） |
+| 重新計算綜合評等 | `RecalculateCombinedGrade` | 某追蹤標的產生新的時段評等後 | 以當天已有的時段評等加權平均，新增一筆背景評等紀錄 | 自 unified-grade-record 起不再覆蓋 |
+| 查詢追蹤標的評等 | `GetTrackedSymbolGrades` | 使用者以已啟用 API key 查詢（可指定標的 + 市場類別） | 回傳仍追蹤中標的最新交易日的最新一筆背景評等紀錄（作為綜合評等）與該天各時段評等；沒有則回傳空結果 | 標的與市場類別需一起提供 |
 | 中斷時段執行 | `FailInterruptedSessionRuns` | 服務啟動時 | 仍為執行中的時段執行紀錄改為失敗 | 原因「服務重新啟動，執行中斷」；當天該時段不再重跑 |
-| 查詢評等回測 | `GetGradeBacktest` | 使用者以已啟用 API key 查詢（可指定分析完成期間、標的 + 市場類別） | 當場以價格服務的價格計算每筆分析的回測結果，回傳命中率總表（整體、依市場類別 / 評等 / 信心分組）與逐筆明細 | 超過 500 筆拒絕；價格服務無法連線則整次失敗 |
+| 查詢評等回測 | `GetGradeBacktest` | 使用者以已啟用 API key 查詢（可指定建立期間、標的 + 市場類別、來源） | 當場以價格服務的價格計算每筆評等紀錄的回測結果，回傳命中率總表（整體、依市場類別 / 評等 / 信心分組 / 來源）與逐筆明細 | 超過 500 筆拒絕；價格服務無法連線則整次失敗 |
 
 ---
 
@@ -125,6 +127,7 @@
 | 時段執行紀錄狀態 | `running` / `succeeded` / `failed` | 執行中 / 已完成 / 失敗 | Confirmed；服務重啟時殘留 `running` 改為 `failed`（「服務重新啟動，執行中斷」） |
 | 回測結果 | `hit` / `miss` / `neutral` / `pending` / `unevaluable` | 命中 / 沒命中 / 中性 / 尚未到期 / 無法評估 | Confirmed；只有命中與沒命中計入命中率 |
 | 信心分組 | `low` / `medium` / `high` | 低（0–49）/ 中（50–74）/ 高（75–100） | Confirmed |
+| 評等來源 | `manual` / `background` | 手動 / 背景 | Confirmed；回測指定其他值時拒絕（「來源不正確」） |
 
 ---
 
