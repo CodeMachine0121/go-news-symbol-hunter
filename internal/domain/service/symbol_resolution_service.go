@@ -17,13 +17,15 @@ import (
 const usStockDirectoryLookupTimeout = 5 * time.Second
 
 type SymbolResolutionService struct {
-	twStockDirectoryProxies []interfaces.ISymbolDirectoryProxy
-	usStockDirectoryProxy   interfaces.ISymbolDirectoryProxy
-	cryptoDirectoryProxy    interfaces.ISymbolDirectoryProxy
+	directoryProxiesByCategory map[string][]interfaces.ISymbolDirectoryProxy
 }
 
 func NewSymbolResolutionService(symbolDirectoryCatalog dto.SymbolDirectoryCatalogDto) *SymbolResolutionService {
-	return &SymbolResolutionService{twStockDirectoryProxies: symbolDirectoryCatalog.TwStock, usStockDirectoryProxy: symbolDirectoryCatalog.UsStock, cryptoDirectoryProxy: symbolDirectoryCatalog.Crypto}
+	return &SymbolResolutionService{directoryProxiesByCategory: map[string][]interfaces.ISymbolDirectoryProxy{
+		vo.MarketCategoryTwStock: symbolDirectoryCatalog.TwStock,
+		vo.MarketCategoryUsStock: {symbolDirectoryCatalog.UsStock},
+		vo.MarketCategoryCrypto:  {symbolDirectoryCatalog.Crypto},
+	}}
 }
 
 // only a symbol is accepted; US symbols are not looked up so searching news never waits on the US directory
@@ -36,24 +38,16 @@ func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx contex
 	if err != nil {
 		return vo.ResolvedSymbolVo{}, err
 	}
-	switch category.Value {
-	case vo.MarketCategoryTwStock:
-		listings, directoryError := symbolResolutionService.searchTwStockListings(ctx, symbol.Value)
-		resolvedSymbol, err := domains.NewSymbolDirectoryDomain(category, listings).FindBySymbol(symbol)
-		// a directory we could not read might have listed the stock, so absence is not proven
-		if err != nil && directoryError != nil {
-			return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, directoryError)
-		}
-		return resolvedSymbol, err
-	case vo.MarketCategoryCrypto:
-		listings, err := symbolResolutionService.cryptoDirectoryProxy.SearchSymbolListings(ctx, symbol.Value)
-		if err != nil {
-			return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, err)
-		}
-		return domains.NewSymbolDirectoryDomain(category, listings).FindBySymbol(symbol)
-	default:
+	if category.Value == vo.MarketCategoryUsStock {
 		return vo.NewUsStockResolvedSymbolVo(symbol, ""), nil
 	}
+	symbolDirectory, directoryError := symbolResolutionService.searchDirectories(ctx, category, symbol.Value)
+	resolvedSymbol, err := symbolDirectory.FindBySymbol(symbol)
+	// a directory we could not read might have listed the symbol, so absence is not proven
+	if err != nil && directoryError != nil {
+		return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, directoryError)
+	}
+	return resolvedSymbol, err
 }
 
 // the typed text may be a symbol or a name; the result always carries the symbol
@@ -66,39 +60,32 @@ func (symbolResolutionService *SymbolResolutionService) IdentifySymbol(ctx conte
 	if err != nil {
 		return vo.ResolvedSymbolVo{}, err
 	}
-	switch category.Value {
-	case vo.MarketCategoryTwStock:
-		listings, directoryError := symbolResolutionService.searchTwStockListings(ctx, symbol.Value)
-		resolvedSymbol, err := domains.NewSymbolDirectoryDomain(category, listings).Identify(symbol)
-		// a name match is only unique when every directory was read, a symbol match is not affected
-		if directoryError != nil && (err != nil || resolvedSymbol.Symbol.Value != symbol.Value) {
-			return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, directoryError)
-		}
-		return resolvedSymbol, err
-	case vo.MarketCategoryCrypto:
-		listings, err := symbolResolutionService.cryptoDirectoryProxy.SearchSymbolListings(ctx, symbol.Value)
-		if err != nil {
-			return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, err)
-		}
-		return domains.NewSymbolDirectoryDomain(category, listings).Identify(symbol)
-	default:
+	if category.Value == vo.MarketCategoryUsStock {
 		lookupContext, cancelLookup := context.WithTimeout(ctx, usStockDirectoryLookupTimeout)
 		defer cancelLookup()
-		listings, err := symbolResolutionService.usStockDirectoryProxy.SearchSymbolListings(lookupContext, symbol.Value)
+		symbolDirectory, directoryError := symbolResolutionService.searchDirectories(lookupContext, category, symbol.Value)
 		// a US symbol was never rejected for an unreachable source, so the typed text is still analysed as a symbol
-		if err != nil {
+		if directoryError != nil {
 			return vo.NewUsStockResolvedSymbolVo(symbol, ""), nil
 		}
-		return domains.NewSymbolDirectoryDomain(category, listings).Identify(symbol)
+		return symbolDirectory.Identify(symbol)
 	}
+	symbolDirectory, directoryError := symbolResolutionService.searchDirectories(ctx, category, symbol.Value)
+	resolvedSymbol, err := symbolDirectory.Identify(symbol)
+	// a name match is only unique when every directory was read, a symbol match is not affected
+	if directoryError != nil && (err != nil || resolvedSymbol.Symbol.Value != symbol.Value) {
+		return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, directoryError)
+	}
+	return resolvedSymbol, err
 }
 
-// asked together so a cold cache costs one download time
-func (symbolResolutionService *SymbolResolutionService) searchTwStockListings(ctx context.Context, query string) ([]vo.SymbolListingVo, error) {
-	listingsByDirectory := make([][]vo.SymbolListingVo, len(symbolResolutionService.twStockDirectoryProxies))
-	lookupErrors := make([]error, len(symbolResolutionService.twStockDirectoryProxies))
+// asked together so a cold cache costs one download time; what the readable directories list is kept even when another fails
+func (symbolResolutionService *SymbolResolutionService) searchDirectories(ctx context.Context, category vo.MarketCategoryVo, query string) (domains.SymbolDirectoryDomain, error) {
+	directoryProxies := symbolResolutionService.directoryProxiesByCategory[category.Value]
+	listingsByDirectory := make([][]vo.SymbolListingVo, len(directoryProxies))
+	lookupErrors := make([]error, len(directoryProxies))
 	var waitGroup sync.WaitGroup
-	for index, directoryProxy := range symbolResolutionService.twStockDirectoryProxies {
+	for index, directoryProxy := range directoryProxies {
 		waitGroup.Go(func() {
 			listingsByDirectory[index], lookupErrors[index] = directoryProxy.SearchSymbolListings(ctx, query)
 		})
@@ -108,5 +95,5 @@ func (symbolResolutionService *SymbolResolutionService) searchTwStockListings(ct
 	for _, directoryListings := range listingsByDirectory {
 		listings = append(listings, directoryListings...)
 	}
-	return listings, errors.Join(lookupErrors...)
+	return domains.NewSymbolDirectoryDomain(category, listings), errors.Join(lookupErrors...)
 }
