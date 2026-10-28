@@ -49,8 +49,10 @@ func createNewsSearchFixture(t *testing.T) newsSearchFixture {
 	}
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(newsSearchedAt).Maybe()
+	usStockCompanyProxy := mocks.NewMockIListedCompanyProxy(t)
+	usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, mock.Anything).Return("", false, nil).Maybe()
 	newsSearchService := service.NewNewsSearchService(
-		service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{fixture.listedCompanyProxy}, Crypto: fixture.cryptocurrencyProxy}),
+		service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{fixture.listedCompanyProxy}, UsStock: usStockCompanyProxy, Crypto: fixture.cryptocurrencyProxy}),
 		clockProxy,
 		dto.NewsProviderCatalogDto{
 			TwStock: []dto.NewsProviderDto{{NewsProxy: fixture.cnyesNewsProxy}, {NewsProxy: fixture.twGoogleNewsProxy}},

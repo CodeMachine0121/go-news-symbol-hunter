@@ -7,6 +7,7 @@ type AnalysisEvent struct {
 	ApiKeyID      uint   `gorm:"not null;index"`
 	Symbol        string `gorm:"size:32;not null;index:idx_analysis_events_lookup;uniqueIndex:idx_analysis_events_single_running,where:status = 'running'"`
 	Category      string `gorm:"size:16;not null;index:idx_analysis_events_lookup;uniqueIndex:idx_analysis_events_single_running,where:status = 'running'"`
+	SymbolName    string `gorm:"size:100;not null;default:''"`
 	Status        string `gorm:"size:16;not null;index:idx_analysis_events_lookup"`
 	FailureReason string `gorm:"size:200"`
 	Model         string `gorm:"size:100"`

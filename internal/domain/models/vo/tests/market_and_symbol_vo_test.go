@@ -1,6 +1,7 @@
 package vo_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
@@ -67,7 +68,26 @@ func TestResolvedSymbolVo_SearchKeywordsAndRelevanceTerms(t *testing.T) {
 	cryptoSymbol, _ := vo.NewSymbolVo("BTC", crypto)
 	usStockSymbol, _ := vo.NewSymbolVo("AAPL", usStock)
 
-	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: twStockSymbol, SearchKeyword: "台積電", RelevanceTerms: []string{"台積電", "2330"}}, vo.NewTwStockResolvedSymbolVo(twStockSymbol, "台積電"))
-	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: cryptoSymbol, SearchKeyword: "Bitcoin", RelevanceTerms: []string{"Bitcoin", "BTC"}}, vo.NewCryptoResolvedSymbolVo(cryptoSymbol, "Bitcoin"))
-	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: usStockSymbol, SearchKeyword: "AAPL", RelevanceTerms: []string{"AAPL"}}, vo.NewUsStockResolvedSymbolVo(usStockSymbol))
+	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: twStockSymbol, SymbolName: vo.SymbolNameVo{Value: "台積電"}, SearchKeyword: "台積電", RelevanceTerms: []string{"台積電", "2330"}}, vo.NewTwStockResolvedSymbolVo(twStockSymbol, "台積電"))
+	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: cryptoSymbol, SymbolName: vo.SymbolNameVo{Value: "Bitcoin"}, SearchKeyword: "Bitcoin", RelevanceTerms: []string{"Bitcoin", "BTC"}}, vo.NewCryptoResolvedSymbolVo(cryptoSymbol, "Bitcoin"))
+	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: usStockSymbol, SymbolName: vo.SymbolNameVo{Value: "Apple Inc."}, SearchKeyword: "AAPL", RelevanceTerms: []string{"AAPL"}}, vo.NewUsStockResolvedSymbolVo(usStockSymbol, "Apple Inc."))
+	assert.Equal(t, vo.ResolvedSymbolVo{Symbol: usStockSymbol, SearchKeyword: "AAPL", RelevanceTerms: []string{"AAPL"}}, vo.NewUsStockResolvedSymbolVo(usStockSymbol, ""))
+}
+
+func TestSymbolNameVo_TrimsAndKeepsAtMostOneHundredCharacters(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		symbolName string
+		expected   string
+	}{
+		{name: "trimmed", symbolName: "  台積電 ", expected: "台積電"},
+		{name: "empty", symbolName: "   ", expected: ""},
+		{name: "exactly one hundred characters", symbolName: strings.Repeat("台", 100), expected: strings.Repeat("台", 100)},
+		{name: "one hundred and one characters", symbolName: strings.Repeat("台", 101), expected: strings.Repeat("台", 100)},
+		{name: "cut right after a space", symbolName: strings.Repeat("a", 99) + " b", expected: strings.Repeat("a", 99)},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expected, vo.NewSymbolNameVo(testCase.symbolName).Value)
+		})
+	}
 }
