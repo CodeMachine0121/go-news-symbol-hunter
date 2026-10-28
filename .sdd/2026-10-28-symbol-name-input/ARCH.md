@@ -56,7 +56,7 @@
 
 | Component | Current role | Change needed |
 | :--- | :--- | :--- |
-| `SymbolResolutionService.ResolveSymbol` | 代號 → 搜尋字（新聞搜尋、自動分析） | 台股：併發取各名錄（private `searchTwStockListings`，與 `IdentifySymbol` 共用）→ `FindBySymbol`；找到即回，否則有名錄失敗回 `ErrNewsProvidersUnavailable`，否則 `ErrSymbolNotFound`。加密貨幣：`Crypto.SearchSymbolListings(symbol)` → 失敗回 `ErrNewsProvidersUnavailable` → `FindBySymbol`。美股：不查，名稱空 |
+| `SymbolResolutionService.ResolveSymbol` | 代號 → 搜尋字（新聞搜尋、自動分析） | 台股與加密貨幣：以 private `searchDirectories`（與 `IdentifySymbol` 共用，依市場併發取所有名錄、保留讀得到的清單並回傳合併錯誤）→ `FindBySymbol`；找到即回，否則有名錄失敗回 `ErrNewsProvidersUnavailable`，否則 `ErrSymbolNotFound`。美股：不查，名稱空 |
 | `SymbolResolutionService.IdentifySymbol`（新） | — | 台股：取名錄 → `Identify`；以代號辨識到即回；有名錄失敗回 `ErrNewsProvidersUnavailable`；辨識到即回；有候選回 `SymbolAmbiguousError`；否則 `ErrSymbolNotFound`。加密貨幣：`SearchSymbolListings(填的字)`，失敗回 `ErrNewsProvidersUnavailable`，之後同上。美股：5 秒上限內 `SearchSymbolListings(填的字)`；失敗則照現行以填的字當代號、名稱空；其餘同上 |
 | `SymbolAnalysisService.StartSymbolAnalysis` | 辨識 → 重用或建立 | `ResolveSymbol` 換成 `IdentifySymbol`；刪除 `NameResolvedSymbol` 呼叫 |
 | `ErrorResponseTable.Respond` | 依哨兵錯誤回應 | 回應時若 `errors.As(err, &*service.SymbolAmbiguousError)`，把候選放進 `ErrorDetail.Candidates` |
