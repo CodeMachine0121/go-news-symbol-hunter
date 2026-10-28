@@ -11,6 +11,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+const legacyImportBatchSize = 100
+
 type GradeRecordRepository struct {
 	database *gorm.DB
 }
@@ -89,4 +91,37 @@ func (gradeRecordRepository *GradeRecordRepository) FindForBacktest(ctx context.
 		return nil, err
 	}
 	return gradeRecords, nil
+}
+
+// moves the rows of the analysis_results and combined_grades tables into grade records and drops those tables,
+// all in one transaction: a failure leaves everything as it was for the next start, and a dropped table is
+// what keeps a later start from moving the same rows twice
+func (gradeRecordRepository *GradeRecordRepository) ImportLegacyGrades(ctx context.Context) error {
+	return gradeRecordRepository.database.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		gradeRecords := []entities.GradeRecord{}
+		if transaction.Migrator().HasTable(&legacyAnalysisResult{}) {
+			legacyAnalysisResults := []legacyAnalysisResult{}
+			if err := transaction.Order(clause.OrderByColumn{Column: clause.Column{Name: "created_at"}}).Order(clause.OrderByColumn{Column: clause.Column{Name: "id"}}).Find(&legacyAnalysisResults).Error; err != nil {
+				return err
+			}
+			for _, legacyAnalysisResult := range legacyAnalysisResults {
+				gradeRecords = append(gradeRecords, legacyAnalysisResult.toGradeRecord())
+			}
+		}
+		if transaction.Migrator().HasTable(&legacyCombinedGrade{}) {
+			legacyCombinedGrades := []legacyCombinedGrade{}
+			if err := transaction.Order(clause.OrderByColumn{Column: clause.Column{Name: "updated_at"}}).Order(clause.OrderByColumn{Column: clause.Column{Name: "id"}}).Find(&legacyCombinedGrades).Error; err != nil {
+				return err
+			}
+			for _, legacyCombinedGrade := range legacyCombinedGrades {
+				gradeRecords = append(gradeRecords, legacyCombinedGrade.toGradeRecord())
+			}
+		}
+		if len(gradeRecords) > 0 {
+			if err := transaction.CreateInBatches(&gradeRecords, legacyImportBatchSize).Error; err != nil {
+				return err
+			}
+		}
+		return transaction.Migrator().DropTable(&legacyAnalysisResult{}, &legacyCombinedGrade{})
+	})
 }
