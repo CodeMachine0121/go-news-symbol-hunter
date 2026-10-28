@@ -15,7 +15,7 @@ func NewCryptoResolvedSymbolVo(symbol SymbolVo, coinName string) ResolvedSymbolV
 	return ResolvedSymbolVo{Symbol: symbol, SymbolName: NewSymbolNameVo(coinName), SearchKeyword: coinName, RelevanceTerms: []string{coinName, symbol.Value}}
 }
 
-// a US company name is looked up only when an analysis is created, so it starts empty
-func NewUsStockResolvedSymbolVo(symbol SymbolVo) ResolvedSymbolVo {
-	return ResolvedSymbolVo{Symbol: symbol, SearchKeyword: symbol.Value, RelevanceTerms: []string{symbol.Value}}
+// US news is searched by symbol, so the company name is only kept for display
+func NewUsStockResolvedSymbolVo(symbol SymbolVo, companyName string) ResolvedSymbolVo {
+	return ResolvedSymbolVo{Symbol: symbol, SymbolName: NewSymbolNameVo(companyName), SearchKeyword: symbol.Value, RelevanceTerms: []string{symbol.Value}}
 }

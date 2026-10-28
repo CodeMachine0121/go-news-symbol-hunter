@@ -29,7 +29,7 @@ func wednesdayAt(hour int, minute int) time.Time {
 type sessionGradeFixture struct {
 	sessionGradeApplication *application.SessionGradeApplication
 	now                     *time.Time
-	listedCompanyProxy      *mocks.MockIListedCompanyProxy
+	symbolDirectoryProxy    *mocks.MockISymbolDirectoryProxy
 	twStockNewsProxy        *mocks.MockINewsProxy
 	analystProxy            *mocks.MockIAnalystProxy
 	trackedSymbolRepository *mocks.MockITrackedSymbolRepository
@@ -41,7 +41,7 @@ type sessionGradeFixture struct {
 func createSessionGradeFixture(t *testing.T, now time.Time) sessionGradeFixture {
 	fixture := sessionGradeFixture{
 		now:                     &now,
-		listedCompanyProxy:      mocks.NewMockIListedCompanyProxy(t),
+		symbolDirectoryProxy:    mocks.NewMockISymbolDirectoryProxy(t),
 		twStockNewsProxy:        createNewsProxy(t, "鉅亨網"),
 		analystProxy:            mocks.NewMockIAnalystProxy(t),
 		trackedSymbolRepository: mocks.NewMockITrackedSymbolRepository(t),
@@ -51,7 +51,7 @@ func createSessionGradeFixture(t *testing.T, now time.Time) sessionGradeFixture 
 	}
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().RunAndReturn(func() time.Time { return *fixture.now }).Maybe()
-	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{fixture.listedCompanyProxy}})
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.ISymbolDirectoryProxy{fixture.symbolDirectoryProxy}})
 	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{TwStock: []dto.NewsProviderDto{{NewsProxy: fixture.twStockNewsProxy}}})
 	fixture.sessionGradeApplication = application.NewSessionGradeApplication(service.NewSessionGradeService(
 		symbolResolutionService,
@@ -102,7 +102,7 @@ func (fixture sessionGradeFixture) givenTrackingSymbols(symbols ...string) {
 }
 
 func (fixture sessionGradeFixture) givenCompany(symbol string, companyShortName string) {
-	fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, symbol).Return(companyShortName, true, nil)
+	fixture.symbolDirectoryProxy.EXPECT().SearchSymbolListings(mock.Anything, symbol).Return([]vo.SymbolListingVo{{Symbol: symbol, Name: companyShortName}}, nil)
 }
 
 // the analyst searches the symbol once, then concludes citing the first news it read
@@ -380,7 +380,7 @@ func TestRunDueTradingSession_CountsEveryStepThatFailsForASymbol(t *testing.T) {
 		expectedFailureReason string
 	}{
 		{name: "symbol not found", given: func(fixture sessionGradeFixture) {
-			fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "2330").Return("", false, nil)
+			fixture.symbolDirectoryProxy.EXPECT().SearchSymbolListings(mock.Anything, "2330").Return([]vo.SymbolListingVo{}, nil)
 		}, expectedFailureReason: "找不到此標的"},
 		{name: "session grade not saved", given: func(fixture sessionGradeFixture) {
 			fixture.givenAnalysisOf2330()

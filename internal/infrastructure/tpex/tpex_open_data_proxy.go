@@ -46,13 +46,21 @@ func NewTpexOpenDataProxy(httpBodyReader *httpfetch.HttpBodyReader, clockProxy i
 	return tpexOpenDataProxy
 }
 
-func (tpexOpenDataProxy *TpexOpenDataProxy) FindCompanyShortName(ctx context.Context, stockCode string) (string, bool, error) {
+// the whole directory is returned whatever the query, because it is already cached
+func (tpexOpenDataProxy *TpexOpenDataProxy) SearchSymbolListings(ctx context.Context, query string) ([]vo.SymbolListingVo, error) {
 	dailyClosingsByCode, err := tpexOpenDataProxy.dailyClosingsCache.Get(ctx)
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
-	dailyClosing, found := dailyClosingsByCode[stockCode]
-	return strings.TrimSpace(dailyClosing.CompanyName), found, nil
+	listings := make([]vo.SymbolListingVo, 0, len(dailyClosingsByCode))
+	for code, dailyClosing := range dailyClosingsByCode {
+		// TPEx numbers warrants with six digits starting with 7, and warrants are not analysed
+		if len(code) == 6 && strings.HasPrefix(code, "7") {
+			continue
+		}
+		listings = append(listings, vo.SymbolListingVo{Symbol: code, Name: strings.TrimSpace(dailyClosing.CompanyName)})
+	}
+	return listings, nil
 }
 
 func (tpexOpenDataProxy *TpexOpenDataProxy) FetchPrice(ctx context.Context, symbol string) (vo.PriceQuoteVo, error) {

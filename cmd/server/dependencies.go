@@ -41,10 +41,10 @@ type ExternalSourceUrls struct {
 	YahooFinanceHeadline string
 	CoinDeskFeed         string
 	CointelegraphFeed    string
-	TwseListedCompanies  string
 	CoinGeckoSearch      string
 	BinanceTickerPrice   string
 	YahooFinanceChart    string
+	YahooFinanceSearch   string
 	TwseDailyClosing     string
 	TpexDailyClosing     string
 }
@@ -56,10 +56,10 @@ var productionExternalSourceUrls = ExternalSourceUrls{
 	YahooFinanceHeadline: "https://feeds.finance.yahoo.com/rss/2.0/headline",
 	CoinDeskFeed:         "https://www.coindesk.com/arc/outboundfeeds/rss/",
 	CointelegraphFeed:    "https://cointelegraph.com/rss",
-	TwseListedCompanies:  "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
 	CoinGeckoSearch:      "https://api.coingecko.com/api/v3/search",
 	BinanceTickerPrice:   "https://api.binance.com/api/v3/ticker/price",
 	YahooFinanceChart:    "https://query1.finance.yahoo.com/v8/finance/chart",
+	YahooFinanceSearch:   "https://query1.finance.yahoo.com/v1/finance/search",
 	TwseDailyClosing:     "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
 	TpexDailyClosing:     "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
 }
@@ -124,16 +124,16 @@ type ExternalSourceProxies struct {
 
 func buildExternalSourceProxies(httpBodyReader *httpfetch.HttpBodyReader, clockProxy interfaces.IClockProxy, externalSourceUrls ExternalSourceUrls) ExternalSourceProxies {
 	return ExternalSourceProxies{
-		twseOpenDataProxy: twse.NewTwseOpenDataProxy(httpBodyReader, clockProxy, twse.TwseOpenDataUrls{ListedCompanies: externalSourceUrls.TwseListedCompanies, DailyClosing: externalSourceUrls.TwseDailyClosing}),
+		twseOpenDataProxy: twse.NewTwseOpenDataProxy(httpBodyReader, clockProxy, externalSourceUrls.TwseDailyClosing),
 		tpexOpenDataProxy: tpex.NewTpexOpenDataProxy(httpBodyReader, clockProxy, externalSourceUrls.TpexDailyClosing),
-		yahooFinanceProxy: yahoofinance.NewYahooFinanceProxy(httpBodyReader, news.NewRssNewsReader(httpBodyReader, utilities.NewRssFeedParser()), yahoofinance.YahooFinanceUrls{HeadlineFeed: externalSourceUrls.YahooFinanceHeadline, Chart: externalSourceUrls.YahooFinanceChart}),
+		yahooFinanceProxy: yahoofinance.NewYahooFinanceProxy(httpBodyReader, news.NewRssNewsReader(httpBodyReader, utilities.NewRssFeedParser()), yahoofinance.YahooFinanceUrls{HeadlineFeed: externalSourceUrls.YahooFinanceHeadline, Chart: externalSourceUrls.YahooFinanceChart, Search: externalSourceUrls.YahooFinanceSearch}),
 		binancePriceProxy: binance.NewBinancePriceProxy(httpBodyReader, clockProxy, externalSourceUrls.BinanceTickerPrice),
 	}
 }
 
-func buildSymbolDirectoryCatalog(externalSourceProxies ExternalSourceProxies, cryptocurrencyProxy interfaces.ICryptocurrencyProxy) dto.SymbolDirectoryCatalogDto {
+func buildSymbolDirectoryCatalog(externalSourceProxies ExternalSourceProxies, cryptocurrencyProxy interfaces.ISymbolDirectoryProxy) dto.SymbolDirectoryCatalogDto {
 	return dto.SymbolDirectoryCatalogDto{
-		TwStock: []interfaces.IListedCompanyProxy{externalSourceProxies.twseOpenDataProxy, externalSourceProxies.tpexOpenDataProxy},
+		TwStock: []interfaces.ISymbolDirectoryProxy{externalSourceProxies.twseOpenDataProxy, externalSourceProxies.tpexOpenDataProxy},
 		UsStock: externalSourceProxies.yahooFinanceProxy,
 		Crypto:  cryptocurrencyProxy,
 	}

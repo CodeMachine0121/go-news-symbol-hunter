@@ -16,55 +16,48 @@ import (
 )
 
 const (
-	TwsePriceSource            = "證交所"
-	twseQuoteCurrency          = "TWD"
-	listedCompanyCacheDuration = 24 * time.Hour
-	dailyClosingCacheDuration  = time.Hour
+	TwsePriceSource           = "證交所"
+	twseQuoteCurrency         = "TWD"
+	dailyClosingCacheDuration = time.Hour
 )
 
 var (
-	errListedCompaniesEmpty = errors.New("TWSE returned no listed companies")
-	errClosingPriceMissing  = errors.New("TWSE has no closing price for this stock")
+	errDailyClosingsEmpty  = errors.New("TWSE returned no daily closing quotes")
+	errClosingPriceMissing = errors.New("TWSE has no closing price for this stock")
 )
 
-type TwseOpenDataUrls struct {
-	ListedCompanies string
-	DailyClosing    string
-}
-
-type twseListedCompany struct {
-	StockCode string `json:"公司代號"`
-	ShortName string `json:"公司簡稱"`
-}
-
+// the daily closing quotes list ETFs as well as companies, so they double as the directory of listed stocks
 type twseDailyClosing struct {
 	Date         string `json:"Date"`
 	Code         string `json:"Code"`
+	Name         string `json:"Name"`
 	ClosingPrice string `json:"ClosingPrice"`
 }
 
 type TwseOpenDataProxy struct {
 	httpBodyReader     *httpfetch.HttpBodyReader
 	quoteParser        *utilities.TaiwanExchangeQuoteParser
-	openDataUrls       TwseOpenDataUrls
-	shortNamesCache    *cache.RefreshingCache[map[string]string]
+	dailyClosingUrl    string
 	dailyClosingsCache *cache.RefreshingCache[map[string]twseDailyClosing]
 }
 
-func NewTwseOpenDataProxy(httpBodyReader *httpfetch.HttpBodyReader, clockProxy interfaces.IClockProxy, openDataUrls TwseOpenDataUrls) *TwseOpenDataProxy {
-	twseOpenDataProxy := &TwseOpenDataProxy{httpBodyReader: httpBodyReader, quoteParser: utilities.NewTaiwanExchangeQuoteParser(), openDataUrls: openDataUrls}
-	twseOpenDataProxy.shortNamesCache = cache.NewRefreshingCache(clockProxy, listedCompanyCacheDuration, twseOpenDataProxy.downloadShortNames)
+func NewTwseOpenDataProxy(httpBodyReader *httpfetch.HttpBodyReader, clockProxy interfaces.IClockProxy, dailyClosingUrl string) *TwseOpenDataProxy {
+	twseOpenDataProxy := &TwseOpenDataProxy{httpBodyReader: httpBodyReader, quoteParser: utilities.NewTaiwanExchangeQuoteParser(), dailyClosingUrl: dailyClosingUrl}
 	twseOpenDataProxy.dailyClosingsCache = cache.NewRefreshingCache(clockProxy, dailyClosingCacheDuration, twseOpenDataProxy.downloadDailyClosings)
 	return twseOpenDataProxy
 }
 
-func (twseOpenDataProxy *TwseOpenDataProxy) FindCompanyShortName(ctx context.Context, stockCode string) (string, bool, error) {
-	shortNamesByStockCode, err := twseOpenDataProxy.shortNamesCache.Get(ctx)
+// the whole directory is returned whatever the query, because it is already cached
+func (twseOpenDataProxy *TwseOpenDataProxy) SearchSymbolListings(ctx context.Context, query string) ([]vo.SymbolListingVo, error) {
+	dailyClosingsByCode, err := twseOpenDataProxy.dailyClosingsCache.Get(ctx)
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
-	shortName, found := shortNamesByStockCode[stockCode]
-	return shortName, found, nil
+	listings := make([]vo.SymbolListingVo, 0, len(dailyClosingsByCode))
+	for code, dailyClosing := range dailyClosingsByCode {
+		listings = append(listings, vo.SymbolListingVo{Symbol: code, Name: strings.TrimSpace(dailyClosing.Name)})
+	}
+	return listings, nil
 }
 
 func (twseOpenDataProxy *TwseOpenDataProxy) FetchPrice(ctx context.Context, symbol string) (vo.PriceQuoteVo, error) {
@@ -88,32 +81,8 @@ func (twseOpenDataProxy *TwseOpenDataProxy) FetchPrice(ctx context.Context, symb
 }
 
 // handed to the cache as its download function
-func (twseOpenDataProxy *TwseOpenDataProxy) downloadShortNames(ctx context.Context) (map[string]string, error) {
-	responseBody, err := twseOpenDataProxy.httpBodyReader.Read(ctx, twseOpenDataProxy.openDataUrls.ListedCompanies)
-	if err != nil {
-		return nil, err
-	}
-	var listedCompanies []twseListedCompany
-	if err := json.Unmarshal(responseBody, &listedCompanies); err != nil {
-		return nil, err
-	}
-	shortNamesByStockCode := make(map[string]string, len(listedCompanies))
-	for _, listedCompany := range listedCompanies {
-		stockCode := strings.TrimSpace(listedCompany.StockCode)
-		shortName := strings.TrimSpace(listedCompany.ShortName)
-		if stockCode != "" && shortName != "" {
-			shortNamesByStockCode[stockCode] = shortName
-		}
-	}
-	if len(shortNamesByStockCode) == 0 {
-		return nil, errListedCompaniesEmpty
-	}
-	return shortNamesByStockCode, nil
-}
-
-// handed to the cache as its download function
 func (twseOpenDataProxy *TwseOpenDataProxy) downloadDailyClosings(ctx context.Context) (map[string]twseDailyClosing, error) {
-	responseBody, err := twseOpenDataProxy.httpBodyReader.Read(ctx, twseOpenDataProxy.openDataUrls.DailyClosing)
+	responseBody, err := twseOpenDataProxy.httpBodyReader.Read(ctx, twseOpenDataProxy.dailyClosingUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -121,12 +90,15 @@ func (twseOpenDataProxy *TwseOpenDataProxy) downloadDailyClosings(ctx context.Co
 	if err := json.Unmarshal(responseBody, &dailyClosings); err != nil {
 		return nil, err
 	}
-	if len(dailyClosings) == 0 {
-		return nil, errClosingPriceMissing
-	}
 	dailyClosingsByCode := make(map[string]twseDailyClosing, len(dailyClosings))
 	for _, dailyClosing := range dailyClosings {
-		dailyClosingsByCode[strings.TrimSpace(dailyClosing.Code)] = dailyClosing
+		code := strings.TrimSpace(dailyClosing.Code)
+		if code != "" {
+			dailyClosingsByCode[code] = dailyClosing
+		}
+	}
+	if len(dailyClosingsByCode) == 0 {
+		return nil, errDailyClosingsEmpty
 	}
 	return dailyClosingsByCode, nil
 }

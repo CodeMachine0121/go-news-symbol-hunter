@@ -35,7 +35,7 @@ func NewSymbolAnalysisService(symbolResolutionService *SymbolResolutionService, 
 }
 
 func (symbolAnalysisService *SymbolAnalysisService) StartSymbolAnalysis(ctx context.Context, startSymbolAnalysisDto dto.StartSymbolAnalysisDto) (dto.StartedSymbolAnalysisDto, error) {
-	resolvedSymbol, err := symbolAnalysisService.symbolResolutionService.ResolveSymbol(ctx, dto.ResolveSymbolDto{Symbol: startSymbolAnalysisDto.Symbol, Category: startSymbolAnalysisDto.Category})
+	resolvedSymbol, err := symbolAnalysisService.symbolResolutionService.IdentifySymbol(ctx, dto.ResolveSymbolDto{Symbol: startSymbolAnalysisDto.Symbol, Category: startSymbolAnalysisDto.Category})
 	if err != nil {
 		return dto.StartedSymbolAnalysisDto{}, err
 	}
@@ -64,7 +64,6 @@ func (symbolAnalysisService *SymbolAnalysisService) StartSymbolAnalysis(ctx cont
 		if !startSymbolAnalysisDto.AllowsNewAnalysis {
 			return dto.StartedSymbolAnalysisDto{}, ErrAnalysisCapacityReached
 		}
-		resolvedSymbol = symbolAnalysisService.symbolResolutionService.NameResolvedSymbol(ctx, resolvedSymbol)
 		analysisEvent := domains.NewStartedAnalysisEventDomain(startSymbolAnalysisDto.ApiKeyID, resolvedSymbol, symbolAnalysisService.analystConsultationService.ModelName(), now).ToEntity()
 		createError := symbolAnalysisService.analysisEventRepository.Create(ctx, &analysisEvent)
 		if errors.Is(createError, ErrAnalysisAlreadyRunning) {

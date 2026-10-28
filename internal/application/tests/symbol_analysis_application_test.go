@@ -25,9 +25,9 @@ var analysisStartedAt = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 
 type symbolAnalysisFixture struct {
 	symbolAnalysisApplication *application.SymbolAnalysisApplication
-	listedCompanyProxy        *mocks.MockIListedCompanyProxy
-	usStockCompanyProxy       *mocks.MockIListedCompanyProxy
-	cryptocurrencyProxy       *mocks.MockICryptocurrencyProxy
+	listedCompanyProxy        *mocks.MockISymbolDirectoryProxy
+	usStockCompanyProxy       *mocks.MockISymbolDirectoryProxy
+	cryptocurrencyProxy       *mocks.MockISymbolDirectoryProxy
 	cryptoNewsProxy           *mocks.MockINewsProxy
 	usStockNewsProxy          *mocks.MockINewsProxy
 	analystProxy              *mocks.MockIAnalystProxy
@@ -42,9 +42,9 @@ func createSymbolAnalysisFixture(t *testing.T) symbolAnalysisFixture {
 
 func createSymbolAnalysisFixtureWithCapacity(t *testing.T, maximumConcurrentAnalyses int) symbolAnalysisFixture {
 	fixture := symbolAnalysisFixture{
-		listedCompanyProxy:      mocks.NewMockIListedCompanyProxy(t),
-		usStockCompanyProxy:     mocks.NewMockIListedCompanyProxy(t),
-		cryptocurrencyProxy:     mocks.NewMockICryptocurrencyProxy(t),
+		listedCompanyProxy:      mocks.NewMockISymbolDirectoryProxy(t),
+		usStockCompanyProxy:     mocks.NewMockISymbolDirectoryProxy(t),
+		cryptocurrencyProxy:     mocks.NewMockISymbolDirectoryProxy(t),
 		cryptoNewsProxy:         createNewsProxy(t, "CoinDesk"),
 		usStockNewsProxy:        createNewsProxy(t, "Yahoo 財經"),
 		analystProxy:            mocks.NewMockIAnalystProxy(t),
@@ -67,7 +67,7 @@ func createSymbolAnalysisFixtureWithCapacity(t *testing.T, maximumConcurrentAnal
 	priceSnapshotService := service.NewPriceSnapshotService(dto.PriceProviderCatalogDto{TwStock: []interfaces.IPriceProxy{newPriceProxy()}, UsStock: []interfaces.IPriceProxy{newPriceProxy()}, Crypto: []interfaces.IPriceProxy{newPriceProxy()}})
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(analysisStartedAt).Maybe()
-	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{fixture.listedCompanyProxy}, UsStock: fixture.usStockCompanyProxy, Crypto: fixture.cryptocurrencyProxy})
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.ISymbolDirectoryProxy{fixture.listedCompanyProxy}, UsStock: fixture.usStockCompanyProxy, Crypto: fixture.cryptocurrencyProxy})
 	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{
 		Crypto:  []dto.NewsProviderDto{{NewsProxy: fixture.cryptoNewsProxy}},
 		UsStock: []dto.NewsProviderDto{{NewsProxy: fixture.usStockNewsProxy}},
@@ -84,7 +84,7 @@ func finishedAgo(duration time.Duration) *time.Time {
 }
 
 func (fixture symbolAnalysisFixture) givenBitcoin() {
-	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "BTC").Return("Bitcoin", true, nil)
+	fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "BTC").Return([]vo.SymbolListingVo{{Symbol: "BTC", Name: "Bitcoin"}}, nil)
 }
 
 func TestStartSymbolAnalysis_CreatesARunningAnalysisAndAnalyzesInTheBackground(t *testing.T) {
@@ -183,7 +183,7 @@ func TestStartSymbolAnalysis_StartsANewAnalysisWhenNothingIsReusable(t *testing.
 
 func TestStartSymbolAnalysis_LooksUpReuseByMarketCategory(t *testing.T) {
 	fixture := createSymbolAnalysisFixture(t)
-	fixture.usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "BTC").Return("", false, nil)
+	fixture.usStockCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "BTC").Return([]vo.SymbolListingVo{{Symbol: "BTC", Name: "Grayscale Bitcoin Mini Trust ETF"}}, nil)
 	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "usStock").Return(nil, nil)
 	fixture.analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(nil)
 	analysisDone := make(chan struct{})
@@ -224,7 +224,7 @@ func TestStartSymbolAnalysis_Rejections(t *testing.T) {
 		{name: "unsupported market", symbol: "0700", category: "hk", expectedError: service.ErrMarketCategoryUnsupported},
 		{name: "missing symbol", symbol: "", category: "crypto", expectedError: service.ErrSymbolRequired},
 		{name: "unlisted taiwan stock", symbol: "9999", category: "twStock", given: func(fixture symbolAnalysisFixture) {
-			fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "9999").Return("", false, nil)
+			fixture.listedCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "9999").Return([]vo.SymbolListingVo{}, nil)
 		}, expectedError: service.ErrSymbolNotFound},
 		{name: "storage unavailable on lookup", symbol: "BTC", category: "crypto", given: func(fixture symbolAnalysisFixture) {
 			fixture.givenBitcoin()
@@ -487,20 +487,17 @@ func TestStartSymbolAnalysis_SavesTheResolvedSymbolName(t *testing.T) {
 		expectedSearchKeyword string
 	}{
 		{name: "Taiwan stock by company short name", symbol: "2330", category: "twStock", givenDirectories: func(fixture symbolAnalysisFixture) {
-			fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "2330").Return("台積電", true, nil)
+			fixture.listedCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "2330").Return([]vo.SymbolListingVo{{Symbol: "2330", Name: "台積電"}}, nil)
 		}, expectedName: "台積電", expectedSearchKeyword: "台積電"},
 		{name: "crypto by coin name", symbol: "BTC", category: "crypto", givenDirectories: func(fixture symbolAnalysisFixture) {
 			fixture.givenBitcoin()
 		}, expectedName: "Bitcoin", expectedSearchKeyword: "Bitcoin"},
 		{name: "US stock by the quote source's company name, still searched by ticker", symbol: "AAPL", category: "usStock", givenDirectories: func(fixture symbolAnalysisFixture) {
-			fixture.usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "AAPL").Return("Apple Inc.", true, nil)
+			fixture.usStockCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "AAPL").Return([]vo.SymbolListingVo{{Symbol: "AAPL", Name: "Apple Inc."}}, nil)
 		}, expectedName: "Apple Inc.", expectedSearchKeyword: "AAPL"},
 		{name: "US stock while the quote source is unavailable", symbol: "AAPL", category: "usStock", givenDirectories: func(fixture symbolAnalysisFixture) {
-			fixture.usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "AAPL").Return("", false, errDatabaseDown)
+			fixture.usStockCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "AAPL").Return(nil, errDatabaseDown)
 		}, expectedName: "", expectedSearchKeyword: "AAPL"},
-		{name: "US stock the quote source does not know", symbol: "ZZZZ", category: "usStock", givenDirectories: func(fixture symbolAnalysisFixture) {
-			fixture.usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "ZZZZ").Return("", false, nil)
-		}, expectedName: "", expectedSearchKeyword: "ZZZZ"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := createSymbolAnalysisFixture(t)
@@ -529,8 +526,9 @@ func TestStartSymbolAnalysis_SavesTheResolvedSymbolName(t *testing.T) {
 	}
 }
 
-func TestStartSymbolAnalysis_ReusingAUsAnalysisDoesNotAskForItsName(t *testing.T) {
+func TestStartSymbolAnalysis_ReusingAUsAnalysisKeepsItsStoredName(t *testing.T) {
 	fixture := createSymbolAnalysisFixture(t)
+	fixture.usStockCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "AAPL").Return([]vo.SymbolListingVo{{Symbol: "AAPL", Name: "Apple Inc. (renamed)"}}, nil)
 	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "AAPL", "usStock").Return(&entities.AnalysisEvent{ID: 3, Symbol: "AAPL", Category: "usStock", SymbolName: "Apple Inc.", Status: "running", StartedAt: analysisStartedAt}, nil)
 
 	startedSymbolAnalysis, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: "AAPL", Category: "usStock"})
@@ -538,18 +536,17 @@ func TestStartSymbolAnalysis_ReusingAUsAnalysisDoesNotAskForItsName(t *testing.T
 	require.NoError(t, err)
 	assert.False(t, startedSymbolAnalysis.IsNew)
 	assert.Equal(t, "Apple Inc.", startedSymbolAnalysis.AnalysisEvent.SymbolName)
-	fixture.usStockCompanyProxy.AssertNotCalled(t, "FindCompanyShortName", mock.Anything, mock.Anything)
 }
 
-func TestStartSymbolAnalysis_WaitsAtMostFiveSecondsForAUsCompanyName(t *testing.T) {
+func TestStartSymbolAnalysis_WaitsAtMostFiveSecondsForTheUsDirectory(t *testing.T) {
 	fixture := createSymbolAnalysisFixture(t)
 	lookupBudget := time.Duration(0)
-	fixture.usStockCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "AAPL").RunAndReturn(func(ctx context.Context, _ string) (string, bool, error) {
+	fixture.usStockCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "AAPL").RunAndReturn(func(ctx context.Context, _ string) ([]vo.SymbolListingVo, error) {
 		deadline, hasDeadline := ctx.Deadline()
 		require.True(t, hasDeadline)
 		lookupBudget = time.Until(deadline)
 		// stands in for a lookup that ran out of its budget
-		return "", false, context.DeadlineExceeded
+		return nil, context.DeadlineExceeded
 	})
 	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "AAPL", "usStock").Return(nil, nil)
 	createdAnalysisEvent := entities.AnalysisEvent{}
@@ -635,7 +632,7 @@ func TestAnalyzeSymbol_TellsTheAnalystWhenASearchFailsAndContinues(t *testing.T)
 	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
 	fixture.givenBitcoin()
 	fixture.cryptoNewsProxy.EXPECT().FetchNews(mock.Anything, "Bitcoin").Return(nil, errDatabaseDown)
-	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "NOTACOIN").Return("", false, nil)
+	fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "NOTACOIN").Return([]vo.SymbolListingVo{}, nil)
 	receivedToolResults := []vo.AnalystToolResultVo{}
 	fixture.analystProxy.EXPECT().Respond(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, _ vo.AnalystRequestVo, exchanges []vo.AnalystExchangeVo) (vo.AnalystTurnVo, error) {
 		if len(exchanges) == 0 {
@@ -764,7 +761,7 @@ func TestStartSymbolAnalysis_RetriesWhenTheConcurrentWinnerAlreadyFinished(t *te
 func TestStartSymbolAnalysis_LimitsConcurrentAnalysesButStillReuses(t *testing.T) {
 	fixture := createSymbolAnalysisFixtureWithCapacity(t, 1)
 	fixture.givenBitcoin()
-	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "ETH").Return("Ethereum", true, nil)
+	fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "ETH").Return([]vo.SymbolListingVo{{Symbol: "ETH", Name: "Ethereum"}}, nil)
 	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "crypto").Return(nil, nil).Once()
 	fixture.analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisEvent *entities.AnalysisEvent) error {
 		analysisEvent.ID = 11
@@ -850,7 +847,7 @@ func TestAnalyzeSymbol_RunsTheSearchesOfOneTurnConcurrently(t *testing.T) {
 	fixture.analysisEventRepository.EXPECT().FindByID(mock.Anything, uint(21)).Return(runningBitcoinAnalysis(), nil)
 	fixture.givenBitcoin()
 	ethereumStarted := make(chan struct{})
-	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "ETH").Return("Ethereum", true, nil)
+	fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "ETH").Return([]vo.SymbolListingVo{{Symbol: "ETH", Name: "Ethereum"}}, nil)
 	fixture.cryptoNewsProxy.EXPECT().FetchNews(mock.Anything, "Bitcoin").RunAndReturn(func(context.Context, string) ([]vo.NewsVo, error) {
 		<-ethereumStarted
 		return []vo.NewsVo{{Title: "btc", Link: "https://news/btc", PublishedAt: analysisStartedAt}}, nil

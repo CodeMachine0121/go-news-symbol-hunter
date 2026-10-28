@@ -24,7 +24,7 @@ var preMarketNow = time.Date(2026, 10, 7, 8, 0, 0, 0, time.FixedZone("Asia/Taipe
 func createSessionGradeApplication(t *testing.T, sessionRunRepository *mocks.MockISessionRunRepository) *application.SessionGradeApplication {
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(preMarketNow).Maybe()
-	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{}})
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.ISymbolDirectoryProxy{}})
 	return application.NewSessionGradeApplication(service.NewSessionGradeService(
 		symbolResolutionService,
 		service.NewAnalystConsultationService(mocks.NewMockIAnalystProxy(t), service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})),

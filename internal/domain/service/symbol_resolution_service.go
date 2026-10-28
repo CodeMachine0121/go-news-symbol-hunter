@@ -8,23 +8,25 @@ import (
 	"time"
 
 	interfaces "github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 )
 
-// a US company name is only for display, so waiting longer would only slow the start of an analysis
-const usStockCompanyNameLookupTimeout = 5 * time.Second
+// an unreachable US directory only falls back to the typed symbol, so waiting longer would only slow the start of an analysis
+const usStockDirectoryLookupTimeout = 5 * time.Second
 
 type SymbolResolutionService struct {
-	listedCompanyProxies      []interfaces.IListedCompanyProxy
-	usStockListedCompanyProxy interfaces.IListedCompanyProxy
-	cryptocurrencyProxy       interfaces.ICryptocurrencyProxy
+	twStockDirectoryProxies []interfaces.ISymbolDirectoryProxy
+	usStockDirectoryProxy   interfaces.ISymbolDirectoryProxy
+	cryptoDirectoryProxy    interfaces.ISymbolDirectoryProxy
 }
 
 func NewSymbolResolutionService(symbolDirectoryCatalog dto.SymbolDirectoryCatalogDto) *SymbolResolutionService {
-	return &SymbolResolutionService{listedCompanyProxies: symbolDirectoryCatalog.TwStock, usStockListedCompanyProxy: symbolDirectoryCatalog.UsStock, cryptocurrencyProxy: symbolDirectoryCatalog.Crypto}
+	return &SymbolResolutionService{twStockDirectoryProxies: symbolDirectoryCatalog.TwStock, usStockDirectoryProxy: symbolDirectoryCatalog.UsStock, cryptoDirectoryProxy: symbolDirectoryCatalog.Crypto}
 }
 
+// only a symbol is accepted; US symbols are not looked up so searching news never waits on the US directory
 func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx context.Context, resolveSymbolDto dto.ResolveSymbolDto) (vo.ResolvedSymbolVo, error) {
 	category, err := vo.NewMarketCategoryVo(resolveSymbolDto.Category)
 	if err != nil {
@@ -36,58 +38,75 @@ func (symbolResolutionService *SymbolResolutionService) ResolveSymbol(ctx contex
 	}
 	switch category.Value {
 	case vo.MarketCategoryTwStock:
-		// asked together so a cold cache costs one download time, then read in priority order
-		companyShortNames := make([]string, len(symbolResolutionService.listedCompanyProxies))
-		foundInDirectories := make([]bool, len(symbolResolutionService.listedCompanyProxies))
-		lookupErrors := make([]error, len(symbolResolutionService.listedCompanyProxies))
-		var waitGroup sync.WaitGroup
-		for index, listedCompanyProxy := range symbolResolutionService.listedCompanyProxies {
-			waitGroup.Go(func() {
-				companyShortNames[index], foundInDirectories[index], lookupErrors[index] = listedCompanyProxy.FindCompanyShortName(ctx, symbol.Value)
-			})
-		}
-		waitGroup.Wait()
-		directoryErrors := []error{}
-		for index := range symbolResolutionService.listedCompanyProxies {
-			if foundInDirectories[index] {
-				return vo.NewTwStockResolvedSymbolVo(symbol, companyShortNames[index]), nil
-			}
-			if lookupErrors[index] != nil {
-				directoryErrors = append(directoryErrors, lookupErrors[index])
-			}
-		}
+		listings, directoryError := symbolResolutionService.searchTwStockListings(ctx, symbol.Value)
+		resolvedSymbol, err := domains.NewSymbolDirectoryDomain(category, listings).FindBySymbol(symbol)
 		// a directory we could not read might have listed the stock, so absence is not proven
-		if len(directoryErrors) > 0 {
-			return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, errors.Join(directoryErrors...))
+		if err != nil && directoryError != nil {
+			return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, directoryError)
 		}
-		return vo.ResolvedSymbolVo{}, ErrSymbolNotFound
+		return resolvedSymbol, err
 	case vo.MarketCategoryCrypto:
-		coinName, found, err := symbolResolutionService.cryptocurrencyProxy.FindCoinName(ctx, symbol.Value)
+		listings, err := symbolResolutionService.cryptoDirectoryProxy.SearchSymbolListings(ctx, symbol.Value)
 		if err != nil {
 			return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, err)
 		}
-		if !found {
-			return vo.ResolvedSymbolVo{}, ErrSymbolNotFound
-		}
-		return vo.NewCryptoResolvedSymbolVo(symbol, coinName), nil
+		return domains.NewSymbolDirectoryDomain(category, listings).FindBySymbol(symbol)
 	default:
-		return vo.NewUsStockResolvedSymbolVo(symbol), nil
+		return vo.NewUsStockResolvedSymbolVo(symbol, ""), nil
 	}
 }
 
-// only a new analysis keeps a US company name, so the quote source is asked here and not on every resolution
-func (symbolResolutionService *SymbolResolutionService) NameResolvedSymbol(ctx context.Context, resolvedSymbol vo.ResolvedSymbolVo) vo.ResolvedSymbolVo {
-	if resolvedSymbol.Symbol.Category.Value != vo.MarketCategoryUsStock || resolvedSymbol.SymbolName.Value != "" {
-		return resolvedSymbol
+// the typed text may be a symbol or a name; the result always carries the symbol
+func (symbolResolutionService *SymbolResolutionService) IdentifySymbol(ctx context.Context, resolveSymbolDto dto.ResolveSymbolDto) (vo.ResolvedSymbolVo, error) {
+	category, err := vo.NewMarketCategoryVo(resolveSymbolDto.Category)
+	if err != nil {
+		return vo.ResolvedSymbolVo{}, err
 	}
-	lookupContext, cancelLookup := context.WithTimeout(ctx, usStockCompanyNameLookupTimeout)
-	defer cancelLookup()
-	// an unknown or unreachable name leaves it empty; a US symbol is never rejected for it
-	companyName, found, err := symbolResolutionService.usStockListedCompanyProxy.FindCompanyShortName(lookupContext, resolvedSymbol.Symbol.Value)
-	if err != nil || !found {
-		return resolvedSymbol
+	symbol, err := vo.NewSymbolVo(resolveSymbolDto.Symbol, category)
+	if err != nil {
+		return vo.ResolvedSymbolVo{}, err
 	}
-	namedSymbol := resolvedSymbol
-	namedSymbol.SymbolName = vo.NewSymbolNameVo(companyName)
-	return namedSymbol
+	switch category.Value {
+	case vo.MarketCategoryTwStock:
+		listings, directoryError := symbolResolutionService.searchTwStockListings(ctx, symbol.Value)
+		resolvedSymbol, err := domains.NewSymbolDirectoryDomain(category, listings).Identify(symbol)
+		// a name match is only unique when every directory was read, a symbol match is not affected
+		if directoryError != nil && (err != nil || resolvedSymbol.Symbol.Value != symbol.Value) {
+			return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, directoryError)
+		}
+		return resolvedSymbol, err
+	case vo.MarketCategoryCrypto:
+		listings, err := symbolResolutionService.cryptoDirectoryProxy.SearchSymbolListings(ctx, symbol.Value)
+		if err != nil {
+			return vo.ResolvedSymbolVo{}, fmt.Errorf("%w: %v", ErrNewsProvidersUnavailable, err)
+		}
+		return domains.NewSymbolDirectoryDomain(category, listings).Identify(symbol)
+	default:
+		lookupContext, cancelLookup := context.WithTimeout(ctx, usStockDirectoryLookupTimeout)
+		defer cancelLookup()
+		listings, err := symbolResolutionService.usStockDirectoryProxy.SearchSymbolListings(lookupContext, symbol.Value)
+		// a US symbol was never rejected for an unreachable source, so the typed text is still analysed as a symbol
+		if err != nil {
+			return vo.NewUsStockResolvedSymbolVo(symbol, ""), nil
+		}
+		return domains.NewSymbolDirectoryDomain(category, listings).Identify(symbol)
+	}
+}
+
+// asked together so a cold cache costs one download time
+func (symbolResolutionService *SymbolResolutionService) searchTwStockListings(ctx context.Context, query string) ([]vo.SymbolListingVo, error) {
+	listingsByDirectory := make([][]vo.SymbolListingVo, len(symbolResolutionService.twStockDirectoryProxies))
+	lookupErrors := make([]error, len(symbolResolutionService.twStockDirectoryProxies))
+	var waitGroup sync.WaitGroup
+	for index, directoryProxy := range symbolResolutionService.twStockDirectoryProxies {
+		waitGroup.Go(func() {
+			listingsByDirectory[index], lookupErrors[index] = directoryProxy.SearchSymbolListings(ctx, query)
+		})
+	}
+	waitGroup.Wait()
+	listings := []vo.SymbolListingVo{}
+	for _, directoryListings := range listingsByDirectory {
+		listings = append(listings, directoryListings...)
+	}
+	return listings, errors.Join(lookupErrors...)
 }

@@ -36,7 +36,7 @@ func createTrackedSymbolGradeRouter(t *testing.T) trackedSymbolGradeRouterFixtur
 		gradeRecordRepository:   mocks.NewMockIGradeRecordRepository(t),
 		trackedSymbolRepository: mocks.NewMockITrackedSymbolRepository(t),
 	}
-	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{}})
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.ISymbolDirectoryProxy{}})
 	sessionGradeService := service.NewSessionGradeService(
 		symbolResolutionService,
 		service.NewAnalystConsultationService(mocks.NewMockIAnalystProxy(t), service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})),

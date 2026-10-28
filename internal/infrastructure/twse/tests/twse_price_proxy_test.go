@@ -33,7 +33,7 @@ func TestTwsePriceProxy_QuotesTheLatestClosingPrice(t *testing.T) {
 	server, _ := startDailyClosingServer(t, http.StatusOK, dailyClosings)
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(lookedUpAt)
-	twsePriceProxy := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, twse.TwseOpenDataUrls{DailyClosing: server.URL})
+	twsePriceProxy := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
 
 	priceQuote, err := twsePriceProxy.FetchPrice(context.Background(), "2330")
 	thousandsPriceQuote, thousandsError := twsePriceProxy.FetchPrice(context.Background(), "1101")
@@ -52,7 +52,7 @@ func TestTwsePriceProxy_FailsWithoutAUsablePrice(t *testing.T) {
 	server, _ := startDailyClosingServer(t, http.StatusOK, dailyClosings)
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(lookedUpAt)
-	twsePriceProxy := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, twse.TwseOpenDataUrls{DailyClosing: server.URL})
+	twsePriceProxy := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
 
 	for _, stockCode := range []string{"9999", "9998", "9997", "9996", "9995"} {
 		_, err := twsePriceProxy.FetchPrice(context.Background(), stockCode)
@@ -67,7 +67,7 @@ func TestTwsePriceProxy_ReusesTheDailyClosingsForAnHour(t *testing.T) {
 	clockProxy.EXPECT().Now().Return(lookedUpAt).Times(2)
 	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(time.Hour - time.Second)).Once()
 	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(time.Hour))
-	twsePriceProxy := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, twse.TwseOpenDataUrls{DailyClosing: server.URL})
+	twsePriceProxy := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
 
 	_, _ = twsePriceProxy.FetchPrice(context.Background(), "2330")
 	_, _ = twsePriceProxy.FetchPrice(context.Background(), "2330")
@@ -92,7 +92,7 @@ func TestTwsePriceProxy_ReportsUnavailableOrEmptyData(t *testing.T) {
 			clockProxy := mocks.NewMockIClockProxy(t)
 			clockProxy.EXPECT().Now().Return(lookedUpAt)
 
-			_, err := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, twse.TwseOpenDataUrls{DailyClosing: server.URL}).FetchPrice(context.Background(), "2330")
+			_, err := twse.NewTwseOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL).FetchPrice(context.Background(), "2330")
 
 			assert.Error(t, err)
 		})

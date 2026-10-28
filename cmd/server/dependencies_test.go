@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/service"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/coingecko"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/gotrading"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/system"
@@ -187,13 +189,13 @@ func TestBuildSymbolDirectoryCatalog_AsksTwseBeforeTpex(t *testing.T) {
 	}))
 	defer server.Close()
 	symbolDirectoryCatalog := buildSymbolDirectoryCatalog(buildExternalSourceProxies(httpfetch.NewHttpBodyReader(server.Client()), system.NewSystemClockProxy(), ExternalSourceUrls{
-		TwseListedCompanies: server.URL + "/twse", TpexDailyClosing: server.URL + "/tpex",
+		TwseDailyClosing: server.URL + "/twse", TpexDailyClosing: server.URL + "/tpex",
 	}), nil)
 
 	require.Len(t, symbolDirectoryCatalog.TwStock, 2)
-	_, _, twseError := symbolDirectoryCatalog.TwStock[0].FindCompanyShortName(context.Background(), "6182")
+	_, twseError := symbolDirectoryCatalog.TwStock[0].SearchSymbolListings(context.Background(), "6182")
 	twsePath := <-requestedPaths
-	_, _, tpexError := symbolDirectoryCatalog.TwStock[1].FindCompanyShortName(context.Background(), "6182")
+	_, tpexError := symbolDirectoryCatalog.TwStock[1].SearchSymbolListings(context.Background(), "6182")
 	tpexPath := <-requestedPaths
 
 	assert.Error(t, twseError)
@@ -202,23 +204,28 @@ func TestBuildSymbolDirectoryCatalog_AsksTwseBeforeTpex(t *testing.T) {
 	assert.Equal(t, "/tpex", tpexPath)
 }
 
-func TestBuildSymbolDirectoryCatalog_NamesUsStocksFromTheYahooChart(t *testing.T) {
-	requestedPaths := make(chan string, 1)
+func TestBuildSymbolDirectoryCatalog_SearchesUsStocksAndCoinsByName(t *testing.T) {
+	requestedPaths := make(chan string, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		requestedPaths <- request.URL.Path
-		_, _ = writer.Write([]byte(`{"chart":{"result":[{"meta":{"shortName":"Apple Inc."}}]}}`))
+		requestedPaths <- request.URL.Path + "?" + request.URL.RawQuery
+		_, _ = writer.Write([]byte(`{"quotes":[{"symbol":"TSLA","longname":"Tesla, Inc.","quoteType":"EQUITY","exchange":"NMS"}],"coins":[]}`))
 	}))
 	defer server.Close()
-	symbolDirectoryCatalog := buildSymbolDirectoryCatalog(buildExternalSourceProxies(httpfetch.NewHttpBodyReader(server.Client()), system.NewSystemClockProxy(), ExternalSourceUrls{
-		YahooFinanceChart: server.URL + "/yahoo",
-	}), nil)
+	httpBodyReader := httpfetch.NewHttpBodyReader(server.Client())
+	symbolDirectoryCatalog := buildSymbolDirectoryCatalog(buildExternalSourceProxies(httpBodyReader, system.NewSystemClockProxy(), ExternalSourceUrls{
+		YahooFinanceSearch: server.URL + "/yahoo",
+	}), coingecko.NewCoinGeckoCryptocurrencyProxy(httpBodyReader, system.NewSystemClockProxy(), server.URL+"/coingecko"))
 
-	companyName, found, err := symbolDirectoryCatalog.UsStock.FindCompanyShortName(context.Background(), "AAPL")
+	usStockListings, usStockError := symbolDirectoryCatalog.UsStock.SearchSymbolListings(context.Background(), "Tesla")
+	usStockPath := <-requestedPaths
+	_, cryptoError := symbolDirectoryCatalog.Crypto.SearchSymbolListings(context.Background(), "Bitcoin")
+	cryptoPath := <-requestedPaths
 
-	require.NoError(t, err)
-	assert.True(t, found)
-	assert.Equal(t, "Apple Inc.", companyName)
-	assert.Equal(t, "/yahoo/AAPL", <-requestedPaths)
+	require.NoError(t, usStockError)
+	require.NoError(t, cryptoError)
+	assert.Equal(t, []vo.SymbolListingVo{{Symbol: "TSLA", Name: "Tesla, Inc."}}, usStockListings)
+	assert.Equal(t, "/yahoo?newsCount=0&q=Tesla&quotesCount=20", usStockPath)
+	assert.Equal(t, "/coingecko?query=Bitcoin", cryptoPath)
 }
 
 func TestOpenDatabase_CreatesEveryTableAndPreparesTheRouter(t *testing.T) {

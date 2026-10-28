@@ -14,6 +14,7 @@ import (
 )
 
 var analysisEventErrorResponseTable = ErrorResponseTable(slices.Concat(symbolErrorResponseRules, []ErrorResponseRule{
+	{Err: service.ErrSymbolAmbiguous, Status: http.StatusUnprocessableEntity, Code: "symbol_ambiguous"},
 	{Err: service.ErrAnalysisEventNotFound, Status: http.StatusNotFound, Code: "analysis_event_not_found"},
 	{Err: service.ErrAnalysisCapacityReached, Status: http.StatusTooManyRequests, Code: "analysis_capacity_reached"},
 }))
