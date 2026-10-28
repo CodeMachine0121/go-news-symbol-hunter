@@ -135,6 +135,6 @@ flowchart TD
 
 - **Risks / trade-offs:**
   - 搬移與刪表在同一個 Postgres 交易內（Postgres DDL 可交易），失敗即全部 rollback；代價是啟動時多一次讀寫，只有第一次啟動會發生。
-  - `ImportLegacyGrades` 沒有 repository 層測試（專案的 persistence 層沒有測試基礎設施）；以本機資料庫實際啟動驗證筆數與內容。`toGradeRecord` 的欄位對映很單純。
+  - `ImportLegacyGrades` 以 persistence 層測試（`TEST_POSTGRES_DSN` 指向 `_test` 資料庫）涵蓋搬移、只搬一次、失敗回滾、舊表讀不到；另以正式資料庫的副本實際啟動驗證筆數與內容。
   - `FindForBacktest` 的 `OR` 條件讓手動紀錄仍需子查詢判斷分析事件狀態；資料量在 500 筆上限下可接受。
 - **Open decisions (for implementation):** 無。
