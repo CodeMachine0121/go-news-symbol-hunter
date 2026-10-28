@@ -66,15 +66,14 @@ func (gradeBacktestSummaryDomain GradeBacktestSummaryDomain) ToDto() dto.GradeBa
 		if analysisBacktest.Outcome != BacktestOutcomeHit && analysisBacktest.Outcome != BacktestOutcomeMiss {
 			continue
 		}
-		groupOf := map[string]string{
-			groupingOverall:        "",
-			groupingCategory:       analysisBacktest.Category,
-			groupingGrade:          analysisBacktest.Grade,
-			groupingConfidenceBand: analysisBacktest.ConfidenceBand,
-			groupingSource:         analysisBacktest.Source,
-		}
-		for grouping, group := range groupOf {
-			tally, isListed := tallies[grouping][group]
+		for _, groupOf := range [...][2]string{
+			{groupingOverall, ""},
+			{groupingCategory, analysisBacktest.Category},
+			{groupingGrade, analysisBacktest.Grade},
+			{groupingConfidenceBand, analysisBacktest.ConfidenceBand},
+			{groupingSource, analysisBacktest.Source},
+		} {
+			tally, isListed := tallies[groupOf[0]][groupOf[1]]
 			if !isListed {
 				continue
 			}
