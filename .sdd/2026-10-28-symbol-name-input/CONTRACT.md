@@ -69,6 +69,8 @@ Oracle: Acceptance Criteria + Business Rules + NFR（40 clauses）
   - 判斷：不是缺陷，維持 Jev 原判並列入 Needs James。
 - 突變測試：變動的關鍵規則共 30 個突變（含收斂後 service 的 4 個），全部被測試抓到；變動程式碼覆蓋率 100%（`go test -coverpkg`）。
 
+- **Code review 後的修正**（稽核完成之後）：美股 OTC（`PNK OQB OQX`）列為美國掛牌；名稱空白的美股可以代號辨識；`Identify` 改回傳候選、錯誤改由 service 產生。PRD 業務規則已同步，相關 AC（AC-07、AC-14、AC-19、AC-20）的測試已調整並重跑，所有修正也都做過突變測試。
+
 ## Orphans (code with no clause)
 
 | Code | Description | Verdict |
