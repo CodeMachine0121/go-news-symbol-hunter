@@ -61,10 +61,13 @@ func (symbolDirectoryDomain SymbolDirectoryDomain) Identify(symbol vo.SymbolVo) 
 			return symbolDirectoryDomain.toResolvedSymbol(listing), nil, true
 		}
 	}
+	// a symbol resolves to its best-ranked listing, so a lower-ranked listing sharing it is not a separate choice
 	partialMatches := []vo.SymbolListingVo{}
+	matchedSymbols := map[string]bool{}
 	for index, listing := range symbolDirectoryDomain.listings {
-		if typedNameKey != "" && strings.Contains(symbolDirectoryDomain.nameKeys[index], typedNameKey) {
+		if typedNameKey != "" && strings.Contains(symbolDirectoryDomain.nameKeys[index], typedNameKey) && !matchedSymbols[listing.Symbol] {
 			partialMatches = append(partialMatches, listing)
+			matchedSymbols[listing.Symbol] = true
 		}
 	}
 	if len(partialMatches) == 1 {

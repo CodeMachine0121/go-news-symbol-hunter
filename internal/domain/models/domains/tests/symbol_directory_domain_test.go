@@ -70,6 +70,7 @@ func TestSymbolDirectoryDomain_IdentifiesTheSymbolBehindATypedSymbolOrName(t *te
 		{name: "US stock by symbol keeps searching by symbol", category: usStockCategory, listings: usStockListings, typedText: "TSLA", expectedSymbol: "TSLA", expectedSymbolName: "Tesla, Inc.", expectedSearchKeyword: "TSLA"},
 		{name: "US stock by a name typed like a symbol", category: usStockCategory, listings: usStockListings, typedText: "TESLA", expectedSymbol: "TSLA", expectedSymbolName: "Tesla, Inc.", expectedSearchKeyword: "TSLA"},
 		{name: "US company name equal once company suffixes are left out", category: usStockCategory, listings: usStockListings, typedText: "Apple", expectedSymbol: "AAPL", expectedSymbolName: "Apple Inc.", expectedSearchKeyword: "AAPL"},
+		{name: "names sharing one symbol are a single match", category: cryptoCategory, listings: []vo.SymbolListingVo{{Symbol: "usdt", Name: "Bridged Tether USD", Priority: 900}, {Symbol: "usdt", Name: "Tether USD", Priority: 3}}, typedText: "Tether", expectedSymbol: "USDT", expectedSymbolName: "Tether USD", expectedSearchKeyword: "Tether USD"},
 		{name: "unnamed US listing by symbol", category: usStockCategory, listings: []vo.SymbolListingVo{{Symbol: "QQQQ", Name: ""}}, typedText: "QQQQ", expectedSymbol: "QQQQ", expectedSymbolName: "", expectedSearchKeyword: "QQQQ"},
 		{name: "US company name typed with its suffix", category: usStockCategory, listings: usStockListings, typedText: "apple inc", expectedSymbol: "AAPL", expectedSymbolName: "Apple Inc.", expectedSearchKeyword: "AAPL"},
 	}
@@ -96,6 +97,9 @@ func TestSymbolDirectoryDomain_ListsCandidatesWhenSeveralNamesContainTheTypedTex
 	}{
 		{name: "coins in market cap order", category: cryptoCategory, listings: cryptoListings, typedText: "Bitco", expectedCandidates: []dto.SymbolCandidateDto{
 			{Symbol: "BTC", SymbolName: "Bitcoin"}, {Symbol: "BCH", SymbolName: "Bitcoin Cash"}, {Symbol: "UNRANKED", SymbolName: "Unranked Bitcoin"},
+		}},
+		{name: "coins sharing a symbol offered once at their best rank", category: cryptoCategory, listings: []vo.SymbolListingVo{{Symbol: "usdt", Name: "Bridged Tether USD", Priority: 900}, {Symbol: "usdc", Name: "USD Coin", Priority: 7}, {Symbol: "usdt", Name: "Tether USD", Priority: 3}}, typedText: "USD", expectedCandidates: []dto.SymbolCandidateDto{
+			{Symbol: "USDT", SymbolName: "Tether USD"}, {Symbol: "USDC", SymbolName: "USD Coin"},
 		}},
 		{name: "US stocks in search order", category: usStockCategory, listings: usStockListings, typedText: "SPDR S&P 500", expectedCandidates: []dto.SymbolCandidateDto{
 			{Symbol: "SPY", SymbolName: "State Street SPDR S&P 500 ETF Trust"}, {Symbol: "SPYX", SymbolName: "State Street SPDR S&P 500 Fossil Fuel Reserves Free ETF"}, {Symbol: "EFIV", SymbolName: "State Street SPDR S&P 500 ESG ETF"},
