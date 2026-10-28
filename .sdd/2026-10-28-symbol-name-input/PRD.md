@@ -40,7 +40,7 @@
 **As a** 使用者，**I want** 台股可以填代號或公司簡稱（含 ETF 名稱）發起分析，**so that** 不必先查代號，ETF 也能分析。
 
 ```gherkin
-Scenario: 以代號發起分析
+Scenario: 以台股代號發起分析
   Given 2330 是上市股票「台積電」
   When 使用者以台股、填「2330」發起分析
   Then 系統分析 2330，標的名稱為「台積電」
@@ -96,7 +96,7 @@ Scenario: 台股名單暫時取不到
 **As a** 使用者，**I want** 加密貨幣可以填代號或幣種名稱，**so that** 填「Bitcoin」也能分析 BTC。
 
 ```gherkin
-Scenario: 以代號發起分析
+Scenario: 以加密貨幣代號發起分析
   Given BTC 是「Bitcoin」，市值排名第 1
   When 使用者以加密貨幣、填「BTC」發起分析
   Then 系統分析 BTC，標的名稱為「Bitcoin」
@@ -128,7 +128,7 @@ Scenario: 找不到幣種
 **As a** 使用者，**I want** 美股可以填代號或公司名稱，**so that** 填「Tesla」會分析 TSLA，而不是把錯字當代號。
 
 ```gherkin
-Scenario: 以代號發起分析
+Scenario: 以美股代號發起分析
   Given TSLA 是美國掛牌股票「Tesla, Inc.」
   When 使用者以美股、填「TSLA」發起分析
   Then 系統分析 TSLA，標的名稱為「Tesla, Inc.」
