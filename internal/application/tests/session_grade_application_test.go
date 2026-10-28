@@ -199,6 +199,10 @@ func TestRunDueTradingSession_PreMarketPurgesOlderDaysThenGradesTrackedTwStocks(
 	assert.Equal(t, []entities.GradeRecord{{Source: "background", Symbol: "2330", Category: "twStock", TradingDay: "2026-10-07", Grade: "bullish", Confidence: 60, TimeHorizon: "short", CombinedScore: &preMarketScore, KeyEvents: []entities.AnalysisKeyEvent{}, RiskFactors: []string{}, Evidence: []entities.AnalysisEvidence{}, CreatedAt: wednesdayAt(8, 0)}}, *storedBackgroundGradeRecords)
 	finishedAt := wednesdayAt(8, 0)
 	assert.Equal(t, entities.SessionRun{ID: 7, TradingDay: "2026-10-07", Session: "preMarket", Status: "succeeded", SucceededSymbolCount: 1, FailedSymbols: []entities.SessionRunFailedSymbol{}, InputTokens: 300, OutputTokens: 30, StartedAt: wednesdayAt(8, 0), FinishedAt: &finishedAt}, *finishedSessionRun)
+	// earlier days' background records are kept: the pre-market run only ever adds grade records
+	for _, gradeRecordCall := range fixture.gradeRecordRepository.Calls {
+		assert.Equal(t, "Create", gradeRecordCall.Method)
+	}
 }
 
 func TestRunDueTradingSession_MondayPreMarketPurgesFridayGrades(t *testing.T) {
@@ -347,13 +351,16 @@ func TestRunDueTradingSession_OneFailingSymbolDoesNotStopTheOthers(t *testing.T)
 	fixture.givenNews("鴻海", vo.NewsVo{Title: "鴻海", Link: "https://news/2317/1", PublishedAt: wednesdayAt(7, 0)})
 	fixture.givenAnalystConcludes("2317", "bullish", 70)
 	storedSessionGrades := fixture.storeSessionGrades()
-	fixture.storeBackgroundGradeRecords()
+	storedBackgroundGradeRecords := fixture.storeBackgroundGradeRecords()
 	finishedSessionRun := fixture.expectFinishedSessionRun()
 
 	fixture.sessionGradeApplication.RunDueTradingSession(context.Background())
 
 	require.Len(t, *storedSessionGrades, 1)
 	assert.Equal(t, "2317", (*storedSessionGrades)[0].Symbol)
+	// the failed symbol gets no new background record
+	require.Len(t, *storedBackgroundGradeRecords, 1)
+	assert.Equal(t, "2317", (*storedBackgroundGradeRecords)[0].Symbol)
 	assert.Equal(t, "succeeded", finishedSessionRun.Status)
 	assert.Equal(t, 1, finishedSessionRun.SucceededSymbolCount)
 	assert.Equal(t, 1, finishedSessionRun.FailedSymbolCount)

@@ -433,3 +433,53 @@ func TestGetGradeBacktest_NoBackgroundRecordsMeansNoDataNotZero(t *testing.T) {
 	assert.Equal(t, dto.HitRateDto{}, gradeBacktest.BySource["background"])
 	assert.Equal(t, 1.0, *gradeBacktest.BySource["manual"].HitRate)
 }
+
+func TestGetGradeBacktest_TheLimitCountsBothSourcesTogether(t *testing.T) {
+	fixture := createGradeBacktestFixture(t)
+	gradeRecords := []entities.GradeRecord{}
+	for analysisEventID := range 300 {
+		gradeRecords = append(gradeRecords, completedAnalysis(uint(analysisEventID+1), "AAPL", "usStock", "bullish"))
+	}
+	for gradeRecordID := range 201 {
+		gradeRecords = append(gradeRecords, backgroundRecord(uint(gradeRecordID+1000), "2330", "bullish"))
+	}
+	fixture.givenAnalyses(gradeRecords...)
+
+	_, err := fixture.gradeBacktestApplication.GetGradeBacktest(context.Background(), dto.GetGradeBacktestDto{})
+
+	assert.ErrorIs(t, err, service.ErrBacktestAnalysisLimitExceeded)
+}
+
+func TestGetGradeBacktest_EachBackgroundRecordOfADayIsBacktestedFromItsOwnCreationTime(t *testing.T) {
+	fixture := createGradeBacktestFixture(t)
+	preMarket := time.Date(2026, 10, 7, 8, 30, 0, 0, taipei)
+	intraday := time.Date(2026, 10, 7, 12, 45, 0, 0, taipei)
+	afterMarket := time.Date(2026, 10, 7, 20, 30, 0, 0, taipei)
+	gradeRecords := []entities.GradeRecord{}
+	for index, createdAt := range []time.Time{preMarket, intraday, afterMarket} {
+		gradeRecord := backgroundRecord(uint(index+1), "2330", "bullish")
+		gradeRecord.CreatedAt = createdAt
+		gradeRecords = append(gradeRecords, gradeRecord)
+	}
+	fixture.givenAnalyses(gradeRecords...)
+	// Tuesday's close, then two prices traded on Wednesday
+	fixture.givenCandles("2330", "1m", []vo.PriceCandleVo{
+		priceCandle(time.Date(2026, 10, 6, 13, 29, 0, 0, taipei), "90"),
+		priceCandle(time.Date(2026, 10, 7, 12, 45, 0, 0, taipei), "110"),
+		priceCandle(time.Date(2026, 10, 7, 13, 29, 0, 0, taipei), "120"),
+	})
+	fixture.givenCandles("2330", "1d", tenTradingDaysEndingAt("105"))
+
+	gradeBacktest, err := fixture.gradeBacktestApplication.GetGradeBacktest(context.Background(), dto.GetGradeBacktestDto{})
+
+	require.NoError(t, err)
+	require.Len(t, gradeBacktest.Analyses, 3)
+	entryPrices := []string{}
+	for index, analysisBacktest := range gradeBacktest.Analyses {
+		require.NotNil(t, analysisBacktest.EntryPrice)
+		entryPrices = append(entryPrices, analysisBacktest.EntryPrice.String())
+		assert.Equal(t, gradeRecords[index].CreatedAt, analysisBacktest.CompletedAt)
+		assert.Equal(t, "background", analysisBacktest.Source)
+	}
+	assert.Equal(t, []string{"90", "110", "120"}, entryPrices)
+}
