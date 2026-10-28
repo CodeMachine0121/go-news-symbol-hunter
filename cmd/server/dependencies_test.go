@@ -233,7 +233,10 @@ func TestOpenDatabase_CreatesEveryTableAndPreparesTheRouter(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, router)
-	for _, table := range []string{"tracked_symbols", "session_grades", "combined_grades", "session_runs"} {
+	for _, table := range []string{"grade_records", "tracked_symbols", "session_grades", "session_runs"} {
 		assert.True(t, database.Migrator().HasTable(table), table)
+	}
+	for _, legacyTable := range []string{"analysis_results", "combined_grades"} {
+		assert.False(t, database.Migrator().HasTable(legacyTable), legacyTable)
 	}
 }

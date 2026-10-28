@@ -87,6 +87,10 @@ func openDatabase(serverConfig ServerConfig) (*gorm.DB, error) {
 	if err := database.AutoMigrate(&entities.ApiKey{}, &entities.AnalysisEvent{}, &entities.GradeRecord{}, &entities.TrackedSymbol{}, &entities.SessionGrade{}, &entities.SessionRun{}); err != nil {
 		return nil, err
 	}
+	// a database from before grade records still holds analysis results and combined grades in their own tables
+	if err := persistence.NewGradeRecordRepository(database).ImportLegacyGrades(context.Background()); err != nil {
+		return nil, fmt.Errorf("move legacy grades: %w", err)
+	}
 	return database, nil
 }
 

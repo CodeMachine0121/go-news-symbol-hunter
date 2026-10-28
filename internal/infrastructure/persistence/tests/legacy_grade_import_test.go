@@ -54,8 +54,16 @@ func (combinedGradeRow) TableName() string {
 	return "combined_grades"
 }
 
+// the legacy tables are dropped again afterwards, so no later test starts from a database with them
+func dropLegacyTablesAfterTheTest(t *testing.T, database *gorm.DB) {
+	t.Cleanup(func() {
+		require.NoError(t, database.Migrator().DropTable(&analysisResultRow{}, &combinedGradeRow{}))
+	})
+}
+
 func openDatabaseWithLegacyTables(t *testing.T) *gorm.DB {
 	database := openTestDatabase(t)
+	dropLegacyTablesAfterTheTest(t, database)
 	require.NoError(t, database.Migrator().DropTable(&analysisResultRow{}, &combinedGradeRow{}))
 	require.NoError(t, database.AutoMigrate(&analysisResultRow{}, &combinedGradeRow{}))
 	return database
@@ -143,7 +151,6 @@ func TestGradeRecordRepository_ImportLegacyGradesRunsOnlyOnce(t *testing.T) {
 
 func TestGradeRecordRepository_ImportLegacyGradesWithoutLegacyTablesChangesNothing(t *testing.T) {
 	database := openTestDatabase(t)
-	require.NoError(t, database.Migrator().DropTable(&analysisResultRow{}, &combinedGradeRow{}))
 
 	require.NoError(t, persistence.NewGradeRecordRepository(database).ImportLegacyGrades(context.Background()))
 
@@ -198,7 +205,7 @@ func TestGradeRecordRepository_ImportLegacyGradesFailsWhenALegacyTableCannotBeRe
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			database := openTestDatabase(t)
-			require.NoError(t, database.Migrator().DropTable(&analysisResultRow{}, &combinedGradeRow{}))
+			dropLegacyTablesAfterTheTest(t, database)
 			require.NoError(t, testCase.createLegacyTable(database))
 
 			importError := persistence.NewGradeRecordRepository(database).ImportLegacyGrades(context.Background())
