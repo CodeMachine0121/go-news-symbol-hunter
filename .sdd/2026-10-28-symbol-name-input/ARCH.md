@@ -31,7 +31,7 @@
 | `TwseOpenDataProxy` | **Modify** | 名錄改用 `STOCK_DAY_ALL`（含 ETF）：`twseDailyClosing` 加 `Name`，`SearchSymbolListings` 回整份清單；移除 `t187ap03_L`、`FindCompanyShortName`、`shortNamesCache`、`TwseOpenDataUrls.ListedCompanies` |
 | `TpexOpenDataProxy` | **Modify** | `SearchSymbolListings` 回整份清單，排除權證（6 碼且 `7` 開頭）；移除 `FindCompanyShortName` |
 | `CoinGeckoCryptocurrencyProxy` | **Modify** | `FindCoinName` 換成 `SearchSymbolListings(query)`：回整份搜尋結果，`Priority` 為市值排名；快取改以「小寫後的查詢字」為鍵，快取清單 |
-| `YahooFinanceProxy` | **Modify** | 新增 `SearchSymbolListings`：打 Yahoo search（`quotesCount=20&newsCount=0`），只留 `quoteType` 為 `EQUITY`/`ETF` 且交易所屬美國（`NMS NGM NCM NAS NYQ NYS ASE PCX BTS`）者；名稱取 `longname`，空則 `shortname`；代號 `BRK-B` 轉回 `BRK.B`；移除 `FindCompanyShortName` 與 chart 回應的 `shortName`/`longName` |
+| `YahooFinanceProxy` | **Modify** | 新增 `SearchSymbolListings`：打 Yahoo search（`quotesCount=20&newsCount=0`），只留 `quoteType` 為 `EQUITY`/`ETF` 且交易所屬美國（`NMS NGM NCM NAS NYQ NYS ASE PCX BTS`，以及 OTC 的 `PNK OQB OQX`）者；名稱取 `longname`，空則 `shortname`；代號 `BRK-B` 轉回 `BRK.B`；移除 `FindCompanyShortName` 與 chart 回應的 `shortName`/`longName` |
 | `controller`（`ErrorDetail`、`ErrorResponseTable.Respond`、`analysisEventErrorResponseTable`） | **Modify** | `ErrorDetail` 加 `Candidates []dto.SymbolCandidateDto json:"candidates,omitempty"`；`Respond` 以 `errors.As` 帶出候選；`ErrSymbolAmbiguous` 對映 **422** `symbol_ambiguous` |
 | `cmd/server/dependencies.go` | **Modify** | 組裝新的名錄；`ExternalSourceUrls` 移除 `TwseListedCompanies`，新增 `YahooFinanceSearch: https://query1.finance.yahoo.com/v1/finance/search` |
 | `postman/`、`.sdd/PROJECT.md` | **Modify** | 補「符合多個標的」的回應範例 |
@@ -45,7 +45,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | `ISymbolDirectoryProxy` | Interface | 依查詢字回傳某市場的候選標的清單 | TWSE / TPEx / CoinGecko / Yahoo proxy | US-01～US-03 全部 |
 | `vo.SymbolListingVo` | VO | 名錄一筆的正規化形狀 | — | 同上 |
-| `domains.SymbolDirectoryDomain` | Domain Model | `NewSymbolDirectoryDomain(category, listings)`：丟掉代號或名稱為空的列，依 `(Priority, Symbol)` 穩定排序。`FindBySymbol(symbol)`：代號完全相同的第一筆。`Identify(symbol)`：第一層「代號或名稱完全相同」取第一筆；第二層「名稱包含」唯一即採用、多個則回最多 10 個候選；都沒有即找不到。比對前去前後空白、轉小寫、合併連續空白；美股名稱另去除 `,` `.` 與結尾的公司字尾（Inc、Incorporated、Corp、Corporation、Co、Company、Ltd、Limited、PLC、LP、LLC、SA、NV、AG、Holdings，可連續去除） | `SymbolListingVo`、`SymbolIdentificationVo` | US-01～US-03 的比對、唯一、候選情境 |
+| `domains.SymbolDirectoryDomain` | Domain Model | `NewSymbolDirectoryDomain(category, listings)`：丟掉代號為空的列，以及台股、加密貨幣名稱為空的列（它們以名稱搜尋新聞；美股名稱可為空），依 `(Priority, Symbol)` 穩定排序。`FindBySymbol(symbol)`：代號完全相同的第一筆。`Identify(symbol)` 回傳（辨識結果、候選、是否辨識到），錯誤由 service 產生：第一層「代號或名稱完全相同」取第一筆；第二層「名稱包含」唯一即採用、多個則回最多 10 個候選；都沒有即找不到。比對前去前後空白、轉小寫、合併連續空白；美股名稱另去除 `,` `.` 與結尾的公司字尾（Inc、Incorporated、Corp、Corporation、Co、Company、Ltd、Limited、PLC、LP、LLC、SA、NV、AG、Holdings，可連續去除） | `SymbolListingVo`、`SymbolIdentificationVo` | US-01～US-03 的比對、唯一、候選情境 |
 | `vo.SymbolIdentificationVo` | VO | `Identify` 的結果 | — | 同上 |
 | `dto.SymbolCandidateDto` | DTO | 候選的對外形狀 | — | 名稱符合多個標的的情境 |
 | `service.SymbolAmbiguousError` | Error type | 攜帶候選；`Error()` 為「符合多個標的，請改填代號或更完整的名稱」 | controller | 名稱符合多個標的的情境 |
