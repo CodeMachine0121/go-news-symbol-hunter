@@ -24,14 +24,21 @@ type directoryAnswer struct {
 	err       error
 }
 
+func (answer directoryAnswer) listingsOf(stockCode string) []vo.SymbolListingVo {
+	if !answer.found {
+		return []vo.SymbolListingVo{}
+	}
+	return []vo.SymbolListingVo{{Symbol: stockCode, Name: answer.shortName}}
+}
+
 func searchTaiwanStockNews(t *testing.T, stockCode string, twseAnswer directoryAnswer, tpexAnswer *directoryAnswer) (dto.SymbolNewsDto, []string, error) {
-	twseDirectory := mocks.NewMockIListedCompanyProxy(t)
-	twseDirectory.EXPECT().FindCompanyShortName(mock.Anything, stockCode).Return(twseAnswer.shortName, twseAnswer.found, twseAnswer.err)
+	twseDirectory := mocks.NewMockISymbolDirectoryProxy(t)
+	twseDirectory.EXPECT().SearchSymbolListings(mock.Anything, stockCode).Return(twseAnswer.listingsOf(stockCode), twseAnswer.err)
 	if tpexAnswer == nil {
 		tpexAnswer = &directoryAnswer{}
 	}
-	tpexDirectory := mocks.NewMockIListedCompanyProxy(t)
-	tpexDirectory.EXPECT().FindCompanyShortName(mock.Anything, stockCode).Return(tpexAnswer.shortName, tpexAnswer.found, tpexAnswer.err)
+	tpexDirectory := mocks.NewMockISymbolDirectoryProxy(t)
+	tpexDirectory.EXPECT().SearchSymbolListings(mock.Anything, stockCode).Return(tpexAnswer.listingsOf(stockCode), tpexAnswer.err)
 	searchedKeywords := []string{}
 	newsProxy := mocks.NewMockINewsProxy(t)
 	newsProxy.EXPECT().ProviderName().Return("鉅亨網").Maybe()
@@ -42,8 +49,8 @@ func searchTaiwanStockNews(t *testing.T, stockCode string, twseAnswer directoryA
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)).Maybe()
 	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{
-		TwStock: []interfaces.IListedCompanyProxy{twseDirectory, tpexDirectory},
-		Crypto:  mocks.NewMockICryptocurrencyProxy(t),
+		TwStock: []interfaces.ISymbolDirectoryProxy{twseDirectory, tpexDirectory},
+		Crypto:  mocks.NewMockISymbolDirectoryProxy(t),
 	})
 	newsSearchApplication := application.NewNewsSearchApplication(service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{
 		TwStock: []dto.NewsProviderDto{{NewsProxy: newsProxy}},
@@ -125,10 +132,10 @@ func TestCapturePrice_FallsBackToTheNextSourceOfTheMarket(t *testing.T) {
 }
 
 func TestStartSymbolAnalysis_AcceptsAnOtcStock(t *testing.T) {
-	twseDirectory := mocks.NewMockIListedCompanyProxy(t)
-	twseDirectory.EXPECT().FindCompanyShortName(mock.Anything, "6182").Return("", false, nil)
-	tpexDirectory := mocks.NewMockIListedCompanyProxy(t)
-	tpexDirectory.EXPECT().FindCompanyShortName(mock.Anything, "6182").Return("合晶", true, nil)
+	twseDirectory := mocks.NewMockISymbolDirectoryProxy(t)
+	twseDirectory.EXPECT().SearchSymbolListings(mock.Anything, "6182").Return([]vo.SymbolListingVo{}, nil)
+	tpexDirectory := mocks.NewMockISymbolDirectoryProxy(t)
+	tpexDirectory.EXPECT().SearchSymbolListings(mock.Anything, "6182").Return([]vo.SymbolListingVo{{Symbol: "6182", Name: "合晶"}}, nil)
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)).Maybe()
 	analystProxy := mocks.NewMockIAnalystProxy(t)
@@ -139,7 +146,7 @@ func TestStartSymbolAnalysis_AcceptsAnOtcStock(t *testing.T) {
 		analysisEvent.ID = 61
 		return nil
 	})
-	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{twseDirectory, tpexDirectory}})
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.ISymbolDirectoryProxy{twseDirectory, tpexDirectory}})
 	symbolAnalysisService := service.NewSymbolAnalysisService(
 		symbolResolutionService,
 		service.NewAnalystConsultationService(analystProxy, service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})),
@@ -164,17 +171,17 @@ func TestTaiwanStockResolution_AsksBothExchangesAtOnce(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 	}
-	twseDirectory := mocks.NewMockIListedCompanyProxy(t)
-	twseDirectory.EXPECT().FindCompanyShortName(mock.Anything, "6182").RunAndReturn(func(context.Context, string) (string, bool, error) {
+	twseDirectory := mocks.NewMockISymbolDirectoryProxy(t)
+	twseDirectory.EXPECT().SearchSymbolListings(mock.Anything, "6182").RunAndReturn(func(context.Context, string) ([]vo.SymbolListingVo, error) {
 		waitForTheOther()
-		return "", false, nil
+		return []vo.SymbolListingVo{}, nil
 	})
-	tpexDirectory := mocks.NewMockIListedCompanyProxy(t)
-	tpexDirectory.EXPECT().FindCompanyShortName(mock.Anything, "6182").RunAndReturn(func(context.Context, string) (string, bool, error) {
+	tpexDirectory := mocks.NewMockISymbolDirectoryProxy(t)
+	tpexDirectory.EXPECT().SearchSymbolListings(mock.Anything, "6182").RunAndReturn(func(context.Context, string) ([]vo.SymbolListingVo, error) {
 		waitForTheOther()
-		return "合晶", true, nil
+		return []vo.SymbolListingVo{{Symbol: "6182", Name: "合晶"}}, nil
 	})
-	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{twseDirectory, tpexDirectory}})
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.ISymbolDirectoryProxy{twseDirectory, tpexDirectory}})
 
 	resolvedSymbol, err := symbolResolutionService.ResolveSymbol(context.Background(), dto.ResolveSymbolDto{Symbol: "6182", Category: "twStock"})
 

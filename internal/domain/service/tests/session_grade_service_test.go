@@ -46,7 +46,7 @@ func TestSessionGradeService_RunDueTradingSession_ReportsWhetherTheRunWasRecorde
 			sessionRunRepository := mocks.NewMockISessionRunRepository(t)
 			trackedSymbolRepository := mocks.NewMockITrackedSymbolRepository(t)
 			testCase.given(sessionRunRepository, trackedSymbolRepository)
-			symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{}})
+			symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.ISymbolDirectoryProxy{}})
 			sessionGradeService := service.NewSessionGradeService(
 				symbolResolutionService,
 				service.NewAnalystConsultationService(mocks.NewMockIAnalystProxy(t), service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})),

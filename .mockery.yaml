@@ -13,8 +13,7 @@ packages:
       IClockProxy: {}
       IRandomProxy: {}
       INewsProxy: {}
-      IListedCompanyProxy: {}
-      ICryptocurrencyProxy: {}
+      ISymbolDirectoryProxy: {}
       IAnalystProxy: {}
       IAnalysisEventRepository: {}
       IGradeRecordRepository: {}

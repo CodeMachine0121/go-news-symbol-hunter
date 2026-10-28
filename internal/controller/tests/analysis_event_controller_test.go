@@ -27,7 +27,7 @@ var analysisStartedAt = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 type analysisRouterFixture struct {
 	router                  *gin.Engine
 	apiKeyRepository        *mocks.MockIApiKeyRepository
-	cryptocurrencyProxy     *mocks.MockICryptocurrencyProxy
+	cryptocurrencyProxy     *mocks.MockISymbolDirectoryProxy
 	analystProxy            *mocks.MockIAnalystProxy
 	analysisEventRepository *mocks.MockIAnalysisEventRepository
 	gradeRecordRepository   *mocks.MockIGradeRecordRepository
@@ -39,13 +39,13 @@ func createAnalysisRouter(t *testing.T) analysisRouterFixture {
 	clockProxy.EXPECT().Now().Return(analysisStartedAt).Maybe()
 	fixture := analysisRouterFixture{
 		apiKeyRepository:        mocks.NewMockIApiKeyRepository(t),
-		cryptocurrencyProxy:     mocks.NewMockICryptocurrencyProxy(t),
+		cryptocurrencyProxy:     mocks.NewMockISymbolDirectoryProxy(t),
 		analystProxy:            mocks.NewMockIAnalystProxy(t),
 		analysisEventRepository: mocks.NewMockIAnalysisEventRepository(t),
 		gradeRecordRepository:   mocks.NewMockIGradeRecordRepository(t),
 	}
 	fixture.analystProxy.EXPECT().ModelName().Return("claude-opus-5-5").Maybe()
-	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{mocks.NewMockIListedCompanyProxy(t)}, Crypto: fixture.cryptocurrencyProxy})
+	symbolResolutionService := service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.ISymbolDirectoryProxy{mocks.NewMockISymbolDirectoryProxy(t)}, Crypto: fixture.cryptocurrencyProxy})
 	newsSearchService := service.NewNewsSearchService(symbolResolutionService, clockProxy, dto.NewsProviderCatalogDto{})
 	unavailablePriceProxy := mocks.NewMockIPriceProxy(t)
 	unavailablePriceProxy.EXPECT().FetchPrice(mock.Anything, mock.Anything).Return(vo.PriceQuoteVo{}, errDatabaseDown).Maybe()
@@ -68,7 +68,7 @@ func (fixture analysisRouterFixture) givenActiveKey() {
 func TestStartSymbolAnalysis_AcceptsANewAnalysisForTheCallingKey(t *testing.T) {
 	fixture := createAnalysisRouter(t)
 	fixture.givenActiveKey()
-	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "BTC").Return("Bitcoin", true, nil)
+	fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "BTC").Return([]vo.SymbolListingVo{{Symbol: "BTC", Name: "Bitcoin"}}, nil)
 	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "crypto").Return(nil, nil)
 	createdApiKeyID := make(chan uint, 1)
 	fixture.analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, analysisEvent *entities.AnalysisEvent) error {
@@ -93,7 +93,7 @@ func TestStartSymbolAnalysis_AcceptsANewAnalysisForTheCallingKey(t *testing.T) {
 func TestStartSymbolAnalysis_ReturnsAReusedAnalysisWithOk(t *testing.T) {
 	fixture := createAnalysisRouter(t)
 	fixture.givenActiveKey()
-	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "BTC").Return("Bitcoin", true, nil)
+	fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "BTC").Return([]vo.SymbolListingVo{{Symbol: "BTC", Name: "Bitcoin"}}, nil)
 	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "crypto").Return(&entities.AnalysisEvent{ID: 30, Symbol: "BTC", SymbolName: "Bitcoin", Category: "crypto", Status: "running", StartedAt: analysisStartedAt}, nil)
 
 	recorder := send(fixture.router, http.MethodPost, "/analysis-events", presentedApiKey, `{"symbol":"BTC","category":"crypto"}`)
@@ -116,13 +116,13 @@ func TestStartSymbolAnalysis_ErrorResponses(t *testing.T) {
 		{name: "empty body", body: ``, expectedStatus: http.StatusBadRequest, expectedCode: "market_category_unsupported", expectedMessage: "市場類別只能是 crypto、twStock、usStock"},
 		{name: "malformed body", body: `{"symbol":`, expectedStatus: http.StatusBadRequest, expectedCode: "invalid_request_body", expectedMessage: "請求內容格式錯誤"},
 		{name: "unknown coin", body: `{"symbol":"NOTACOIN","category":"crypto"}`, given: func(fixture analysisRouterFixture) {
-			fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "NOTACOIN").Return("", false, nil)
+			fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "NOTACOIN").Return([]vo.SymbolListingVo{}, nil)
 		}, expectedStatus: http.StatusNotFound, expectedCode: "symbol_not_found", expectedMessage: "找不到此標的"},
 		{name: "coin directory unavailable", body: `{"symbol":"BTC","category":"crypto"}`, given: func(fixture analysisRouterFixture) {
-			fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "BTC").Return("", false, errDatabaseDown)
+			fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "BTC").Return(nil, errDatabaseDown)
 		}, expectedStatus: http.StatusBadGateway, expectedCode: "news_providers_unavailable", expectedMessage: "新聞來源暫時無法使用"},
 		{name: "storage unavailable", body: `{"symbol":"BTC","category":"crypto"}`, given: func(fixture analysisRouterFixture) {
-			fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "BTC").Return("Bitcoin", true, nil)
+			fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "BTC").Return([]vo.SymbolListingVo{{Symbol: "BTC", Name: "Bitcoin"}}, nil)
 			fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "BTC", "crypto").Return(nil, errDatabaseDown)
 		}, expectedStatus: http.StatusServiceUnavailable, expectedCode: "service_unavailable", expectedMessage: "服務暫時無法使用"},
 	}
@@ -140,6 +140,18 @@ func TestStartSymbolAnalysis_ErrorResponses(t *testing.T) {
 			assert.Equal(t, controller.ErrorDetail{Code: testCase.expectedCode, Message: testCase.expectedMessage}, decodeError(t, recorder))
 		})
 	}
+}
+
+func TestStartSymbolAnalysisRoute_ListsTheCandidatesOfAnAmbiguousName(t *testing.T) {
+	fixture := createAnalysisRouter(t)
+	fixture.givenActiveKey()
+	fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "BITCO").Return([]vo.SymbolListingVo{{Symbol: "BCH", Name: "Bitcoin Cash", Priority: 21}, {Symbol: "BTC", Name: "Bitcoin", Priority: 1}}, nil)
+
+	recorder := send(fixture.router, http.MethodPost, "/analysis-events", presentedApiKey, `{"symbol":"Bitco","category":"crypto"}`)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
+	assert.JSONEq(t, `{"error":{"code":"symbol_ambiguous","message":"符合多個標的，請改填代號或更完整的名稱","candidates":[{"symbol":"BTC","symbolName":"Bitcoin"},{"symbol":"BCH","symbolName":"Bitcoin Cash"}]}}`, recorder.Body.String())
+	fixture.analysisEventRepository.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
 func TestAnalysisEventRoutes_RequireAnActiveKey(t *testing.T) {
@@ -216,8 +228,8 @@ func TestAnalysisEventRoutes_RejectAnInactiveKey(t *testing.T) {
 func TestStartSymbolAnalysis_RejectsWhenAnalysisCapacityIsReached(t *testing.T) {
 	fixture := createAnalysisRouter(t)
 	fixture.apiKeyRepository.EXPECT().FindBySecretHash(hashOf(presentedApiKey)).Return(&entities.ApiKey{ID: 12, IsActive: true}, nil).Times(2)
-	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, symbol string) (string, bool, error) {
-		return symbol, true, nil
+	fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, symbol string) ([]vo.SymbolListingVo, error) {
+		return []vo.SymbolListingVo{{Symbol: symbol, Name: symbol}}, nil
 	})
 	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, mock.Anything, "crypto").Return(nil, nil)
 	fixture.analysisEventRepository.EXPECT().Create(mock.Anything, mock.Anything).Return(nil).Once()

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/tpex"
 	"github.com/shopspring/decimal"
@@ -22,7 +23,9 @@ const dailyClosings = `[
 {"Date":"1151006","SecuritiesCompanyCode":"5483","CompanyName":"中美晶","Close":" ---"},
 {"Date":"1151006","SecuritiesCompanyCode":"","CompanyName":"沒有代號","Close":"10"},
 {"Date":"1151006","SecuritiesCompanyCode":"9998","CompanyName":"","Close":"10"},
-{"Date":"ABC","SecuritiesCompanyCode":"9997","CompanyName":"壞日期","Close":"10"}
+{"Date":"ABC","SecuritiesCompanyCode":"9997","CompanyName":"壞日期","Close":"10"},
+{"Date":"1151006","SecuritiesCompanyCode":"00679B","CompanyName":"元大美債20年","Close":"27.00"},
+{"Date":"1151006","SecuritiesCompanyCode":"710001","CompanyName":"合晶元大5A購01","Close":"0.50"}
 ]`
 
 var lookedUpAt = time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
@@ -40,21 +43,19 @@ func startServer(t *testing.T, statusCode int, body string) (*tpex.TpexOpenDataP
 	return tpex.NewTpexOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL), requestCount
 }
 
-func TestTpexOpenDataProxy_FindsOtcCompanyShortNames(t *testing.T) {
+func TestTpexOpenDataProxy_ListsOtcStocksAndEtfsButNotWarrants(t *testing.T) {
 	tpexOpenDataProxy, requestCount := startServer(t, http.StatusOK, dailyClosings)
 
-	shortName, found, err := tpexOpenDataProxy.FindCompanyShortName(context.Background(), "6182")
-	trimmedShortName, trimmedFound, _ := tpexOpenDataProxy.FindCompanyShortName(context.Background(), "8299")
-	_, unlistedFound, _ := tpexOpenDataProxy.FindCompanyShortName(context.Background(), "2330")
-	_, unnamedFound, _ := tpexOpenDataProxy.FindCompanyShortName(context.Background(), "9998")
+	listings, err := tpexOpenDataProxy.SearchSymbolListings(context.Background(), "合晶")
 
 	require.NoError(t, err)
-	assert.True(t, found)
-	assert.Equal(t, "合晶", shortName)
-	assert.True(t, trimmedFound)
-	assert.Equal(t, "群聯", trimmedShortName)
-	assert.False(t, unlistedFound)
-	assert.False(t, unnamedFound)
+	assert.ElementsMatch(t, []vo.SymbolListingVo{
+		{Symbol: "6182", Name: "合晶"},
+		{Symbol: "8299", Name: "群聯"},
+		{Symbol: "5483", Name: "中美晶"},
+		{Symbol: "9997", Name: "壞日期"},
+		{Symbol: "00679B", Name: "元大美債20年"},
+	}, listings)
 	assert.Equal(t, int32(1), requestCount.Load())
 }
 
@@ -97,11 +98,11 @@ func TestTpexOpenDataProxy_ReportsUnavailableOrEmptyData(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			tpexOpenDataProxy, _ := startServer(t, testCase.statusCode, testCase.body)
 
-			_, found, lookupError := tpexOpenDataProxy.FindCompanyShortName(context.Background(), "6182")
+			listings, lookupError := tpexOpenDataProxy.SearchSymbolListings(context.Background(), "6182")
 			_, priceError := tpexOpenDataProxy.FetchPrice(context.Background(), "6182")
 
 			assert.Error(t, lookupError)
-			assert.False(t, found)
+			assert.Empty(t, listings)
 			assert.Error(t, priceError)
 		})
 	}
@@ -120,10 +121,10 @@ func TestTpexOpenDataProxy_ReusesTheDailyClosingsForAnHour(t *testing.T) {
 	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(time.Hour))
 	tpexOpenDataProxy := tpex.NewTpexOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
 
-	_, _, _ = tpexOpenDataProxy.FindCompanyShortName(context.Background(), "6182")
+	_, _ = tpexOpenDataProxy.SearchSymbolListings(context.Background(), "6182")
 	_, _ = tpexOpenDataProxy.FetchPrice(context.Background(), "6182")
 	assert.Equal(t, int32(1), requestCount.Load())
-	_, _, _ = tpexOpenDataProxy.FindCompanyShortName(context.Background(), "6182")
+	_, _ = tpexOpenDataProxy.SearchSymbolListings(context.Background(), "6182")
 
 	assert.Equal(t, int32(2), requestCount.Load())
 }
@@ -142,14 +143,13 @@ func TestTpexOpenDataProxy_KeepsTheLastGoodDataWhenARefreshFails(t *testing.T) {
 	clockProxy.EXPECT().Now().Return(lookedUpAt).Times(2)
 	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(2 * time.Hour))
 	tpexOpenDataProxy := tpex.NewTpexOpenDataProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
-	_, _, _ = tpexOpenDataProxy.FindCompanyShortName(context.Background(), "6182")
+	_, _ = tpexOpenDataProxy.SearchSymbolListings(context.Background(), "6182")
 
-	shortName, found, lookupError := tpexOpenDataProxy.FindCompanyShortName(context.Background(), "6182")
+	listings, lookupError := tpexOpenDataProxy.SearchSymbolListings(context.Background(), "6182")
 	priceQuote, priceError := tpexOpenDataProxy.FetchPrice(context.Background(), "6182")
 
 	require.NoError(t, lookupError)
-	assert.True(t, found)
-	assert.Equal(t, "合晶", shortName)
+	assert.Contains(t, listings, vo.SymbolListingVo{Symbol: "6182", Name: "合晶"})
 	require.NoError(t, priceError)
 	assert.True(t, decimal.RequireFromString("128.00").Equal(priceQuote.Price))
 	assert.GreaterOrEqual(t, requestCount.Load(), int32(2))

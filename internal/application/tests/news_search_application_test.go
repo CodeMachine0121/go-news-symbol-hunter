@@ -20,8 +20,8 @@ var newsSearchedAt = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 
 type newsSearchFixture struct {
 	newsSearchApplication *application.NewsSearchApplication
-	listedCompanyProxy    *mocks.MockIListedCompanyProxy
-	cryptocurrencyProxy   *mocks.MockICryptocurrencyProxy
+	listedCompanyProxy    *mocks.MockISymbolDirectoryProxy
+	cryptocurrencyProxy   *mocks.MockISymbolDirectoryProxy
 	cnyesNewsProxy        *mocks.MockINewsProxy
 	twGoogleNewsProxy     *mocks.MockINewsProxy
 	yahooNewsProxy        *mocks.MockINewsProxy
@@ -38,8 +38,8 @@ func createNewsProxy(t *testing.T, providerName string) *mocks.MockINewsProxy {
 
 func createNewsSearchFixture(t *testing.T) newsSearchFixture {
 	fixture := newsSearchFixture{
-		listedCompanyProxy:    mocks.NewMockIListedCompanyProxy(t),
-		cryptocurrencyProxy:   mocks.NewMockICryptocurrencyProxy(t),
+		listedCompanyProxy:    mocks.NewMockISymbolDirectoryProxy(t),
+		cryptocurrencyProxy:   mocks.NewMockISymbolDirectoryProxy(t),
 		cnyesNewsProxy:        createNewsProxy(t, "鉅亨網"),
 		twGoogleNewsProxy:     createNewsProxy(t, "Google 新聞"),
 		yahooNewsProxy:        createNewsProxy(t, "Yahoo 財經"),
@@ -50,9 +50,9 @@ func createNewsSearchFixture(t *testing.T) newsSearchFixture {
 	clockProxy := mocks.NewMockIClockProxy(t)
 	clockProxy.EXPECT().Now().Return(newsSearchedAt).Maybe()
 	// no expectations: searching news must never ask for a US company name
-	usStockCompanyProxy := mocks.NewMockIListedCompanyProxy(t)
+	usStockCompanyProxy := mocks.NewMockISymbolDirectoryProxy(t)
 	newsSearchService := service.NewNewsSearchService(
-		service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{fixture.listedCompanyProxy}, UsStock: usStockCompanyProxy, Crypto: fixture.cryptocurrencyProxy}),
+		service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.ISymbolDirectoryProxy{fixture.listedCompanyProxy}, UsStock: usStockCompanyProxy, Crypto: fixture.cryptocurrencyProxy}),
 		clockProxy,
 		dto.NewsProviderCatalogDto{
 			TwStock: []dto.NewsProviderDto{{NewsProxy: fixture.cnyesNewsProxy}, {NewsProxy: fixture.twGoogleNewsProxy}},
@@ -74,7 +74,7 @@ func titlesOfNews(newsDtos []dto.NewsDto) []string {
 
 func TestSearchSymbolNews_TaiwanStockSearchesByCompanyShortName(t *testing.T) {
 	fixture := createNewsSearchFixture(t)
-	fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "2330").Return("台積電", true, nil)
+	fixture.listedCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "2330").Return([]vo.SymbolListingVo{{Symbol: "2330", Name: "台積電"}}, nil)
 	fixture.cnyesNewsProxy.EXPECT().FetchNews(mock.Anything, "台積電").Return([]vo.NewsVo{{Title: "台積電法說會", ProviderName: "鉅亨網", PublishedAt: newsSearchedAt.Add(-2 * time.Hour)}}, nil)
 	fixture.twGoogleNewsProxy.EXPECT().FetchNews(mock.Anything, "台積電").Return([]vo.NewsVo{{Title: "台積電法說會", ProviderName: "Google 新聞", PublishedAt: newsSearchedAt.Add(-3 * time.Hour)}, {Title: "台積電擴產", ProviderName: "Google 新聞", PublishedAt: newsSearchedAt.Add(-time.Hour)}}, nil)
 
@@ -114,7 +114,7 @@ func TestSearchSymbolNews_UsStockWithoutNewsReturnsAnEmptyList(t *testing.T) {
 
 func TestSearchSymbolNews_CryptoFiltersOnlyWholeFeedProviders(t *testing.T) {
 	fixture := createNewsSearchFixture(t)
-	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "BTC").Return("Bitcoin", true, nil)
+	fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "BTC").Return([]vo.SymbolListingVo{{Symbol: "BTC", Name: "Bitcoin"}}, nil)
 	fixture.coinDeskNewsProxy.EXPECT().FetchNews(mock.Anything, "Bitcoin").Return([]vo.NewsVo{
 		{Title: "Bitcoin rallies", PublishedAt: newsSearchedAt},
 		{Title: "Ether upgrade", PublishedAt: newsSearchedAt.Add(-time.Minute)},
@@ -130,7 +130,7 @@ func TestSearchSymbolNews_CryptoFiltersOnlyWholeFeedProviders(t *testing.T) {
 
 func TestSearchSymbolNews_ReportsAFailedProviderAndKeepsTheOthers(t *testing.T) {
 	fixture := createNewsSearchFixture(t)
-	fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "2330").Return("台積電", true, nil)
+	fixture.listedCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "2330").Return([]vo.SymbolListingVo{{Symbol: "2330", Name: "台積電"}}, nil)
 	fixture.cnyesNewsProxy.EXPECT().FetchNews(mock.Anything, "台積電").Return([]vo.NewsVo{{Title: "台積電法說會", PublishedAt: newsSearchedAt}}, nil)
 	fixture.twGoogleNewsProxy.EXPECT().FetchNews(mock.Anything, "台積電").Return(nil, errDatabaseDown)
 
@@ -153,16 +153,16 @@ func TestSearchSymbolNews_Rejections(t *testing.T) {
 		{name: "missing market", symbol: "0700", category: "", expectedError: service.ErrMarketCategoryUnsupported},
 		{name: "missing symbol", symbol: " ", category: "crypto", expectedError: service.ErrSymbolRequired},
 		{name: "unlisted taiwan stock", symbol: "9999", category: "twStock", givenProxies: func(fixture newsSearchFixture) {
-			fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "9999").Return("", false, nil)
+			fixture.listedCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "9999").Return([]vo.SymbolListingVo{}, nil)
 		}, expectedError: service.ErrSymbolNotFound},
 		{name: "unknown coin", symbol: "NOTACOIN", category: "crypto", givenProxies: func(fixture newsSearchFixture) {
-			fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "NOTACOIN").Return("", false, nil)
+			fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "NOTACOIN").Return([]vo.SymbolListingVo{}, nil)
 		}, expectedError: service.ErrSymbolNotFound},
 		{name: "listed company directory unavailable", symbol: "2330", category: "twStock", givenProxies: func(fixture newsSearchFixture) {
-			fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "2330").Return("", false, errDatabaseDown)
+			fixture.listedCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "2330").Return(nil, errDatabaseDown)
 		}, expectedError: service.ErrNewsProvidersUnavailable},
 		{name: "coin directory unavailable", symbol: "BTC", category: "crypto", givenProxies: func(fixture newsSearchFixture) {
-			fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "BTC").Return("", false, errDatabaseDown)
+			fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "BTC").Return(nil, errDatabaseDown)
 		}, expectedError: service.ErrNewsProvidersUnavailable},
 		{name: "every news provider fails", symbol: "AAPL", category: "usStock", givenProxies: func(fixture newsSearchFixture) {
 			fixture.yahooNewsProxy.EXPECT().FetchNews(mock.Anything, "AAPL").Return(nil, errDatabaseDown)
@@ -199,7 +199,7 @@ func TestSearchSymbolNews_APanickingProviderFailsAlone(t *testing.T) {
 
 func TestSearchSymbolNews_CryptoRelevanceMatchesWholeWordsOnly(t *testing.T) {
 	fixture := createNewsSearchFixture(t)
-	fixture.cryptocurrencyProxy.EXPECT().FindCoinName(mock.Anything, "ETH").Return("Ethereum", true, nil)
+	fixture.cryptocurrencyProxy.EXPECT().SearchSymbolListings(mock.Anything, "ETH").Return([]vo.SymbolListingVo{{Symbol: "ETH", Name: "Ethereum"}}, nil)
 	fixture.coinDeskNewsProxy.EXPECT().FetchNews(mock.Anything, "Ethereum").Return([]vo.NewsVo{
 		{Title: "ETH tops $5,000", PublishedAt: newsSearchedAt},
 		{Title: "Something big is coming together", PublishedAt: newsSearchedAt.Add(-time.Minute)},

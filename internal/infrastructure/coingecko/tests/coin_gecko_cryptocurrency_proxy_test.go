@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/httpfetch"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-news-symbol-hunter/internal/infrastructure/coingecko"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,33 +33,34 @@ func startSearchServer(t *testing.T, statusCode int, body string) (*httptest.Ser
 	return server, requestCount, receivedQuery
 }
 
-func TestCoinGeckoCryptocurrencyProxy_PicksTheBestRankedExactSymbolMatch(t *testing.T) {
-	testCases := []struct {
-		name             string
-		body             string
-		expectedCoinName string
-		expectedFound    bool
-	}{
-		{name: "best market cap rank wins among exact symbol matches", body: `{"coins":[{"symbol":"BTCP","name":"Bitcoin Pro","market_cap_rank":805},{"symbol":"btc","name":"Bitcoin Fork","market_cap_rank":900},{"symbol":"BTC","name":"Bitcoin","market_cap_rank":1}]}`, expectedCoinName: "Bitcoin", expectedFound: true},
-		{name: "ranked match beats an unranked one", body: `{"coins":[{"symbol":"BTC","name":"Unranked Bitcoin","market_cap_rank":null},{"symbol":"BTC","name":"Bitcoin","market_cap_rank":3}]}`, expectedCoinName: "Bitcoin", expectedFound: true},
-		{name: "unranked match does not replace a ranked one", body: `{"coins":[{"symbol":"BTC","name":"Bitcoin","market_cap_rank":3},{"symbol":"BTC","name":"Unranked Bitcoin"}]}`, expectedCoinName: "Bitcoin", expectedFound: true},
-		{name: "first unranked match is kept when none is ranked", body: `{"coins":[{"symbol":"BTC","name":"First"},{"symbol":"BTC","name":"Second"}]}`, expectedCoinName: "First", expectedFound: true},
-		{name: "no exact symbol match", body: `{"coins":[{"symbol":"BTCP","name":"Bitcoin Pro","market_cap_rank":805}]}`, expectedFound: false},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			server, _, receivedQuery := startSearchServer(t, http.StatusOK, testCase.body)
-			clockProxy := mocks.NewMockIClockProxy(t)
-			clockProxy.EXPECT().Now().Return(lookedUpAt)
+func TestCoinGeckoCryptocurrencyProxy_ListsEverySearchResultRankedByMarketCap(t *testing.T) {
+	server, _, receivedQuery := startSearchServer(t, http.StatusOK, `{"coins":[{"symbol":"BTC","name":"Bitcoin","market_cap_rank":1},{"symbol":"BITCOIN","name":"HarryPotterObamaSonic10Inu","market_cap_rank":500},{"symbol":"BTCX","name":"Unranked Bitcoin","market_cap_rank":null}]}`)
+	clockProxy := mocks.NewMockIClockProxy(t)
+	clockProxy.EXPECT().Now().Return(lookedUpAt)
 
-			coinName, found, err := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL).FindCoinName(context.Background(), "BTC")
+	listings, err := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL).SearchSymbolListings(context.Background(), " Bitcoin ")
 
-			require.NoError(t, err)
-			assert.Equal(t, "BTC", *receivedQuery)
-			assert.Equal(t, testCase.expectedFound, found)
-			assert.Equal(t, testCase.expectedCoinName, coinName)
-		})
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "Bitcoin", *receivedQuery)
+	assert.Equal(t, []vo.SymbolListingVo{
+		{Symbol: "BTC", Name: "Bitcoin", Priority: 1},
+		{Symbol: "BITCOIN", Name: "HarryPotterObamaSonic10Inu", Priority: 500},
+		{Symbol: "BTCX", Name: "Unranked Bitcoin", Priority: math.MaxInt},
+	}, listings)
+}
+
+func TestCoinGeckoCryptocurrencyProxy_SharesTheCacheAcrossLetterCases(t *testing.T) {
+	server, requestCount, _ := startSearchServer(t, http.StatusOK, `{"coins":[{"symbol":"btc","name":"Bitcoin","market_cap_rank":1}]}`)
+	clockProxy := mocks.NewMockIClockProxy(t)
+	clockProxy.EXPECT().Now().Return(lookedUpAt)
+	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
+
+	_, _ = coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), "BITCOIN")
+	cachedListings, err := coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), "bitcoin")
+
+	require.NoError(t, err)
+	assert.Equal(t, []vo.SymbolListingVo{{Symbol: "btc", Name: "Bitcoin", Priority: 1}}, cachedListings)
+	assert.Equal(t, int32(1), requestCount.Load())
 }
 
 func TestCoinGeckoCryptocurrencyProxy_CachesLookupsIncludingMissesForTwentyFourHours(t *testing.T) {
@@ -68,13 +71,13 @@ func TestCoinGeckoCryptocurrencyProxy_CachesLookupsIncludingMissesForTwentyFourH
 	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(24 * time.Hour)).Once()
 	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
 
-	_, firstFound, _ := coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "NOTACOIN")
-	_, cachedFound, _ := coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "NOTACOIN")
+	firstListings, _ := coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), "NOTACOIN")
+	cachedListings, _ := coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), "NOTACOIN")
 	assert.Equal(t, int32(1), requestCount.Load())
-	_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "NOTACOIN")
+	_, _ = coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), "NOTACOIN")
 
-	assert.False(t, firstFound)
-	assert.False(t, cachedFound)
+	assert.Empty(t, firstListings)
+	assert.Empty(t, cachedListings)
 	assert.Equal(t, int32(2), requestCount.Load())
 }
 
@@ -92,10 +95,10 @@ func TestCoinGeckoCryptocurrencyProxy_ReportsUnavailableOrMalformedResponses(t *
 			clockProxy := mocks.NewMockIClockProxy(t)
 			clockProxy.EXPECT().Now().Return(lookedUpAt)
 
-			_, found, err := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL).FindCoinName(context.Background(), "BTC")
+			listings, err := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL).SearchSymbolListings(context.Background(), "BTC")
 
 			assert.Error(t, err)
-			assert.False(t, found)
+			assert.Empty(t, listings)
 		})
 	}
 }
@@ -114,18 +117,17 @@ func TestCoinGeckoCryptocurrencyProxy_DoesNotQueueOtherSymbolsBehindASlowLookup(
 	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
 	slowLookupDone := make(chan struct{})
 	go func() {
-		_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "SLOW")
+		_, _ = coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), "SLOW")
 		close(slowLookupDone)
 	}()
 	time.Sleep(50 * time.Millisecond)
 
-	coinName, found, err := coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "ETH")
+	listings, err := coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), "ETH")
 
 	close(releaseSlowLookup)
 	<-slowLookupDone
 	require.NoError(t, err)
-	assert.True(t, found)
-	assert.Equal(t, "Ethereum", coinName)
+	assert.Equal(t, []vo.SymbolListingVo{{Symbol: "ETH", Name: "Ethereum", Priority: 2}}, listings)
 }
 
 func TestCoinGeckoCryptocurrencyProxy_KeepsTheCacheBounded(t *testing.T) {
@@ -134,11 +136,11 @@ func TestCoinGeckoCryptocurrencyProxy_KeepsTheCacheBounded(t *testing.T) {
 	clockProxy.EXPECT().Now().Return(lookedUpAt)
 	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
 	for index := range 1001 {
-		_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), fmt.Sprintf("COIN%d", index))
+		_, _ = coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), fmt.Sprintf("COIN%d", index))
 	}
 
-	_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "COIN0")
-	_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "COIN1000")
+	_, _ = coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), "COIN0")
+	_, _ = coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), "COIN1000")
 
 	assert.Equal(t, int32(1002), requestCount.Load())
 }
@@ -150,11 +152,11 @@ func TestCoinGeckoCryptocurrencyProxy_EvictsExpiredLookupsWhenFull(t *testing.T)
 	clockProxy.EXPECT().Now().Return(lookedUpAt.Add(25 * time.Hour))
 	coinGeckoCryptocurrencyProxy := coingecko.NewCoinGeckoCryptocurrencyProxy(httpfetch.NewHttpBodyReader(server.Client()), clockProxy, server.URL)
 	for index := range 1000 {
-		_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), fmt.Sprintf("COIN%d", index))
+		_, _ = coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), fmt.Sprintf("COIN%d", index))
 	}
 
-	_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "FRESH")
-	_, _, _ = coinGeckoCryptocurrencyProxy.FindCoinName(context.Background(), "FRESH")
+	_, _ = coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), "FRESH")
+	_, _ = coinGeckoCryptocurrencyProxy.SearchSymbolListings(context.Background(), "FRESH")
 
 	assert.Equal(t, int32(1001), requestCount.Load())
 }

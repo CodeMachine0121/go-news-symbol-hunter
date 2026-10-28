@@ -24,8 +24,8 @@ var newsSearchedAt = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 type newsRouterFixture struct {
 	router              *gin.Engine
 	apiKeyRepository    *mocks.MockIApiKeyRepository
-	listedCompanyProxy  *mocks.MockIListedCompanyProxy
-	cryptocurrencyProxy *mocks.MockICryptocurrencyProxy
+	listedCompanyProxy  *mocks.MockISymbolDirectoryProxy
+	cryptocurrencyProxy *mocks.MockISymbolDirectoryProxy
 	cnyesNewsProxy      *mocks.MockINewsProxy
 	googleNewsProxy     *mocks.MockINewsProxy
 }
@@ -36,8 +36,8 @@ func createNewsRouter(t *testing.T) newsRouterFixture {
 	clockProxy.EXPECT().Now().Return(newsSearchedAt).Maybe()
 	fixture := newsRouterFixture{
 		apiKeyRepository:    mocks.NewMockIApiKeyRepository(t),
-		listedCompanyProxy:  mocks.NewMockIListedCompanyProxy(t),
-		cryptocurrencyProxy: mocks.NewMockICryptocurrencyProxy(t),
+		listedCompanyProxy:  mocks.NewMockISymbolDirectoryProxy(t),
+		cryptocurrencyProxy: mocks.NewMockISymbolDirectoryProxy(t),
 		cnyesNewsProxy:      mocks.NewMockINewsProxy(t),
 		googleNewsProxy:     mocks.NewMockINewsProxy(t),
 	}
@@ -45,7 +45,7 @@ func createNewsRouter(t *testing.T) newsRouterFixture {
 	fixture.googleNewsProxy.EXPECT().ProviderName().Return("Google 新聞").Maybe()
 	apiKeyController := controller.NewApiKeyController(application.NewApiKeyApplication(service.NewApiKeyService(fixture.apiKeyRepository, clockProxy, mocks.NewMockIRandomProxy(t))))
 	newsSearchService := service.NewNewsSearchService(
-		service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.IListedCompanyProxy{fixture.listedCompanyProxy}, Crypto: fixture.cryptocurrencyProxy}),
+		service.NewSymbolResolutionService(dto.SymbolDirectoryCatalogDto{TwStock: []interfaces.ISymbolDirectoryProxy{fixture.listedCompanyProxy}, Crypto: fixture.cryptocurrencyProxy}),
 		clockProxy,
 		dto.NewsProviderCatalogDto{TwStock: []dto.NewsProviderDto{{NewsProxy: fixture.cnyesNewsProxy}, {NewsProxy: fixture.googleNewsProxy}}},
 	)
@@ -62,7 +62,7 @@ func (fixture newsRouterFixture) givenApiKey(isActive bool) {
 func TestSearchSymbolNews_ReturnsCuratedNewsAndFailedProviders(t *testing.T) {
 	fixture := createNewsRouter(t)
 	fixture.givenApiKey(true)
-	fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "2330").Return("台積電", true, nil)
+	fixture.listedCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "2330").Return([]vo.SymbolListingVo{{Symbol: "2330", Name: "台積電"}}, nil)
 	fixture.cnyesNewsProxy.EXPECT().FetchNews(mock.Anything, "台積電").Return([]vo.NewsVo{{Title: "台積電法說會", Link: "https://news.cnyes.com/news/id/1", PublishedAt: newsSearchedAt, ProviderName: "鉅亨網", Summary: "摘要"}}, nil)
 	fixture.googleNewsProxy.EXPECT().FetchNews(mock.Anything, "台積電").Return(nil, errors.New("timeout"))
 
@@ -98,10 +98,10 @@ func TestSearchSymbolNews_ErrorResponses(t *testing.T) {
 		{name: "missing market", query: "symbol=0700", expectedStatus: http.StatusBadRequest, expectedCode: "market_category_unsupported", expectedMessage: "市場類別只能是 crypto、twStock、usStock"},
 		{name: "missing symbol", query: "category=twStock", expectedStatus: http.StatusBadRequest, expectedCode: "symbol_required", expectedMessage: "標的為必填"},
 		{name: "unknown symbol", query: "symbol=9999&category=twStock", givenProxies: func(fixture newsRouterFixture) {
-			fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "9999").Return("", false, nil)
+			fixture.listedCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "9999").Return([]vo.SymbolListingVo{}, nil)
 		}, expectedStatus: http.StatusNotFound, expectedCode: "symbol_not_found", expectedMessage: "找不到此標的"},
 		{name: "every provider fails", query: "symbol=2330&category=twStock", givenProxies: func(fixture newsRouterFixture) {
-			fixture.listedCompanyProxy.EXPECT().FindCompanyShortName(mock.Anything, "2330").Return("台積電", true, nil)
+			fixture.listedCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "2330").Return([]vo.SymbolListingVo{{Symbol: "2330", Name: "台積電"}}, nil)
 			fixture.cnyesNewsProxy.EXPECT().FetchNews(mock.Anything, "台積電").Return(nil, errors.New("down"))
 			fixture.googleNewsProxy.EXPECT().FetchNews(mock.Anything, "台積電").Return(nil, errors.New("down"))
 		}, expectedStatus: http.StatusBadGateway, expectedCode: "news_providers_unavailable", expectedMessage: "新聞來源暫時無法使用"},
