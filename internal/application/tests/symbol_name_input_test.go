@@ -141,6 +141,20 @@ func TestStartSymbolAnalysis_ANameReusesTheAnalysisStartedBySymbol(t *testing.T)
 	fixture.analysisEventRepository.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
+func TestStartSymbolAnalysis_ASymbolStartsAfreshOnceTheNamedAnalysisIsOutOfWindow(t *testing.T) {
+	fixture := createSymbolAnalysisFixture(t)
+	fixture.listedCompanyProxy.EXPECT().SearchSymbolListings(mock.Anything, "2330").Return(taiwanDirectory, nil)
+	fixture.analysisEventRepository.EXPECT().FindLatestReusable(mock.Anything, "2330", "twStock").Return(&entities.AnalysisEvent{ID: 7, Symbol: "2330", Category: "twStock", SymbolName: "台積電", Status: "succeeded", FinishedAt: finishedAgo(7 * time.Hour)}, nil)
+	createdAnalysisEvent, analysisBegun := fixture.expectNewAnalysisEvent()
+
+	startedSymbolAnalysis, err := fixture.symbolAnalysisApplication.StartSymbolAnalysis(context.Background(), dto.StartSymbolAnalysisDto{Symbol: "2330", Category: "twStock"})
+
+	require.NoError(t, err)
+	assert.True(t, startedSymbolAnalysis.IsNew)
+	assert.Equal(t, "2330", createdAnalysisEvent.Symbol)
+	<-analysisBegun
+}
+
 func identifyTaiwanStock(t *testing.T, typedText string, twseListings []vo.SymbolListingVo, twseError error, tpexListings []vo.SymbolListingVo) (vo.ResolvedSymbolVo, error) {
 	twseDirectory := mocks.NewMockISymbolDirectoryProxy(t)
 	twseDirectory.EXPECT().SearchSymbolListings(mock.Anything, mock.Anything).Return(twseListings, twseError)

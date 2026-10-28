@@ -209,6 +209,27 @@ func TestRunDueTradingSession_PreMarketPurgesOlderDaysThenGradesTrackedTwStocks(
 	}
 }
 
+func TestRunDueTradingSession_GradesATrackedListedEtf(t *testing.T) {
+	fixture := createSessionGradeFixture(t, wednesdayAt(8, 0))
+	fixture.givenSessionRunStarts("2026-10-07", "preMarket")
+	fixture.sessionGradeRepository.EXPECT().DeleteExceptTradingDay(mock.Anything, "2026-10-07").Return(nil).Once()
+	fixture.givenTrackedSymbols("0050")
+	fixture.givenCompany("0050", "元大台灣50")
+	fixture.givenNews("元大台灣50", vo.NewsVo{Title: "0050 規模創新高", Link: "https://news/0050/1", PublishedAt: time.Date(2026, 10, 6, 20, 0, 0, 0, taipei), ProviderName: "鉅亨網"})
+	fixture.givenAnalystConcludes("0050", "bullish", 60)
+	storedSessionGrades := fixture.storeSessionGrades()
+	fixture.storeBackgroundGradeRecords()
+	finishedSessionRun := fixture.expectFinishedSessionRun()
+
+	fixture.sessionGradeApplication.RunDueTradingSession(context.Background())
+
+	require.Len(t, *storedSessionGrades, 1)
+	assert.Equal(t, "0050", (*storedSessionGrades)[0].Symbol)
+	assert.Equal(t, "preMarket", (*storedSessionGrades)[0].Session)
+	assert.Equal(t, 1, finishedSessionRun.SucceededSymbolCount)
+	assert.Empty(t, finishedSessionRun.FailedSymbols)
+}
+
 func TestRunDueTradingSession_MondayPreMarketPurgesFridayGrades(t *testing.T) {
 	fixture := createSessionGradeFixture(t, time.Date(2026, 10, 5, 8, 0, 0, 0, taipei))
 	fixture.givenSessionRunStarts("2026-10-05", "preMarket")
