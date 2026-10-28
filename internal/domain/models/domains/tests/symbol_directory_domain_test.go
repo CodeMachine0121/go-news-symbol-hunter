@@ -139,7 +139,7 @@ func TestSymbolDirectoryDomain_RejectsWhatNoListingMatches(t *testing.T) {
 		{name: "empty directory", category: usStockCategory, listings: []vo.SymbolListingVo{}, typedText: "Tesla"},
 		{name: "Taiwan listing without a name has no search keyword", category: twStockCategory, listings: []vo.SymbolListingVo{{Symbol: "9999", Name: " "}}, typedText: "9999"},
 		{name: "coin without a name has no search keyword", category: cryptoCategory, listings: []vo.SymbolListingVo{{Symbol: "zzz", Name: ""}}, typedText: "ZZZ"},
-		{name: "suffix alone matches no unnamed US listing", category: usStockCategory, listings: []vo.SymbolListingVo{{Symbol: "QQQQ", Name: ""}}, typedText: "Inc."},
+		{name: "punctuation alone matches no unnamed US listing", category: usStockCategory, listings: []vo.SymbolListingVo{{Symbol: "QQQQ", Name: ""}}, typedText: "."},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
