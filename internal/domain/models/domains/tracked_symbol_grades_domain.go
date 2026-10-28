@@ -43,7 +43,9 @@ func (trackedSymbolGradesDomain TrackedSymbolGradesDomain) TrackingSymbols(symbo
 	return trackingSymbols
 }
 
-// latestGradeRecords holds at most one background record for each of TrackingSymbols; the result lists the newest trading day first
+// latestGradeRecords holds at most one background record for each of TrackingSymbols; the result lists the newest trading day first.
+// A record whose session grades were already purged is left out: background records are kept for backtesting,
+// but a combined grade is only shown while the session grades behind it are
 func (trackedSymbolGradesDomain TrackedSymbolGradesDomain) ToDtos(latestGradeRecords []entities.GradeRecord, sessionGrades []entities.SessionGrade) []dto.TrackedSymbolGradeDto {
 	trackedSymbolGrades := []dto.TrackedSymbolGradeDto{}
 	for _, latestGradeRecord := range latestGradeRecords {
@@ -72,6 +74,9 @@ func (trackedSymbolGradesDomain TrackedSymbolGradesDomain) ToDtos(latestGradeRec
 				Evidence:    evidence,
 				CreatedAt:   sessionGrade.CreatedAt,
 			})
+		}
+		if len(sessionGradeDtos) == 0 {
+			continue
 		}
 		combinedScore := 0.0
 		if latestGradeRecord.CombinedScore != nil {
