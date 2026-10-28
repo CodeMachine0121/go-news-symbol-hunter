@@ -21,8 +21,8 @@ const (
 
 var errYahooFinanceQuoteMissing = errors.New("yahoo finance returned no usable quote")
 
-// Yahoo also lists foreign exchanges and futures, which are not US stocks
-var usExchangeCodes = map[string]bool{"NMS": true, "NGM": true, "NCM": true, "NAS": true, "NYQ": true, "NYS": true, "ASE": true, "PCX": true, "BTS": true}
+// Yahoo also lists foreign exchanges and futures, which are not US stocks; OTC markets count as US
+var usExchangeCodes = map[string]bool{"NMS": true, "NGM": true, "NCM": true, "NAS": true, "NYQ": true, "NYS": true, "ASE": true, "PCX": true, "BTS": true, "PNK": true, "OQB": true, "OQX": true}
 
 var usStockQuoteTypes = map[string]bool{"EQUITY": true, "ETF": true}
 

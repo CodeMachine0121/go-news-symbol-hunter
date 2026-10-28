@@ -33,6 +33,7 @@ func TestYahooFinanceProxy_ListsOnlyUsStocksAndEtfsInSearchOrder(t *testing.T) {
 		{"symbol":"TSLA.TO","shortname":"TESLA CDR (CAD HEDGED)","longname":"Tesla, Inc.","quoteType":"EQUITY","exchange":"TOR"},
 		{"symbol":"FXAIX","shortname":"Fidelity 500 Index","quoteType":"MUTUALFUND","exchange":"NAS"},
 		{"symbol":"TSLT","shortname":" T-REX 2X Long Tesla Daily Targe ","quoteType":"ETF","exchange":"BTS"},
+		{"symbol":"TCEHY","longname":"Tencent Holdings Limited","quoteType":"EQUITY","exchange":"PNK"},
 		{"symbol":"BRK-B","shortname":"Berkshire Hathaway Inc. New","longname":"Berkshire Hathaway Inc.","quoteType":"EQUITY","exchange":"NYQ"}
 	]}`)
 
@@ -41,7 +42,8 @@ func TestYahooFinanceProxy_ListsOnlyUsStocksAndEtfsInSearchOrder(t *testing.T) {
 	assert.Equal(t, []vo.SymbolListingVo{
 		{Symbol: "TSLA", Name: "Tesla, Inc.", Priority: 0},
 		{Symbol: "TSLT", Name: "T-REX 2X Long Tesla Daily Targe", Priority: 1},
-		{Symbol: "BRK.B", Name: "Berkshire Hathaway Inc.", Priority: 2},
+		{Symbol: "TCEHY", Name: "Tencent Holdings Limited", Priority: 2},
+		{Symbol: "BRK.B", Name: "Berkshire Hathaway Inc.", Priority: 3},
 	}, listings)
 }
 

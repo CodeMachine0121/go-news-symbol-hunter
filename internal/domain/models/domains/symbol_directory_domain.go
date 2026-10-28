@@ -27,7 +27,8 @@ func NewSymbolDirectoryDomain(category vo.MarketCategoryVo, rawListings []vo.Sym
 	listings := []vo.SymbolListingVo{}
 	for _, rawListing := range rawListings {
 		listing := vo.SymbolListingVo{Symbol: strings.ToUpper(strings.TrimSpace(rawListing.Symbol)), Name: strings.TrimSpace(rawListing.Name), Priority: rawListing.Priority}
-		if listing.Symbol != "" && listing.Name != "" {
+		// a Taiwan stock or coin is searched by its name, while a US stock is searched by its symbol and may go unnamed
+		if listing.Symbol != "" && (listing.Name != "" || category.Value == vo.MarketCategoryUsStock) {
 			listings = append(listings, listing)
 		}
 	}
@@ -41,21 +42,23 @@ func NewSymbolDirectoryDomain(category vo.MarketCategoryVo, rawListings []vo.Sym
 	return symbolDirectoryDomain
 }
 
-func (symbolDirectoryDomain SymbolDirectoryDomain) FindBySymbol(symbol vo.SymbolVo) (vo.ResolvedSymbolVo, error) {
+func (symbolDirectoryDomain SymbolDirectoryDomain) FindBySymbol(symbol vo.SymbolVo) (vo.ResolvedSymbolVo, bool) {
 	for _, listing := range symbolDirectoryDomain.listings {
 		if listing.Symbol == symbol.Value {
-			return symbolDirectoryDomain.toResolvedSymbol(listing), nil
+			return symbolDirectoryDomain.toResolvedSymbol(listing), true
 		}
 	}
-	return vo.ResolvedSymbolVo{}, ErrSymbolNotFound
+	return vo.ResolvedSymbolVo{}, false
 }
 
-// the typed text may be a symbol or a name: an exact symbol or name wins, then a name containing it when only one does
-func (symbolDirectoryDomain SymbolDirectoryDomain) Identify(symbol vo.SymbolVo) (vo.ResolvedSymbolVo, error) {
+// the typed text may be a symbol or a name: an exact symbol or name wins, then a name containing it when only one does;
+// when several names contain it, the candidates come back instead
+func (symbolDirectoryDomain SymbolDirectoryDomain) Identify(symbol vo.SymbolVo) (vo.ResolvedSymbolVo, []dto.SymbolCandidateDto, bool) {
 	typedNameKey := symbolDirectoryDomain.nameKey(symbol.Value)
 	for index, listing := range symbolDirectoryDomain.listings {
-		if listing.Symbol == symbol.Value || symbolDirectoryDomain.nameKeys[index] == typedNameKey {
-			return symbolDirectoryDomain.toResolvedSymbol(listing), nil
+		isExactName := typedNameKey != "" && symbolDirectoryDomain.nameKeys[index] == typedNameKey
+		if listing.Symbol == symbol.Value || isExactName {
+			return symbolDirectoryDomain.toResolvedSymbol(listing), nil, true
 		}
 	}
 	partialMatches := []vo.SymbolListingVo{}
@@ -65,16 +68,13 @@ func (symbolDirectoryDomain SymbolDirectoryDomain) Identify(symbol vo.SymbolVo) 
 		}
 	}
 	if len(partialMatches) == 1 {
-		return symbolDirectoryDomain.toResolvedSymbol(partialMatches[0]), nil
-	}
-	if len(partialMatches) == 0 {
-		return vo.ResolvedSymbolVo{}, ErrSymbolNotFound
+		return symbolDirectoryDomain.toResolvedSymbol(partialMatches[0]), nil, true
 	}
 	candidates := []dto.SymbolCandidateDto{}
 	for _, listing := range partialMatches[:min(len(partialMatches), maximumSymbolCandidates)] {
 		candidates = append(candidates, dto.SymbolCandidateDto{Symbol: listing.Symbol, SymbolName: listing.Name})
 	}
-	return vo.ResolvedSymbolVo{}, &SymbolAmbiguousError{Candidates: candidates}
+	return vo.ResolvedSymbolVo{}, candidates, false
 }
 
 func (symbolDirectoryDomain SymbolDirectoryDomain) toResolvedSymbol(listing vo.SymbolListingVo) vo.ResolvedSymbolVo {
