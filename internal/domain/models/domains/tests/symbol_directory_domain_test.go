@@ -70,6 +70,7 @@ func TestSymbolDirectoryDomain_IdentifiesTheSymbolBehindATypedSymbolOrName(t *te
 		{name: "US stock by symbol keeps searching by symbol", category: usStockCategory, listings: usStockListings, typedText: "TSLA", expectedSymbol: "TSLA", expectedSymbolName: "Tesla, Inc.", expectedSearchKeyword: "TSLA"},
 		{name: "US stock by a name typed like a symbol", category: usStockCategory, listings: usStockListings, typedText: "TESLA", expectedSymbol: "TSLA", expectedSymbolName: "Tesla, Inc.", expectedSearchKeyword: "TSLA"},
 		{name: "US company name equal once company suffixes are left out", category: usStockCategory, listings: usStockListings, typedText: "Apple", expectedSymbol: "AAPL", expectedSymbolName: "Apple Inc.", expectedSearchKeyword: "AAPL"},
+		{name: "a name only a lower-ranked listing of a shared symbol has is not offered", category: cryptoCategory, listings: []vo.SymbolListingVo{{Symbol: "usdt", Name: "Tether USD", Priority: 3}, {Symbol: "usdt", Name: "Bridged Tether USD", Priority: 900}, {Symbol: "usdc", Name: "Bridged USDC", Priority: 800}}, typedText: "Bridged", expectedSymbol: "USDC", expectedSymbolName: "Bridged USDC", expectedSearchKeyword: "Bridged USDC"},
 		{name: "names sharing one symbol are a single match", category: cryptoCategory, listings: []vo.SymbolListingVo{{Symbol: "usdt", Name: "Bridged Tether USD", Priority: 900}, {Symbol: "usdt", Name: "Tether USD", Priority: 3}}, typedText: "Tether", expectedSymbol: "USDT", expectedSymbolName: "Tether USD", expectedSearchKeyword: "Tether USD"},
 		{name: "unnamed US listing by symbol", category: usStockCategory, listings: []vo.SymbolListingVo{{Symbol: "QQQQ", Name: ""}}, typedText: "QQQQ", expectedSymbol: "QQQQ", expectedSymbolName: "", expectedSearchKeyword: "QQQQ"},
 		{name: "US company name typed with its suffix", category: usStockCategory, listings: usStockListings, typedText: "apple inc", expectedSymbol: "AAPL", expectedSymbolName: "Apple Inc.", expectedSearchKeyword: "AAPL"},
@@ -138,6 +139,7 @@ func TestSymbolDirectoryDomain_RejectsWhatNoListingMatches(t *testing.T) {
 		typedText string
 	}{
 		{name: "unknown Taiwan name", category: twStockCategory, listings: twStockListings, typedText: "台基電"},
+		{name: "exact name of a lower-ranked listing of a shared symbol", category: cryptoCategory, listings: []vo.SymbolListingVo{{Symbol: "usdt", Name: "Tether USD", Priority: 3}, {Symbol: "usdt", Name: "Bridged Tether USD", Priority: 900}}, typedText: "Bridged Tether USD"},
 		{name: "unknown coin", category: cryptoCategory, listings: cryptoListings, typedText: "ZZZQQ"},
 		{name: "unknown US symbol", category: usStockCategory, listings: usStockListings, typedText: "ZZZZ"},
 		{name: "empty directory", category: usStockCategory, listings: []vo.SymbolListingVo{}, typedText: "Tesla"},

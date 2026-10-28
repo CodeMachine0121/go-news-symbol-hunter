@@ -35,8 +35,16 @@ func NewSymbolDirectoryDomain(category vo.MarketCategoryVo, rawListings []vo.Sym
 	slices.SortStableFunc(listings, func(first vo.SymbolListingVo, second vo.SymbolListingVo) int {
 		return cmp.Or(cmp.Compare(first.Priority, second.Priority), strings.Compare(first.Symbol, second.Symbol))
 	})
-	symbolDirectoryDomain := SymbolDirectoryDomain{category: category, listings: listings}
+	// an analysis only knows its symbol, which stands for the best-ranked listing, so lower-ranked listings sharing it cannot be analysed
+	symbolDirectoryDomain := SymbolDirectoryDomain{category: category}
+	listedSymbols := map[string]bool{}
 	for _, listing := range listings {
+		if !listedSymbols[listing.Symbol] {
+			symbolDirectoryDomain.listings = append(symbolDirectoryDomain.listings, listing)
+			listedSymbols[listing.Symbol] = true
+		}
+	}
+	for _, listing := range symbolDirectoryDomain.listings {
 		symbolDirectoryDomain.nameKeys = append(symbolDirectoryDomain.nameKeys, symbolDirectoryDomain.nameKey(listing.Name))
 	}
 	return symbolDirectoryDomain
@@ -61,13 +69,10 @@ func (symbolDirectoryDomain SymbolDirectoryDomain) Identify(symbol vo.SymbolVo) 
 			return symbolDirectoryDomain.toResolvedSymbol(listing), nil, true
 		}
 	}
-	// a symbol resolves to its best-ranked listing, so a lower-ranked listing sharing it is not a separate choice
 	partialMatches := []vo.SymbolListingVo{}
-	matchedSymbols := map[string]bool{}
 	for index, listing := range symbolDirectoryDomain.listings {
-		if typedNameKey != "" && strings.Contains(symbolDirectoryDomain.nameKeys[index], typedNameKey) && !matchedSymbols[listing.Symbol] {
+		if typedNameKey != "" && strings.Contains(symbolDirectoryDomain.nameKeys[index], typedNameKey) {
 			partialMatches = append(partialMatches, listing)
-			matchedSymbols[listing.Symbol] = true
 		}
 	}
 	if len(partialMatches) == 1 {
