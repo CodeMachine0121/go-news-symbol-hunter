@@ -50,12 +50,12 @@ func identify(t *testing.T, category vo.MarketCategoryVo, listings []vo.SymbolLi
 
 func TestSymbolDirectoryDomain_IdentifiesTheSymbolBehindATypedSymbolOrName(t *testing.T) {
 	testCases := []struct {
-		name                 string
-		category             vo.MarketCategoryVo
-		listings             []vo.SymbolListingVo
-		typedText            string
-		expectedSymbol       string
-		expectedSymbolName   string
+		name                  string
+		category              vo.MarketCategoryVo
+		listings              []vo.SymbolListingVo
+		typedText             string
+		expectedSymbol        string
+		expectedSymbolName    string
 		expectedSearchKeyword string
 	}{
 		{name: "Taiwan stock by symbol", category: twStockCategory, listings: twStockListings, typedText: "2330", expectedSymbol: "2330", expectedSymbolName: "台積電", expectedSearchKeyword: "台積電"},
