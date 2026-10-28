@@ -298,10 +298,55 @@
                 "analysis-events"
               ]
             },
-            "description": "發起標的資訊面分析。新建立回 `202`；同標的 6 小時內已完成或正在分析中則重用並回 `200`。\n\n成功會把 `analysisEventId` 存進 collection 變數。分析在背景進行，通常數十秒完成；用下一個請求輪詢。\n\n`category`：`crypto` / `twStock` / `usStock`。",
+            "description": "發起標的資訊面分析。新建立回 `202`；同標的 6 小時內已完成或正在分析中則重用並回 `200`。\n\n成功會把 `analysisEventId` 存進 collection 變數。分析在背景進行，通常數十秒完成；用下一個請求輪詢。\n\n`category`：`crypto` / `twStock` / `usStock`。\n\n`symbol` 可填代號或名稱（台股公司簡稱、加密貨幣幣種名稱、美股公司名稱），回應的 `symbol` 一律是辨識出的代號。名稱對到多個標的時回 `422 symbol_ambiguous` 並附 `candidates`。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"symbol\": \"{{analysisSymbol}}\",\n  \"category\": \"{{analysisCategory}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Start analysis - by name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of [200, 202]', () => pm.expect(pm.response.code).to.be.oneOf([200, 202]));",
+                  "const body = pm.response.json();",
+                  "pm.test('is recorded under the symbol', () => pm.expect(body.symbol).to.eql('2330'));",
+                  "pm.test('carries the company short name', () => pm.expect(body.symbolName).to.eql('台積電'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/analysis-events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analysis-events"
+              ]
+            },
+            "description": "以名稱發起分析：台股填公司簡稱「台積電」，系統辨識為 2330，與以代號發起的分析共用 6 小時重用時間窗。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"台積電\",\n  \"category\": \"twStock\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -753,6 +798,52 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"category\": \"crypto\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Start analysis - ambiguous name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 422', () => pm.response.to.have.status(422));",
+                  "const body = pm.response.json();",
+                  "pm.test('error code is symbol_ambiguous', () => pm.expect(body.error.code).to.eql('symbol_ambiguous'));",
+                  "pm.test('lists at most ten candidates', () => pm.expect(body.error.candidates).to.have.length.within(2, 10));",
+                  "pm.test('each candidate has a symbol and a name', () => body.error.candidates.forEach((candidate) => { pm.expect(candidate.symbol).to.be.a('string'); pm.expect(candidate.symbolName).to.be.a('string'); }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/analysis-events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analysis-events"
+              ]
+            },
+            "description": "名稱對到多個標的時不發起分析，回 `422 symbol_ambiguous`，`candidates` 最多 10 個（代號＋名稱）。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"國泰\",\n  \"category\": \"twStock\"\n}",
               "options": {
                 "raw": {
                   "language": "json"

@@ -45,7 +45,7 @@
   - Repository：一個 entity 一個 repository，Code First。
 - **Folder / Layer Structure:** 原始碼在 `internal/`（domain / application / controller / infrastructure / job），入口與組裝根在 `cmd/`。
 - **Data Flow:**
-  1. 使用者帶 API key 呼叫分析（標的、市場類別）。
+  1. 使用者帶 API key 呼叫分析（標的代號或名稱、市場類別）；系統以各市場的標的名錄辨識出唯一代號，名稱符合多個標的時列出候選、不發起分析。
   2. 驗證 API key 存在且已啟用。
   3. 同標的在重用時間窗內已有分析結果 → 直接回傳，不重跑 AI。
   4. 否則建立分析事件 → AI 以「爬取新聞」工具取得新聞（程式依市場類別選擇新聞來源）→ AI 回傳結構化 JSON → Domain Model 正規化 → 落地分析結果。
